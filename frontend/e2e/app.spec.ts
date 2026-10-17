@@ -45,7 +45,7 @@ test("first-run setup creates the admin and lands on the dashboard", async ({ pa
 
 test("sidebar navigation reaches every page", async ({ page }) => {
   await login(page);
-  for (const name of ["Users", "Roles", "Libraries", "Logs", "Settings", "Setup", "Dashboard"]) {
+  for (const name of ["Users", "Roles", "Libraries", "Reactions", "Logs", "Settings", "Setup", "Dashboard"]) {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }
@@ -98,6 +98,21 @@ test("manual grant, exemption and unlink with confirmation", async ({ page }) =>
   await expect(page.getByRole("row", { name: /alice/ }).getByText("Not linked")).toBeVisible();
 });
 
+test("reaction post draft with emoji and libraries", async ({ page }) => {
+  await login(page);
+  await page.goto("/reactions");
+  await page.getByRole("button", { name: "New post" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("group", { name: "Libraries for reaction 1" }).getByLabel("Movies", { exact: true }).check();
+  await dialog.getByRole("button", { name: "Add reaction" }).click();
+  await dialog.getByLabel("Emoji").nth(1).fill("📺");
+  await dialog.getByRole("group", { name: "Libraries for reaction 2" }).getByLabel("TV Shows").check();
+  await dialog.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
+  await expect(page.getByText("Draft")).toBeVisible();
+  await expect(page.getByText(/TV Shows · 0/)).toBeVisible();
+});
+
 test("logs and audit trail", async ({ page }) => {
   await login(page);
   await page.goto("/logs");
@@ -140,11 +155,12 @@ test("going live needs confirmation; sign out returns to login", async ({ page }
 });
 
 test("no serious accessibility violations on any page (light and dark)", async ({ page }) => {
+  test.setTimeout(120_000); // 11 pages x 2 themes
   await login(page);
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/roles", "/libraries", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");

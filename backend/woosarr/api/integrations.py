@@ -7,12 +7,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
+from woosarr.core import app_settings
+from woosarr.db.models import Library, RoleLibrary
 from woosarr.plex_api_gateway import PlexAuthError
-from woosarr.services import audit
+from woosarr.services import audit, discord_bot
+from woosarr.services import discord_features as features
 from woosarr.services.discord_bot import DiscordConfigError
 
 log = logging.getLogger("woosarr.setup")
@@ -97,7 +100,8 @@ class WriteCheckIn(BaseModel):
 DEMO_PLEX = {"configured": True, "connected": True, "signed_in": True, "account": {"username": "demo"},
              "server": {"name": "Demo server", "machine_id": "demo"}, "detail": "Demo mode: fake Plex data"}
 DEMO_DISCORD = {"configured": True, "connected": True, "bot": {"username": "demo-bot"},
-                "guild": {"id": "1", "name": "Demo server"}, "invite_url": None, "detail": "Demo mode: fake Discord data"}
+                "guild": {"id": "1", "name": "Demo server"}, "invite_url": None, "detail": "Demo mode: fake Discord data",
+                "features": [dict(f, available=False, notes=["demo mode"]) for f in features.feature_report({})]}
 
 
 @router.get("/plex/status", response_model=PlexStatus)
@@ -188,6 +192,16 @@ def plex_write_check(body: WriteCheckIn, request: Request, db: DbDep, principal:
 # ---- Discord ------------------------------------------------------------------
 
 
+class FeatureOut(BaseModel):
+    key: str
+    label: str
+    description: str
+    permissions: list[str]
+    available: bool
+    missing: list[str]
+    notes: list[str]
+
+
 class DiscordStatus(BaseModel):
     configured: bool
     connected: bool
@@ -195,6 +209,7 @@ class DiscordStatus(BaseModel):
     guild: dict[str, Any] | None
     invite_url: str | None
     detail: str | None
+    features: list[FeatureOut] = []
 
 
 class DiscordTokenIn(BaseModel):
@@ -210,10 +225,91 @@ class GuildOut(BaseModel):
     name: str
 
 
+def _discord_status(svc) -> DiscordStatus:
+    return DiscordStatus(**svc.status(), features=svc.feature_status())
+
+
 @router.get("/discord/status", response_model=DiscordStatus)
 def discord_status(request: Request) -> DiscordStatus:
     svc = request.app.state.discord
-    return DiscordStatus(**(svc.status() if svc else DEMO_DISCORD))
+    return _discord_status(svc) if svc else DiscordStatus(**DEMO_DISCORD)
+
+
+class InviteUrlOut(BaseModel):
+    url: str | None
+    permissions: int
+
+
+@router.get("/discord/invite-url", response_model=InviteUrlOut)
+def discord_invite_url(request: Request, features_csv: Annotated[str, Query(alias="features")] = "") -> InviteUrlOut:
+    """Bot invite link with exactly the permissions the chosen features need."""
+    keys = {k for k in features_csv.split(",") if k}
+    unknown = keys - features.FEATURE_KEYS
+    if unknown:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"unknown features: {sorted(unknown)}")
+    value = features.permissions_value(keys)
+    svc = request.app.state.discord
+    bot = svc.config()[0] if svc else None
+    url = (discord_bot.invite_url(bot["application_id"]).replace("permissions=0", f"permissions={value}")
+           if bot else None)
+    return InviteUrlOut(url=url, permissions=value)
+
+
+class RoleCreateIn(BaseModel):
+    name: Annotated[str, Field(min_length=1, max_length=100)]
+    purpose: Literal["verified_role_id", "unverified_role_id", "linked_role_id", "library"]
+    library_id: str | None = None
+
+
+class RoleCreated(BaseModel):
+    role_id: str
+    name: str
+
+
+@router.post("/discord/roles", response_model=RoleCreated, status_code=201)
+async def discord_create_role(body: RoleCreateIn, request: Request, principal: AdminDep) -> RoleCreated:
+    """Create a Discord role and use it as a link-status role or for one library."""
+    svc = _discord(request)
+    library_missing = not body.library_id or await svc.run_db(lambda s: s.get(Library, body.library_id)) is None
+    if body.purpose == "library" and library_missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "library not found")
+    try:
+        role_id, name = await svc.create_role(body.name)
+    except DiscordConfigError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+
+    def save(s):
+        if body.purpose == "library":
+            s.add(RoleLibrary(role_id=role_id, library_id=body.library_id))
+        else:
+            app_settings.update(s, {body.purpose: role_id})
+        audit.record(s, principal.actor, "discord_role_created", "role", role_id, name=name, purpose=body.purpose,
+                     library_id=body.library_id)
+
+    await svc.run_db(save)
+    if body.purpose == "library":
+        request.app.state.sync.trigger(None, f"library role {name} created")
+    else:
+        svc.schedule_role_sync()
+    return RoleCreated(role_id=role_id, name=name)
+
+
+class ChannelOut(BaseModel):
+    id: str
+    name: str
+    category: str
+    can_post: bool
+
+
+@router.get("/discord/channels", response_model=list[ChannelOut])
+async def discord_channels(request: Request) -> list[ChannelOut]:
+    svc = request.app.state.discord
+    if svc is None:
+        return []  # demo mode: no real channels
+    try:
+        return [ChannelOut(**c) for c in await svc.list_channels()]
+    except DiscordConfigError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
 
 
 @router.put("/discord/token", response_model=DiscordStatus)
@@ -225,7 +321,7 @@ async def discord_set_token(body: DiscordTokenIn, request: Request, principal: A
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_token_set", "discord_bot", info.bot_user_id,
                                             bot=info.username))
-    return DiscordStatus(**svc.status())
+    return _discord_status(svc)
 
 
 @router.get("/discord/guilds", response_model=list[GuildOut])
@@ -245,14 +341,14 @@ async def discord_set_guild(body: DiscordGuildIn, request: Request, principal: A
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_guild_selected", "discord_guild", guild["id"],
                                             name=guild["name"]))
-    return DiscordStatus(**svc.status())
+    return _discord_status(svc)
 
 
 @router.post("/discord/restart", response_model=DiscordStatus)
 async def discord_restart(request: Request) -> DiscordStatus:
     svc = _discord(request)
     await svc.restart()
-    return DiscordStatus(**svc.status())
+    return _discord_status(svc)
 
 
 @router.delete("/discord", response_model=DiscordStatus)
@@ -260,4 +356,4 @@ async def discord_disconnect(request: Request, principal: AdminDep) -> DiscordSt
     svc = _discord(request)
     await svc.disconnect()
     await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_disconnected", "discord_bot", None))
-    return DiscordStatus(**svc.status())
+    return _discord_status(svc)

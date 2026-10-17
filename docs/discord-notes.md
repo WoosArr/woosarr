@@ -1,5 +1,25 @@
 # Discord notes (P0-05)
 
+## Bot permissions by feature
+
+Grant only what the features you use need. WooSarr reads the bot's actual permissions in your server and shows each feature as available or not (Setup → Discord → *Bot features and permissions*); unavailable features are disabled in the UI and refused with the missing permission named. The same page builds an invite link with exactly the permissions for the features you tick; using it again updates the bot's permissions without removing it.
+
+| Feature | What it does | Permissions | Also needs |
+|---------|--------------|-------------|------------|
+| **Core** (always) | Read roles and members, react to role changes | *(none)* | **Server Members Intent** (privileged, Developer Portal → Bot) |
+| **/link, /unlink, /invite** | Slash commands with private replies | *(none)* | `applications.commands` scope (in the invite link) |
+| **Link-status roles** | Give/remove the Verified, Unverified and Linked roles | **Manage Roles** | The bot's highest role must be **above** those roles (Server Settings → Roles, drag the bot's role up) |
+| **Create roles** | Create link-status roles and per-library roles from WooSarr | **Manage Roles** | New roles are created at the bottom, below the bot's role |
+| **Reaction posts** | Post the message, add its reactions, grant/remove libraries when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) | Guild reactions intent (not privileged; always on) |
+| **Pin reaction posts** | Pin the post | **Pin Messages** | Optional; without it the post is still sent, just not pinned |
+| **Create the reaction channel** | Create the channel if it doesn't exist | **Manage Channels** | Optional; pick an existing channel instead |
+
+Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Send Messages `2048`, Add Reactions `64`, Read Message History `65536`, Pin Messages `2251799813685248`. All features: `2251800082189392`.
+
+Channel overrides win over server permissions: if a reaction post channel denies the bot *Send Messages* or *Add Reactions*, the channel list marks it "bot can't post here".
+
+WooSarr never needs Administrator, Kick/Ban, Manage Messages or Message Content.
+
 Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
 ## Setup the admin does (Setup page)
@@ -43,3 +63,22 @@ Audited as `unlink_self` (with the policy).
 - Libraries = what the target member's roles grant (exempt libraries are never granted by roles). No libraries → refused.
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
 - Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, a full sync finds them by email/username and links them (`method=invite`; verified when an admin sent it). Pending invites are listed on the Users page.
+
+## Link-status roles
+
+*Settings → General → Discord roles for Plex link status*: pick (or **Create**) a role for **Verified**, **Unverified** and/or **Linked** members. After every sync the bot compares each member's roles with their link and only changes what differs (it never touches other roles). Bots are skipped. Needs *Link-status roles* (Manage Roles + role hierarchy).
+
+These roles can themselves be mapped to libraries on the Roles page, e.g. give every verified member a library.
+
+## Per-library roles
+
+Libraries page → **Create role** creates `Plex · <library>` and maps it to that library. Assign the role in Discord and members get the library on the next sync. Needs *Create roles*.
+
+## Reaction posts
+
+Reactions page:
+
+1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit), each mapped to one or more libraries. Unicode emoji (🎬) or server emoji (`<:plex:123…>`).
+2. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
+3. Members **react** to get the libraries and **remove the reaction** to give them back. Reaction access works like a manual grant (kept when roles change, never blocked by exemptions). Only linked members get access; reactions from unlinked members are stored and apply after `/link`.
+4. On every (re)connect the bot re-reads each post's reactions, so changes made while it was offline are caught. Disabling a post (or deleting it) removes the access it granted on the next sync.

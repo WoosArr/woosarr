@@ -204,6 +204,10 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P4-05** discord.py reconnect/resume; `PrivilegedIntentsRequired`, `LoginFailure`, bot-not-in-guild and crashes surface as status details in the UI.
 - [~] **P4-07** `/unlink` (self): confirmation, `unlink_policy` setting (same options as the leave-server policy), drop + unlink under one lock, audit. *Verify:* `tests/test_invite_unlink.py::UnlinkTests`. *Remaining:* **LIVE** try both policies.
 - [~] **P4-08** `/invite email [member]`: self-invite for allowed roles, admins for anyone, libraries from roles (no exempt), refusals (dry-run, linked, pending, already on server, cooldown), `plex_invites` table (migration 0003), auto-link on acceptance, Users page list/cancel. *Verify:* `tests/test_invite_unlink.py::InviteTests`, gateway invite test. *Remaining:* **LIVE** send and accept a real invite.
+- [~] **P4-09** Link-status roles (Verified/Unverified/Linked) kept in step after every sync; create from Settings. *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** with Manage Roles + hierarchy.
+- [~] **P4-10** Per-library role creation (Libraries page) mapped to the library. *Remaining:* **LIVE**.
+- [~] **P4-11** Reaction posts: channel pick/create, post/edit, reactions, pin, reaction events and reconnect re-read, reaction access source (migration 0004). *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** post + react.
+- [x] **P4-12** Bot permission feature gating + invite-link builder + `docs/discord-notes.md` breakdown.
 - [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 
 ### Phase 5 — Sync engine

@@ -1,0 +1,398 @@
+import asyncio
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from cryptography.fernet import Fernet
+from sqlalchemy import select
+
+from tests.helpers import AppHarness
+from woosarr.core import app_settings
+from woosarr.core.secret_store import SecretStore
+from woosarr.core.secrets import SecretBox
+from woosarr.db.models import (
+    AuditLog,
+    DiscordLink,
+    DiscordMember,
+    DiscordRole,
+    Library,
+    PlexUser,
+    Reaction,
+    ReactionPost,
+    RoleLibrary,
+)
+from woosarr.db.session import Database, make_engine, migrate
+from woosarr.linking import PlexIdentity
+from woosarr.services import discord_features as F
+from woosarr.services import invites, link_service
+from woosarr.services.access import library_sources, load_snapshot, user_state
+from woosarr.services.discord_bot import DiscordConfigError, DiscordService, normalize_emoji
+
+GUILD = 709961910967206019
+
+
+class PureFeatureTests(unittest.TestCase):
+    def test_permission_values(self):
+        self.assertEqual(F.permissions_value(["commands"]), 0)
+        self.assertEqual(F.permissions_value(["link_roles", "create_roles"]), 1 << 28)
+        v = F.permissions_value(["reaction_posts", "pin_posts", "create_channel"])
+        for bit in (1 << 4, 1 << 6, 1 << 10, 1 << 11, 1 << 16, 1 << 51):
+            self.assertTrue(v & bit)
+        self.assertFalse(v & (1 << 28))
+
+    def test_feature_report(self):
+        report = {f["key"]: f for f in F.feature_report({"view_channel": True, "send_messages": True}, False)}
+        self.assertTrue(report["commands"]["available"])
+        self.assertEqual(report["reaction_posts"]["missing"], ["Add Reactions", "Read Message History"])
+        self.assertFalse(report["link_roles"]["available"])
+        ok, why = F.available(list(report.values()), "link_roles")
+        self.assertFalse(ok)
+        self.assertIn("Manage Roles", why)
+        self.assertIn("above", why)
+
+    def test_desired_link_roles(self):
+        members = {"a": frozenset({"x"}), "b": frozenset({"V", "L"}), "c": frozenset({"U"}), "d": frozenset()}
+        links = {"a": True, "c": True}  # a verified, c verified now (was unverified), b unlinked, d unlinked
+        changes = F.desired_link_roles(members, links, "V", "U", "L")
+        self.assertEqual(changes["a"], ({"V", "L"}, set()))
+        self.assertEqual(changes["b"], (set(), {"V", "L"}))
+        self.assertEqual(changes["c"], ({"V", "L"}, {"U"}))
+        self.assertNotIn("d", changes)
+        self.assertEqual(F.desired_link_roles(members, links, None, None, None), {})
+
+    def test_normalize_emoji(self):
+        self.assertEqual(normalize_emoji(" 🎬 "), "🎬")
+        self.assertEqual(normalize_emoji("<:plex:123456789>"), "<:plex:123456789>")
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.engine = make_engine(Path(self.tmp.name) / "app.db")
+        migrate(self.engine)
+        self.db = Database(self.engine)
+        with self.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="11", username="alice"), PlexUser(plex_user_id="12", username="bob"),
+                       Library(library_id="1", title="Movies", type="movie"),
+                       Library(library_id="2", title="TV", type="show"),
+                       Library(library_id="3", title="Anime", type="show")])
+            s.flush()
+            s.add(DiscordLink(plex_user_id="11", discord_user_id="501", method="oauth", verified=True,
+                              linked_by="self"))
+            s.add(ReactionPost(id=1, title="Pick", content="React!", channel_id="900", message_id="7001",
+                               options=[{"emoji": "🎬", "label": "Movies", "library_ids": ["1"]},
+                                        {"emoji": "📺", "label": "TV", "library_ids": ["2", "3"]}]))
+        self.triggers = []
+        self.svc = DiscordService(self.db, SecretStore(SecretBox(Fernet.generate_key())),
+                                  lambda ids, reason, **kw: self.triggers.append((ids, reason)), plex=None)
+
+    def tearDown(self):
+        self.engine.dispose()
+        self.tmp.cleanup()
+
+
+class ReactionAccessTests(Base):
+    def test_reaction_grants_libraries_like_manual(self):
+        with self.db.session() as s:
+            s.add_all([Reaction(post_id=1, discord_user_id="501", emoji="📺"),
+                       Reaction(post_id=1, discord_user_id="502", emoji="🎬")])  # 502 isn't linked
+        with self.db.session() as s:
+            snap = load_snapshot(s)
+            settings = app_settings.load(s)
+        self.assertEqual(snap.reaction, {"11": frozenset({"2", "3"})})
+        st = user_state(snap, "11", settings, frozenset())
+        self.assertEqual(st.manual, frozenset({"2", "3"}))
+        self.assertEqual(library_sources(snap, st, frozenset())["2"], ["reaction"])
+
+    def test_disabled_post_grants_nothing(self):
+        with self.db.session() as s:
+            s.add(Reaction(post_id=1, discord_user_id="501", emoji="🎬"))
+            s.get(ReactionPost, 1).enabled = False
+        with self.db.session() as s:
+            self.assertEqual(load_snapshot(s).reaction, {})
+
+    def test_reaction_before_link_applies_after_link(self):
+        with self.db.session() as s:
+            s.add(Reaction(post_id=1, discord_user_id="502", emoji="🎬"))
+            link_service.link_by_identity(s, "502", PlexIdentity("12", "bob"))
+        with self.db.session() as s:
+            self.assertEqual(load_snapshot(s).reaction["12"], frozenset({"1"}))
+
+
+# ---- fake guild -------------------------------------------------------------------
+
+
+class FakeMember:
+    def __init__(self, uid, roles=(), bot=False):
+        self.id, self.bot = uid, bot
+        self.roles = [SimpleNamespace(id=r) for r in roles]
+        self.calls = []
+
+    async def add_roles(self, *roles, reason=None):
+        self.calls.append(("add", sorted(r.id for r in roles)))
+        self.roles += [SimpleNamespace(id=r.id) for r in roles]
+
+    async def remove_roles(self, *roles, reason=None):
+        ids = {r.id for r in roles}
+        self.calls.append(("remove", sorted(ids)))
+        self.roles = [r for r in self.roles if r.id not in ids]
+
+
+class FakeReaction:
+    def __init__(self, emoji, users, me=True):
+        self.emoji, self._users, self.me = emoji, users, me
+
+    def users(self, limit=None):
+        async def gen():
+            for u in self._users:
+                yield u
+        return gen()
+
+
+class FakeMessage:
+    def __init__(self, mid, reactions=()):
+        self.id, self.reactions, self.pinned, self.added, self.content = mid, list(reactions), False, [], ""
+        self.jump_url = f"https://discord.com/channels/{GUILD}/900/{mid}"
+
+    async def add_reaction(self, emoji):
+        self.added.append(str(emoji))
+
+    async def pin(self, reason=None):
+        self.pinned = True
+
+    async def edit(self, content=None):
+        self.content = content
+
+    async def delete(self):
+        self.deleted = True
+
+
+class FakeChannel:
+    def __init__(self, cid, name):
+        self.id, self.name, self.category, self.messages, self.sent = cid, name, None, {}, []
+
+    def permissions_for(self, _me):
+        return SimpleNamespace(view_channel=True, send_messages=True, add_reactions=True)
+
+    async def send(self, content, allowed_mentions=None):
+        msg = FakeMessage(8000 + len(self.sent))
+        msg.content = content
+        self.sent.append(msg)
+        self.messages[msg.id] = msg
+        return msg
+
+    async def fetch_message(self, mid):
+        import discord
+
+        if mid not in self.messages:
+            raise discord.NotFound(SimpleNamespace(status=404, reason="nf"), "Unknown Message")
+        return self.messages[mid]
+
+
+def perms(**granted):
+    base = {n: False for n in F.PERMISSION_BITS}
+    base.update(granted)
+    return SimpleNamespace(administrator=False, **base)
+
+
+class FakeGuild:
+    def __init__(self, granted, top=10, role_positions=None):
+        self.me = SimpleNamespace(guild_permissions=granted, top_role=SimpleNamespace(position=top))
+        self._roles = role_positions or {}
+        self.members = [FakeMember(501, ["555"]), FakeMember(502, ["V"]), FakeMember(999, [], bot=True)]
+        self.channel = FakeChannel(900, "plex-access")
+        self.text_channels = [self.channel]
+        self.created_roles = []
+
+    def get_role(self, rid):
+        return SimpleNamespace(position=self._roles[rid]) if rid in self._roles else None
+
+    def get_member(self, uid):
+        return next((m for m in self.members if m.id == uid), None)
+
+    def get_channel(self, cid):
+        return next((c for c in self.text_channels if c.id == cid), None)
+
+    async def create_role(self, name, mentionable=False, reason=None):
+        role = SimpleNamespace(id=4242 + len(self.created_roles), name=name, color=SimpleNamespace(value=0),
+                               position=1, managed=False)
+        self.created_roles.append(role)
+        return role
+
+    async def create_text_channel(self, name, reason=None):
+        ch = FakeChannel(901, name)
+        self.text_channels.append(ch)
+        return ch
+
+
+class GuildFeatureTests(Base):
+    def setUp(self):
+        super().setUp()
+        # The service checks isinstance(channel, discord.TextChannel); our fake stands in for it.
+        patcher = mock.patch("discord.TextChannel", FakeChannel)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def attach(self, guild):
+        self.svc._client = SimpleNamespace(is_ready=lambda: True, guild_id=GUILD, get_guild=lambda _g: guild)
+
+    def fire(self, coro):
+        return asyncio.run(coro)
+
+    def test_link_roles_follow_links(self):
+        guild = FakeGuild(perms(manage_roles=True), top=10, role_positions={555: 1, 556: 1, 557: 1})
+        self.attach(guild)
+        with self.db.session() as s:
+            app_settings.update(s, {"verified_role_id": "55555", "linked_role_id": "55557"})
+        guild._roles = {55555: 1, 55557: 1}
+        result = self.fire(self.svc.sync_link_roles())
+        self.assertEqual(result["added"], 2)  # 501 gets Verified + Linked
+        self.assertEqual(guild.members[0].calls, [("add", [55555, 55557])])
+        self.assertEqual(guild.members[2].calls, [])  # bots untouched
+
+    def test_link_roles_need_manage_roles_and_hierarchy(self):
+        guild = FakeGuild(perms(), role_positions={55555: 1})
+        self.attach(guild)
+        with self.db.session() as s:
+            app_settings.update(s, {"verified_role_id": "55555"})
+        self.assertEqual(self.fire(self.svc.sync_link_roles())["added"], 0)
+        guild.me = SimpleNamespace(guild_permissions=perms(manage_roles=True), top_role=SimpleNamespace(position=1))
+        guild._roles = {55555: 5}  # role above the bot
+        status = {f["key"]: f for f in self.svc.feature_status()}
+        self.assertFalse(status["link_roles"]["available"])
+        self.assertTrue(status["link_roles"]["notes"])
+
+    def test_create_role_requires_permission(self):
+        guild = FakeGuild(perms())
+        self.attach(guild)
+        with self.assertRaises(DiscordConfigError):
+            self.fire(self.svc.create_role("Plex · Movies"))
+        guild.me.guild_permissions = perms(manage_roles=True)
+        rid, name = self.fire(self.svc.create_role("Plex · Movies"))
+        self.assertEqual(name, "Plex · Movies")
+        with self.db.session() as s:
+            self.assertEqual(s.get(DiscordRole, rid).name, "Plex · Movies")
+
+    def test_publish_post_sends_reacts_pins(self):
+        guild = FakeGuild(perms(view_channel=True, send_messages=True, add_reactions=True, read_message_history=True,
+                                pin_messages=True))
+        self.attach(guild)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).message_id = None
+        out = self.fire(self.svc.publish_post(1))
+        msg = guild.channel.sent[0]
+        self.assertEqual((msg.content, msg.added, msg.pinned, out["pinned"]), ("React!", ["🎬", "📺"], True, True))
+        with self.db.session() as s:
+            self.assertEqual(s.get(ReactionPost, 1).message_id, str(msg.id))
+
+    def test_publish_without_pin_permission_still_posts(self):
+        guild = FakeGuild(perms(view_channel=True, send_messages=True, add_reactions=True, read_message_history=True))
+        self.attach(guild)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).message_id = None
+        out = self.fire(self.svc.publish_post(1))
+        self.assertFalse(out["pinned"])
+
+    def test_publish_into_new_channel_needs_manage_channels(self):
+        guild = FakeGuild(perms(view_channel=True, send_messages=True, add_reactions=True, read_message_history=True))
+        self.attach(guild)
+        with self.assertRaises(DiscordConfigError):
+            self.fire(self.svc.publish_post(1, "Plex Access"))
+        guild.me.guild_permissions = perms(view_channel=True, send_messages=True, add_reactions=True,
+                                           read_message_history=True, manage_channels=True)
+        out = self.fire(self.svc.publish_post(1, "Plex Access"))
+        self.assertEqual(out["channel"], "plex-access")  # reused the existing channel with that name
+
+    def test_reaction_events(self):
+        self.fire(self.svc.reaction_changed("7001", "501", "🎬", added=True))
+        self.fire(self.svc.reaction_changed("7001", "501", "🙂", added=True))  # not an option
+        self.fire(self.svc.reaction_changed("9999", "501", "🎬", added=True))  # not a post
+        self.fire(self.svc.reaction_changed("7001", "502", "📺", added=True))  # not linked: recorded only
+        self.assertEqual(self.triggers, [(["11"], "reaction added by discord 501")])
+        with self.db.session() as s:
+            self.assertEqual({(r.discord_user_id, r.emoji) for r in s.scalars(select(Reaction))},
+                             {("501", "🎬"), ("502", "📺")})
+        self.fire(self.svc.reaction_changed("7001", "501", "🎬", added=False))
+        with self.db.session() as s:
+            self.assertEqual(len(s.scalars(select(Reaction)).all()), 1)
+            self.assertIn("reaction_removed", s.scalars(select(AuditLog.action)).all())
+
+    def test_reconcile_reactions_reads_message(self):
+        guild = FakeGuild(perms())
+        users = [SimpleNamespace(id=501, bot=False), SimpleNamespace(id=999, bot=True)]
+        guild.channel.messages[7001] = FakeMessage(7001, [FakeReaction("🎬", users), FakeReaction("🙂", users)])
+        self.attach(guild)
+        with self.db.session() as s:
+            s.add(Reaction(post_id=1, discord_user_id="777", emoji="📺"))  # stale: reaction gone while offline
+        self.fire(self.svc.reconcile_reactions())
+        with self.db.session() as s:
+            self.assertEqual({(r.discord_user_id, r.emoji) for r in s.scalars(select(Reaction))}, {("501", "🎬")})
+
+
+class InviteAllMembersTests(Base):
+    def test_all_members_can_self_invite(self):
+        from woosarr.plex_gateway import FakePlexGateway
+
+        with self.db.session() as s:
+            s.add(DiscordMember(discord_user_id="600", username="new", role_ids=["r1"]))
+            s.add(RoleLibrary(role_id="r1", library_id="1"))
+            app_settings.update(s, {"dry_run": False, "link_cooldown_seconds": 0})
+        gw = FakePlexGateway()
+        with self.db.session() as s:
+            r = invites.create(s, gw, actor_discord_id="600", actor_is_admin=False, target_discord_id="600",
+                               identifier="new@x.com")
+        self.assertFalse(r.ok)
+        with self.db.session() as s:
+            app_settings.update(s, {"invite_all_members": True})
+            r = invites.create(s, gw, actor_discord_id="600", actor_is_admin=False, target_discord_id="600",
+                               identifier="new@x.com")
+        self.assertTrue(r.ok, r.message)
+
+
+class ReactionPostApiTests(unittest.TestCase):
+    def setUp(self):
+        self.h = AppHarness(demo=True)
+        self.c = self.h.setup_admin()
+        self.h.app.state.sync.run_now(None, "test")
+
+    def tearDown(self):
+        self.h.close()
+
+    def test_crud_and_validation(self):
+        body = {"title": "Pick", "content": "React for access", "options": [
+            {"emoji": "🎬", "label": "Movies", "library_ids": ["1"]}, {"emoji": "📺", "library_ids": ["2"]}]}
+        r = self.c.post("/api/v1/reaction-posts", json=body)
+        self.assertEqual(r.status_code, 201, r.text)
+        pid = r.json()["id"]
+        dup = dict(body, options=[body["options"][0], body["options"][0]])
+        self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=dup).status_code, 422)
+        bad = dict(body, options=[{"emoji": "🎬", "library_ids": ["999"]}])
+        self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=bad).status_code, 404)
+        many = dict(body, options=[{"emoji": f"<:e{i}:1000{i}>", "library_ids": ["1"]} for i in range(21)])
+        self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=many).status_code, 422)
+        self.assertEqual(self.c.post(f"/api/v1/reaction-posts/{pid}/publish", json={}).status_code, 409)  # demo
+        self.assertEqual(len(self.c.get("/api/v1/reaction-posts").json()), 1)
+        self.assertEqual(self.c.delete(f"/api/v1/reaction-posts/{pid}").status_code, 204)
+        self.assertEqual(self.c.get("/api/v1/reaction-posts").json(), [])
+
+    def test_invite_url_and_features(self):
+        r = self.c.get("/api/v1/discord/invite-url", params={"features": "link_roles,reaction_posts"}).json()
+        self.assertEqual(r["permissions"], F.permissions_value(["link_roles", "reaction_posts"]))
+        self.assertEqual(self.c.get("/api/v1/discord/invite-url", params={"features": "nope"}).status_code, 422)
+        st = self.c.get("/api/v1/discord/status").json()
+        self.assertEqual({f["key"] for f in st["features"]}, F.FEATURE_KEYS)
+
+    def test_settings_roles_validated(self):
+        self.assertEqual(self.c.patch("/api/v1/settings", json={"verified_role_id": "abc"}).status_code, 422)
+        r = self.c.patch("/api/v1/settings", json={"verified_role_id": "123456", "invite_all_members": True})
+        self.assertEqual(r.status_code, 200)
+
+
+class DocsMatchCodeTests(unittest.TestCase):
+    def test_documented_permission_integers(self):
+        doc = (Path(__file__).resolve().parents[2] / "docs" / "discord-notes.md").read_text()
+        self.assertIn(f"All features: `{F.permissions_value(F.FEATURE_KEYS)}`", doc)
+        for name, bit in F.PERMISSION_BITS.items():
+            self.assertIn(f"{F.PERMISSION_LABELS[name]} `{bit}`", doc, name)

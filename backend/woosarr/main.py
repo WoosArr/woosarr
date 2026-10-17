@@ -19,6 +19,7 @@ from woosarr.api import auth as auth_api
 from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
+from woosarr.api import reaction_posts as reaction_posts_api
 from woosarr.api import roles as roles_api
 from woosarr.api import setup as setup_api
 from woosarr.api import status as status_api
@@ -156,7 +157,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
-                   roles_api, libraries_api, audit_api, integrations_api):
+                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api):
         v1.include_router(module.router)
     app.include_router(v1)
 

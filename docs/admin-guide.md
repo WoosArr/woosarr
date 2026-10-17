@@ -10,6 +10,7 @@ WooSarr manages a Plex user only if they are **linked** to a Discord account. Fo
 |--------|---------|----------|
 | **Role** | A Discord role the member holds is mapped to the library (Roles page). | `role` |
 | **Manual** | An admin granted it on the Users page. Kept no matter which roles the user has. | `manual` |
+| **Reaction** | The member reacted to a reaction post that grants it (Reactions page). Kept regardless of roles; removed when the reaction is. | `reaction` |
 | **Exempt** | The library is exempt (Libraries page). Role changes never add or remove it; whatever the user has stays. | `exempt` |
 | **External** | Shared in Plex directly and no role manages that library. WooSarr leaves it alone. | `external` |
 
@@ -32,6 +33,11 @@ The rules:
 - `/link`: link your Plex account (Plex sign-in = verified, or typed username).
 - `/unlink`: remove your own link. What happens to access is set under *Settings → When a member unlinks themselves*.
 - `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Roles allowed to /invite*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
+
+### Discord roles managed by WooSarr
+
+- Link-status roles (Verified / Unverified / Linked) and per-library roles: see `docs/discord-notes.md`.
+- Bot permissions per feature, and how to grant only what you need: `docs/discord-notes.md` → *Bot permissions by feature*.
 
 ### Members who leave the Discord server
 

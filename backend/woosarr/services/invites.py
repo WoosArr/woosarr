@@ -77,7 +77,8 @@ def create(
                          "Only server admins can invite someone else.")
         member = session.get(DiscordMember, actor_discord_id)
         allowed = set(settings.invite_role_ids)
-        if not allowed or member is None or not allowed & set(member.role_ids):
+        everyone = settings.invite_all_members and member is not None and member.in_guild
+        if not everyone and (not allowed or member is None or not allowed & set(member.role_ids)):
             return _fail(session, actor, target_discord_id, "role_not_allowed",
                          "Your roles don't allow inviting yourself to the Plex server.")
     wait = link_service.cooldown_remaining(session, actor_discord_id)

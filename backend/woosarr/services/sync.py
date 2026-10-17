@@ -76,6 +76,8 @@ class SyncService:
         self._thread: threading.Thread | None = None
         self.running = False
         self.last_report: SyncReport | None = None
+        # Called (in the worker thread) after every run, e.g. to refresh link-status roles.
+        self.after_run: list[Callable[[SyncReport], None]] = []
 
     # ---- lifecycle --------------------------------------------------------
 
@@ -187,7 +189,15 @@ class SyncService:
             finally:
                 self.running = False
             self.last_report = report
-            return report
+        self._notify(report)
+        return report
+
+    def _notify(self, report: SyncReport) -> None:
+        for fn in self.after_run:
+            try:
+                fn(report)
+            except Exception:  # a hook must never break syncing
+                log.exception("after-run hook failed")
 
     def drop_role_access(self, plex_user_id: str, reason: str,
                          then: Callable[[], object] | None = None) -> SyncReport:
@@ -206,7 +216,8 @@ class SyncService:
             finally:
                 self.running = False
             self.last_report = report
-            return report
+        self._notify(report)
+        return report
 
     def _run(self, only: list[str] | None, reason: str, drop_roles: bool = False) -> SyncReport:
         with self._db.session() as s:

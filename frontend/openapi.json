@@ -288,6 +288,11 @@
             "title": "Ignore Unverified Links",
             "type": "boolean"
           },
+          "invite_all_members": {
+            "default": false,
+            "title": "Invite All Members",
+            "type": "boolean"
+          },
           "invite_role_ids": {
             "items": {
               "type": "string"
@@ -311,6 +316,18 @@
             "minimum": 0.0,
             "title": "Link Cooldown Seconds",
             "type": "integer"
+          },
+          "linked_role_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Role Id"
           },
           "local_login_enabled": {
             "default": true,
@@ -349,6 +366,30 @@
             ],
             "title": "Unlink Policy",
             "type": "string"
+          },
+          "unverified_role_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unverified Role Id"
+          },
+          "verified_role_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Role Id"
           }
         },
         "title": "AppSettings",
@@ -495,6 +536,34 @@
         "title": "AuthStatus",
         "type": "object"
       },
+      "ChannelOut": {
+        "properties": {
+          "can_post": {
+            "title": "Can Post",
+            "type": "boolean"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "category",
+          "can_post"
+        ],
+        "title": "ChannelOut",
+        "type": "object"
+      },
       "DiscordGuildIn": {
         "properties": {
           "guild_id": {
@@ -541,6 +610,14 @@
               }
             ],
             "title": "Detail"
+          },
+          "features": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/FeatureOut"
+            },
+            "title": "Features",
+            "type": "array"
           },
           "guild": {
             "anyOf": [
@@ -590,6 +667,58 @@
           "token"
         ],
         "title": "DiscordTokenIn",
+        "type": "object"
+      },
+      "FeatureOut": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "description",
+          "permissions",
+          "available",
+          "missing",
+          "notes"
+        ],
+        "title": "FeatureOut",
         "type": "object"
       },
       "GuildOut": {
@@ -767,6 +896,31 @@
         "title": "InviteOut",
         "type": "object"
       },
+      "InviteUrlOut": {
+        "properties": {
+          "permissions": {
+            "title": "Permissions",
+            "type": "integer"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "url",
+          "permissions"
+        ],
+        "title": "InviteUrlOut",
+        "type": "object"
+      },
       "LibraryAccess": {
         "properties": {
           "library_id": {
@@ -782,6 +936,7 @@
               "enum": [
                 "role",
                 "manual",
+                "reaction",
                 "exempt",
                 "external"
               ],
@@ -1405,6 +1560,288 @@
           "detail"
         ],
         "title": "PlexStatus",
+        "type": "object"
+      },
+      "PublishIn": {
+        "properties": {
+          "new_channel_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Channel Name"
+          }
+        },
+        "title": "PublishIn",
+        "type": "object"
+      },
+      "PublishOut": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "jump_url": {
+            "title": "Jump Url",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "pinned": {
+            "title": "Pinned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel_id",
+          "channel",
+          "message_id",
+          "pinned",
+          "jump_url"
+        ],
+        "title": "PublishOut",
+        "type": "object"
+      },
+      "ReactionOption": {
+        "properties": {
+          "emoji": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Emoji",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Label",
+            "type": "string"
+          },
+          "library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Library Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "emoji",
+          "library_ids"
+        ],
+        "title": "ReactionOption",
+        "type": "object"
+      },
+      "ReactionPostIn": {
+        "properties": {
+          "channel_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReactionOption"
+            },
+            "maxItems": 20,
+            "title": "Options",
+            "type": "array"
+          },
+          "pin": {
+            "default": true,
+            "title": "Pin",
+            "type": "boolean"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "ReactionPostIn",
+        "type": "object"
+      },
+      "ReactionPostOut": {
+        "properties": {
+          "channel_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReactionOption"
+            },
+            "maxItems": 20,
+            "title": "Options",
+            "type": "array"
+          },
+          "pin": {
+            "default": true,
+            "title": "Pin",
+            "type": "boolean"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "reactions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Reactions",
+            "type": "object"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content",
+          "id",
+          "message_id",
+          "published_at",
+          "reactions"
+        ],
+        "title": "ReactionPostOut",
+        "type": "object"
+      },
+      "RoleCreateIn": {
+        "properties": {
+          "library_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Id"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "purpose": {
+            "enum": [
+              "verified_role_id",
+              "unverified_role_id",
+              "linked_role_id",
+              "library"
+            ],
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "purpose"
+        ],
+        "title": "RoleCreateIn",
+        "type": "object"
+      },
+      "RoleCreated": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role_id",
+          "name"
+        ],
+        "title": "RoleCreated",
         "type": "object"
       },
       "RoleLibrariesIn": {
@@ -2374,6 +2811,31 @@
         ]
       }
     },
+    "/api/v1/discord/channels": {
+      "get": {
+        "operationId": "discord_channels_api_v1_discord_channels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChannelOut"
+                  },
+                  "title": "Response Discord Channels Api V1 Discord Channels Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Discord Channels",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
     "/api/v1/discord/guild": {
       "put": {
         "operationId": "discord_set_guild_api_v1_discord_guild_put",
@@ -2435,6 +2897,50 @@
           }
         },
         "summary": "Discord Guilds",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/discord/invite-url": {
+      "get": {
+        "description": "Bot invite link with exactly the permissions the chosen features need.",
+        "operationId": "discord_invite_url_api_v1_discord_invite_url_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "features",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Features",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Invite Url",
         "tags": [
           "integrations"
         ]
@@ -2520,6 +3026,48 @@
           }
         },
         "summary": "Discord Restart",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/discord/roles": {
+      "post": {
+        "description": "Create a Discord role and use it as a link-status role or for one library.",
+        "operationId": "discord_create_role_api_v1_discord_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoleCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Create Role",
         "tags": [
           "integrations"
         ]
@@ -3166,6 +3714,207 @@
         "summary": "Plex Status",
         "tags": [
           "integrations"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts": {
+      "get": {
+        "operationId": "list_posts_api_v1_reaction_posts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReactionPostOut"
+                  },
+                  "title": "Response List Posts Api V1 Reaction Posts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Posts",
+        "tags": [
+          "reaction-posts"
+        ]
+      },
+      "post": {
+        "operationId": "create_post_api_v1_reaction_posts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionPostIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionPostOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Post",
+        "tags": [
+          "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts/{post_id}": {
+      "delete": {
+        "operationId": "delete_post_api_v1_reaction_posts__post_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Post",
+        "tags": [
+          "reaction-posts"
+        ]
+      },
+      "put": {
+        "operationId": "update_post_api_v1_reaction_posts__post_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionPostIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionPostOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Post",
+        "tags": [
+          "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts/{post_id}/publish": {
+      "post": {
+        "operationId": "publish_api_v1_reaction_posts__post_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Publish",
+        "tags": [
+          "reaction-posts"
         ]
       }
     },

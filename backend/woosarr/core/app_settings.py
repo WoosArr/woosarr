@@ -29,6 +29,12 @@ class AppSettings(BaseModel):
     unlink_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
     # Discord roles whose members may /invite themselves (admins can always invite).
     invite_role_ids: list[str] = Field(default_factory=list, max_length=50)
+    # Every member may /invite themselves (overrides invite_role_ids).
+    invite_all_members: bool = False
+    # Roles the bot keeps in step with each member's Plex link (None = off).
+    verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
+    unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
+    linked_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     # R4: optionally treat username-only (unverified) links as not linked.
     ignore_unverified_links: bool = False
     link_cooldown_seconds: int = Field(300, ge=0, le=86400)

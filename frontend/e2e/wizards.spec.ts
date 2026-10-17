@@ -68,7 +68,7 @@ test("discord wizard: bad token, good token, invite, pick server", async ({ page
   await expect(discord.getByRole("link", { name: "Invite the bot" })).toHaveAttribute("href", /client_id=4242/);
   await discord.getByLabel("Discord server").selectOption({ label: "Test Guild" });
   await discord.getByRole("button", { name: "Use this server" }).click();
-  await expect(discord.getByText("Connected")).toBeVisible();
+  await expect(discord.getByText("Connected", { exact: true })).toBeVisible();
   await expect(discord.getByText(/run \/link/)).toBeVisible();
 
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();

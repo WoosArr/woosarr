@@ -19,12 +19,15 @@ from typing import Any
 import aiohttp
 import discord
 from discord import app_commands
+from sqlalchemy import delete, select
 
 from woosarr.core import app_settings, kv
 from woosarr.core import secret_store as names
+from woosarr.db.models import DiscordLink, Reaction, ReactionPost, utcnow
 from woosarr.db.session import Database
+from woosarr.services import audit, invites, link_service
 from woosarr.services import discord_cache as cache
-from woosarr.services import invites, link_service
+from woosarr.services import discord_features as features
 
 log = logging.getLogger("woosarr.discord")
 
@@ -102,6 +105,7 @@ class WooSarrBot(discord.Client):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
+        intents.guild_reactions = True  # reaction posts (not privileged)
         super().__init__(intents=intents)
         self.service = service
         self.guild_id = guild_id
@@ -143,7 +147,9 @@ class WooSarrBot(discord.Client):
         members = [_member(m) async for m in guild.fetch_members(limit=None)]
         await self.service.run_db(cache.full_sync, roles, members)
         self.service.connected(guild.name)
+        await self.service.reconcile_reactions()
         self.service.trigger(None, "discord connected")
+        self.service.schedule_role_sync()
 
     async def on_resumed(self) -> None:
         log.info("discord session resumed")
@@ -180,6 +186,16 @@ class WooSarrBot(discord.Client):
         if self._ours(after.guild):
             await self.service.run_db(cache.upsert_role, _role(after))
 
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        if payload.guild_id == self.guild_id and self.user and payload.user_id != self.user.id:
+            await self.service.reaction_changed(str(payload.message_id), str(payload.user_id),
+                                                str(payload.emoji), added=True)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
+        if payload.guild_id == self.guild_id and self.user and payload.user_id != self.user.id:
+            await self.service.reaction_changed(str(payload.message_id), str(payload.user_id),
+                                                str(payload.emoji), added=False)
+
     async def on_guild_role_delete(self, role: discord.Role) -> None:
         if self._ours(role.guild):
             affected = await self.service.run_db(cache.role_deleted, str(role.id))
@@ -215,6 +231,265 @@ class _LinkView(discord.ui.View):
         await self.service.start_oauth_link(interaction)
 
 
+def normalize_emoji(text: str) -> str:
+    """Canonical form used for storage and comparison (unicode or <:name:id>)."""
+    return str(discord.PartialEmoji.from_str(text.strip()))
+
+
+class _GuildFeatures:
+    """Guild-level features of DiscordService: permissions, roles, channels,
+    reaction posts, link-status roles (see services/discord_features.py)."""
+
+    def _guild(self) -> discord.Guild:
+        if self._client is None or not self._client.is_ready():
+            raise DiscordConfigError("The Discord bot isn't connected.")
+        guild = self._client.get_guild(self._client.guild_id)
+        if guild is None:
+            raise DiscordConfigError("The bot isn't in the selected Discord server.")
+        return guild
+
+    def _permissions(self) -> tuple[dict[str, bool], bool | None, int | None]:
+        """(granted permissions, role hierarchy ok for link roles, bot's top role position)."""
+        try:
+            guild = self._guild()
+        except DiscordConfigError:
+            return {}, None, None
+        me = guild.me
+        perms = me.guild_permissions
+        granted = {name: bool(getattr(perms, name, False) or perms.administrator) for name in features.PERMISSION_BITS}
+        with self._db.session() as s:
+            st = app_settings.load(s)
+        targets = [guild.get_role(int(r)) for r in (st.verified_role_id, st.unverified_role_id, st.linked_role_id) if r]
+        positions = [r.position for r in targets if r is not None]
+        hierarchy = me.top_role.position > max(positions) if positions else None
+        return granted, hierarchy, me.top_role.position
+
+    def feature_status(self) -> list[dict[str, object]]:
+        granted, hierarchy, _pos = self._permissions()
+        if not granted:
+            # Unknown permissions: features that need none (slash commands) still work.
+            return [f if not f["permissions"] else dict(f, available=False, missing=[], notes=["bot not connected"])
+                    for f in features.feature_report({}, None)]
+        return features.feature_report(granted, hierarchy)
+
+    def require(self, key: str) -> None:
+        ok, why = features.available(self.feature_status(), key)
+        if not ok:
+            raise DiscordConfigError(why)
+
+    async def create_role(self, name: str) -> tuple[str, str]:
+        self.require("create_roles")
+        guild = self._guild()
+        try:
+            role = await guild.create_role(name=name[:100], mentionable=False, reason="Created by WooSarr")
+        except discord.Forbidden as exc:
+            raise DiscordConfigError("Discord refused to create the role (Manage Roles missing?)") from exc
+        await self.run_db(cache.upsert_role, _role(role))
+        log.info("discord role created %s (%s)", role.name, role.id)
+        return str(role.id), role.name
+
+    async def list_channels(self) -> list[dict[str, str]]:
+        guild = self._guild()
+        me = guild.me
+        out = []
+        for ch in guild.text_channels:
+            p = ch.permissions_for(me)
+            out.append({"id": str(ch.id), "name": ch.name, "category": ch.category.name if ch.category else "",
+                        "can_post": bool(p.view_channel and p.send_messages and p.add_reactions)})
+        return out
+
+    async def publish_post(self, post_id: int, new_channel_name: str | None = None) -> dict:
+        """Post (or update) a reaction post, add its reactions, pin it if wanted."""
+        self.require("reaction_posts")
+        guild = self._guild()
+
+        def load(s):
+            post = s.get(ReactionPost, post_id)
+            if post is None:
+                raise DiscordConfigError("reaction post not found")
+            return {"channel_id": post.channel_id, "message_id": post.message_id, "content": post.content,
+                    "pin": post.pin, "options": list(post.options or []), "title": post.title}
+
+        post = await self.run_db(load)
+        if not post["options"]:
+            raise DiscordConfigError("Add at least one emoji option first.")
+        channel = None
+        if new_channel_name:
+            self.require("create_channel")
+            name = new_channel_name.strip().lower().replace(" ", "-")[:100]
+            channel = discord.utils.get(guild.text_channels, name=name)
+            if channel is None:
+                channel = await guild.create_text_channel(name, reason="WooSarr reaction post")
+                log.info("discord channel created #%s (%s)", channel.name, channel.id)
+        elif post["channel_id"]:
+            channel = guild.get_channel(int(post["channel_id"]))
+        if not isinstance(channel, discord.TextChannel):
+            raise DiscordConfigError("Choose a text channel (or a name for a new one).")
+        message = None
+        if post["message_id"] and str(channel.id) == post["channel_id"]:
+            try:
+                message = await channel.fetch_message(int(post["message_id"]))
+                await message.edit(content=post["content"])
+            except discord.NotFound:
+                message = None
+        if message is None:
+            message = await channel.send(post["content"], allowed_mentions=discord.AllowedMentions.none())
+        present = {str(r.emoji) for r in message.reactions if r.me}
+        for opt in post["options"]:
+            emoji = normalize_emoji(opt["emoji"])
+            if emoji not in present:
+                await message.add_reaction(discord.PartialEmoji.from_str(emoji))
+        pinned = False
+        if post["pin"]:
+            ok, why = features.available(self.feature_status(), "pin_posts")
+            if ok:
+                if not message.pinned:
+                    await message.pin(reason="WooSarr reaction post")
+                pinned = True
+            else:
+                log.warning("reaction post %s not pinned: %s", post_id, why)
+
+        def save(s):
+            row = s.get(ReactionPost, post_id)
+            row.channel_id, row.message_id, row.published_at = str(channel.id), str(message.id), utcnow()
+            audit.record(s, "system", "reaction_post_published", "reaction_post", str(post_id),
+                         channel=channel.name, message_id=str(message.id), pinned=pinned)
+
+        await self.run_db(save)
+        await self.reconcile_reactions()
+        return {"channel_id": str(channel.id), "channel": channel.name, "message_id": str(message.id),
+                "pinned": pinned, "jump_url": message.jump_url}
+
+    async def unpublish_post(self, channel_id: str | None, message_id: str | None) -> None:
+        if not channel_id or not message_id:
+            return
+        try:
+            guild = self._guild()
+            channel = guild.get_channel(int(channel_id))
+            if isinstance(channel, discord.TextChannel):
+                msg = await channel.fetch_message(int(message_id))
+                await msg.delete()
+        except (discord.NotFound, discord.Forbidden, DiscordConfigError) as exc:
+            log.warning("could not delete reaction post message %s: %s", message_id, exc)
+
+    async def reaction_changed(self, message_id: str, discord_user_id: str, emoji: str,
+                               added: bool) -> None:
+        emoji = normalize_emoji(emoji)
+
+        def work(s):
+            post = s.scalar(select(ReactionPost).where(ReactionPost.message_id == message_id))
+            if post is None or not any(normalize_emoji(o["emoji"]) == emoji for o in post.options or []):
+                return None, False
+            row = s.get(Reaction, (post.id, discord_user_id, emoji))
+            if added and row is None:
+                s.add(Reaction(post_id=post.id, discord_user_id=discord_user_id, emoji=emoji))
+            elif not added and row is not None:
+                s.delete(row)
+            pid = s.scalar(select(DiscordLink.plex_user_id).where(DiscordLink.discord_user_id == discord_user_id))
+            audit.record(s, f"discord:{discord_user_id}", "reaction_added" if added else "reaction_removed",
+                         "reaction_post", str(post.id), emoji=emoji, linked_plex_user_id=pid)
+            return pid, True
+
+        pid, relevant = await self.run_db(work)
+        if not relevant:
+            return
+        if pid:
+            self.trigger([pid], f"reaction {'added' if added else 'removed'} by discord {discord_user_id}")
+        else:
+            log.info("reaction %s by discord %s recorded; not linked yet, applies after /link", emoji, discord_user_id)
+
+    async def reconcile_reactions(self) -> None:
+        """Re-read every published post's reactions (catches changes made while offline)."""
+        try:
+            guild = self._guild()
+        except DiscordConfigError:
+            return
+        posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id, [o["emoji"] for o in p.options or []])
+                                             for p in s.scalars(select(ReactionPost).where(
+                                                 ReactionPost.message_id.is_not(None)))])
+        for post_id, channel_id, message_id, emojis in posts:
+            channel = guild.get_channel(int(channel_id)) if channel_id else None
+            if not isinstance(channel, discord.TextChannel):
+                log.warning("reaction post %s: channel %s not found", post_id, channel_id)
+                continue
+            try:
+                msg = await channel.fetch_message(int(message_id))
+            except (discord.NotFound, discord.Forbidden) as exc:
+                log.warning("reaction post %s: message %s unavailable (%s)", post_id, message_id, exc)
+                continue
+            wanted = {normalize_emoji(e) for e in emojis}
+            rows: set[tuple[str, str]] = set()
+            for reaction in msg.reactions:
+                emoji = normalize_emoji(str(reaction.emoji))
+                if emoji not in wanted:
+                    continue
+                async for user in reaction.users(limit=None):
+                    if not user.bot:
+                        rows.add((str(user.id), emoji))
+
+            def replace(s, post_id=post_id, rows=rows):
+                s.execute(delete(Reaction).where(Reaction.post_id == post_id))
+                for uid, emoji in rows:
+                    s.add(Reaction(post_id=post_id, discord_user_id=uid, emoji=emoji))
+
+            await self.run_db(replace)
+            log.info("reaction post %s: %s reactions read", post_id, len(rows))
+
+    def schedule_role_sync(self) -> None:
+        """Thread-safe: refresh link-status roles soon (coalesces bursts)."""
+        loop = self._loop
+        if loop is None or self._client is None:
+            return
+
+        def start() -> None:
+            if self._role_task is None or self._role_task.done():
+                self._role_task = asyncio.create_task(self.sync_link_roles())
+            else:
+                self._role_again = True
+        loop.call_soon_threadsafe(start)
+
+    async def sync_link_roles(self) -> dict[str, int]:
+        """Give/remove the configured Verified/Unverified/Linked roles to match links."""
+        done = {"added": 0, "removed": 0, "errors": 0}
+        while True:
+            self._role_again = False
+            st = await self.run_db(app_settings.load)
+            if not any((st.verified_role_id, st.unverified_role_id, st.linked_role_id)):
+                return done
+            ok, why = features.available(self.feature_status(), "link_roles")
+            if not ok:
+                if why != self._role_problem:
+                    log.warning("link-status roles not applied: %s", why)
+                self._role_problem = why
+                return done
+            self._role_problem = None
+            guild = self._guild()
+            links = await self.run_db(lambda s: dict(s.execute(select(DiscordLink.discord_user_id,
+                                                                      DiscordLink.verified)).all()))
+            members = {str(m.id): frozenset(str(r.id) for r in m.roles) for m in guild.members if not m.bot}
+            changes = features.desired_link_roles(members, links, st.verified_role_id, st.unverified_role_id,
+                                                  st.linked_role_id)
+            for uid, (add, remove) in changes.items():
+                member = guild.get_member(int(uid))
+                if member is None:
+                    continue
+                try:
+                    if add:
+                        await member.add_roles(*[discord.Object(int(r)) for r in add], reason="WooSarr: Plex link status")
+                        done["added"] += len(add)
+                    if remove:
+                        await member.remove_roles(*[discord.Object(int(r)) for r in remove],
+                                                  reason="WooSarr: Plex link status")
+                        done["removed"] += len(remove)
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    done["errors"] += 1
+                    log.warning("could not update link roles for %s: %s", uid, exc)
+            if changes:
+                log.info("link-status roles: +%s -%s (errors %s)", done["added"], done["removed"], done["errors"])
+            if not self._role_again:
+                return done
+
+
 class _UnlinkView(discord.ui.View):
     def __init__(self, service: DiscordService, discord_id: str) -> None:
         super().__init__(timeout=120)
@@ -237,7 +512,7 @@ class _UnlinkView(discord.ui.View):
         self.stop()
 
 
-class DiscordService:
+class DiscordService(_GuildFeatures):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
                  sync: Any = None) -> None:
         self._db = db
@@ -245,6 +520,11 @@ class DiscordService:
         self.trigger = trigger
         self._plex = plex
         self._sync = sync
+        self._role_task: asyncio.Task | None = None
+        self._role_again = False
+        self._role_problem: str | None = None
+        if sync is not None:
+            sync.after_run.append(lambda _report: self.schedule_role_sync())
         self._client: WooSarrBot | None = None
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -501,3 +781,4 @@ class DiscordService:
         if result.ok and result.plex_user_id:
             self.trigger([result.plex_user_id], f"verified self-link by discord {discord_id}")
         await interaction.followup.send(result.message, ephemeral=True)
+

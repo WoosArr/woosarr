@@ -203,6 +203,34 @@ class PlexInvite(Base):
     resolved_at: Mapped[datetime | None]
 
 
+class ReactionPost(Base):
+    """A message the bot posts (and pins); reacting with an emoji grants libraries."""
+
+    __tablename__ = "reaction_posts"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(100))
+    content: Mapped[str] = mapped_column(Text)
+    channel_id: Mapped[str | None] = mapped_column(String(32))
+    message_id: Mapped[str | None] = mapped_column(String(32), unique=True)
+    pin: Mapped[bool] = mapped_column(Boolean, default=True)
+    # [{"emoji": "🎬", "label": "Movies", "library_ids": ["1", "4"]}, ...]
+    options: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    published_at: Mapped[datetime | None]
+
+
+class Reaction(Base):
+    """A member's reaction on a reaction post, as Discord reports it."""
+
+    __tablename__ = "reactions"
+    post_id: Mapped[int] = mapped_column(ForeignKey("reaction_posts.id", ondelete="CASCADE"), primary_key=True)
+    discord_user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    emoji: Mapped[str] = mapped_column(String(100), primary_key=True)
+    reacted_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -349,7 +349,8 @@ function DiscordCard() {
             <dt className="muted">Server</dt><dd style={{ margin: 0 }}><strong>{String(s.guild.name ?? s.guild.id)}</strong></dd>
           </dl>
           <Detail text={s.detail} />
-          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code> in your server.</p>
+          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code> and <code>/invite</code> in your server.</p>
+          <BotFeatures status={s} />
           <div className="row">
             <button className="btn sm" onClick={() => void act(() => api.post<DiscordStatus>("/api/v1/discord/restart"), "Bot restarted.")}><Icon name="refresh" size={14} /> Restart bot</button>
             <button className="btn sm" onClick={() => setReplacing(true)}><Icon name="key" size={14} /> Replace token</button>
@@ -451,5 +452,45 @@ function DiscordGuild({ status, onDone }: { status: DiscordStatus; onDone: (s: D
         </>
       )}
     </div>
+  );
+}
+
+function BotFeatures({ status }: { status: DiscordStatus }) {
+  const features = status.features ?? [];
+  const [wanted, setWanted] = useState<Set<string>>(() => new Set(features.map((f) => f.key)));
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const keys = [...wanted].join(",");
+    api.get<{ url: string | null }>(`/api/v1/discord/invite-url?features=${encodeURIComponent(keys)}`)
+      .then((r) => setUrl(r.url), () => setUrl(null));
+  }, [wanted]);
+  if (!features.length) return null;
+  return (
+    <details className="small">
+      <summary><strong>Bot features and permissions</strong> ({features.filter((f) => f.available).length}/{features.length} available)</summary>
+      <p className="muted" style={{ marginTop: 8 }}>Tick the features you want; the invite link asks Discord for exactly those permissions. Re-inviting updates the bot's permissions without removing it.</p>
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Bot features">
+        <table>
+          <thead><tr><th>Use</th><th>Feature</th><th>Needs</th><th>Status</th></tr></thead>
+          <tbody>
+            {features.map((f) => (
+              <tr key={f.key}>
+                <td><input type="checkbox" aria-label={`Include ${f.label}`} checked={wanted.has(f.key)} onChange={() => {
+                  const next = new Set(wanted); if (next.has(f.key)) next.delete(f.key); else next.add(f.key); setWanted(next);
+                }} /></td>
+                <td><strong>{f.label}</strong><div className="muted">{f.description}</div></td>
+                <td>{f.permissions.length ? f.permissions.join(", ") : "—"}</td>
+                <td>
+                  {f.available ? <Badge tone="ok">Available</Badge> : <Badge tone="warn">Unavailable</Badge>}
+                  {f.missing.length ? <div className="muted">Missing: {f.missing.join(", ")}</div> : null}
+                  {f.notes.map((n) => <div key={n} className="muted">{n}</div>)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {url ? <p style={{ marginTop: 8 }}><a className="btn sm" href={url} target="_blank" rel="noreferrer"><Icon name="link" size={14} /> Invite / update bot with these permissions</a></p> : null}
+    </details>
   );
 }

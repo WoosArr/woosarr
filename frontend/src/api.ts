@@ -28,6 +28,12 @@ export type PlexLoginPoll = Schemas["PlexLoginPoll"];
 export type DiscordStatus = Schemas["DiscordStatus"];
 export type GuildOut = Schemas["GuildOut"];
 export type InviteOut = Schemas["InviteOut"];
+export type FeatureOut = Schemas["FeatureOut"];
+export type ChannelOut = Schemas["ChannelOut"];
+export type ReactionPostOut = Schemas["ReactionPostOut"];
+export type ReactionPostIn = Schemas["ReactionPostIn"];
+export type PublishOut = Schemas["PublishOut"];
+export type RoleCreated = Schemas["RoleCreated"];
 
 export interface Health {
   status: string;

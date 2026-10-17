@@ -1,4 +1,5 @@
 import { api, type LibraryOut, type PlexServerOut } from "../api";
+import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, PageHead, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
 
@@ -7,6 +8,24 @@ export default function LibrariesPage() {
   const server = useLoad(() => api.get<PlexServerOut | null>("/api/v1/plex/server"));
   const confirm = useConfirm();
   const toast = useToast();
+  const { available, why } = useDiscordFeatures();
+
+  const createRole = async (lib: LibraryOut) => {
+    const name = `Plex · ${lib.title}`;
+    const ok = await confirm({
+      title: `Create role "${name}"?`,
+      body: <p>WooSarr creates the Discord role and maps it to <strong>{lib.title}</strong>. Give the role to members in Discord and they get the library on the next sync.</p>,
+      confirmLabel: "Create role",
+    });
+    if (!ok) return;
+    try {
+      await api.post("/api/v1/discord/roles", { name, purpose: "library", library_id: lib.library_id });
+      toast.ok(`Created ${name}.`);
+      void libs.reload();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
 
   const setExempt = async (lib: LibraryOut, exempt: boolean) => {
     const ok = await confirm({
@@ -55,7 +74,7 @@ export default function LibrariesPage() {
       {libs.data && libs.data.length > 0 ? (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Plex libraries">
           <table className="responsive">
-            <thead><tr><th>Library</th><th>Type</th><th>Granted by roles</th><th>Shared with</th><th>Exempt</th></tr></thead>
+            <thead><tr><th>Library</th><th>Type</th><th>Granted by roles</th><th>Shared with</th><th>Exempt</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {libs.data.map((l) => (
                 <tr key={l.library_id}>
@@ -72,6 +91,11 @@ export default function LibrariesPage() {
                   <td data-label="Shared with">{l.shared_with} user{l.shared_with === 1 ? "" : "s"}</td>
                   <td data-label="Exempt">
                     <Switch checked={l.is_exempt} onChange={(v) => void setExempt(l, v)} label={l.is_exempt ? "Exempt" : "Managed"} />
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    <button className="btn sm" disabled={!available("create_roles") || l.removed} title={why("create_roles") ?? "Create a Discord role for this library"} onClick={() => void createRole(l)}>
+                      <Icon name="roles" size={14} /> Create role
+                    </button>
                   </td>
                 </tr>
               ))}

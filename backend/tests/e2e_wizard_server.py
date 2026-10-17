@@ -46,7 +46,9 @@ async def fake_guilds(_token):
 async def fake_start(self):
     _bot, guild = self.config()
     if self._token() and guild:
-        self._client = SimpleNamespace(is_ready=lambda: True, close=lambda: None)
+        # No real guild: feature checks report "bot not connected" for guild features.
+        self._client = SimpleNamespace(is_ready=lambda: True, close=lambda: None, guild_id=int(guild["id"]),
+                                       get_guild=lambda _gid: None)
         self.connected(guild["name"])
 
 

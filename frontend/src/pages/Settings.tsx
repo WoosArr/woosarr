@@ -5,6 +5,7 @@ import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
+import { useDiscordFeatures } from "../features";
 
 const TABS = [
   ["general", "General"],
@@ -91,7 +92,11 @@ function General() {
           Members with one of these roles can invite their own Plex account; their roles decide the libraries.
           Discord admins (Manage Server) can always invite for any member. None selected = admins only.
         </span>
-        <div className="chooser">
+        <label className="check" style={{ marginBottom: 6 }}>
+          <input type="checkbox" checked={!!v.invite_all_members} onChange={(e) => set({ invite_all_members: e.target.checked })} />
+          <span><strong>All members</strong> <span className="muted small">— anyone in the Discord server</span></span>
+        </label>
+        <div className="chooser" style={v.invite_all_members ? { opacity: 0.5 } : undefined} aria-disabled={!!v.invite_all_members}>
           {(roles.data ?? []).filter((r) => !r.managed && !r.deleted).map((r) => {
             const current = v.invite_role_ids ?? [];
             const on = current.includes(r.role_id);
@@ -104,6 +109,7 @@ function General() {
           })}
         </div>
       </fieldset>
+      <LinkRoles roles={roles.data ?? []} value={v} set={set} onCreated={() => void roles.reload()} />
       <Switch checked={v.ignore_unverified_links} onChange={(x) => set({ ignore_unverified_links: x })} label={<><strong>Ignore unverified links</strong> <span className="muted small">— only manage users who proved their Plex account</span></>} />
       <label className="field">
         <code>/link</code> cooldown (seconds)
@@ -366,5 +372,57 @@ function ApiKeys() {
         </Modal>
       ) : null}
     </>
+  );
+}
+
+const LINK_ROLES: { key: "verified_role_id" | "unverified_role_id" | "linked_role_id"; label: string; hint: string; name: string }[] = [
+  { key: "verified_role_id", label: "Verified role", hint: "Members whose link is verified (Plex sign-in or admin)", name: "Plex Verified" },
+  { key: "unverified_role_id", label: "Unverified role", hint: "Members linked by typed username", name: "Plex Unverified" },
+  { key: "linked_role_id", label: "Linked role", hint: "Every linked member", name: "Plex Linked" },
+];
+
+function LinkRoles({ roles, value, set, onCreated }: {
+  roles: RoleOut[]; value: AppSettings; set: (p: Partial<AppSettings>) => void; onCreated: () => void;
+}) {
+  const { available, why } = useDiscordFeatures();
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+  const create = async (key: (typeof LINK_ROLES)[number]["key"], name: string) => {
+    setBusy(key);
+    try {
+      const r = await api.post<{ role_id: string; name: string }>("/api/v1/discord/roles", { name, purpose: key });
+      set({ [key]: r.role_id } as Partial<AppSettings>);
+      toast.ok(`Created role ${r.name}.`);
+      onCreated();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const assignBlocked = why("link_roles");
+  const createBlocked = why("create_roles");
+  return (
+    <fieldset style={{ border: 0, padding: 0, margin: 0 }} className="stack">
+      <legend className="small" style={{ fontWeight: 600 }}>Discord roles for Plex link status</legend>
+      <span className="small muted">The bot gives and removes these roles to match each member's link. Leave on "Off" to skip.</span>
+      {assignBlocked && (value.verified_role_id || value.unverified_role_id || value.linked_role_id) ? (
+        <div className="banner warn small"><span>{assignBlocked}</span></div>
+      ) : null}
+      {LINK_ROLES.map((r) => (
+        <div key={r.key} className="row" style={{ alignItems: "flex-end" }}>
+          <Field label={r.label} hint={r.hint}>
+            <select value={value[r.key] ?? ""} onChange={(e) => set({ [r.key]: e.target.value || null } as Partial<AppSettings>)} style={{ maxWidth: 280 }}>
+              <option value="">Off</option>
+              {roles.filter((x) => !x.managed && !x.deleted).map((x) => <option key={x.role_id} value={x.role_id}>{x.name}</option>)}
+            </select>
+          </Field>
+          <button type="button" className="btn sm" disabled={!available("create_roles") || busy !== null}
+            title={createBlocked ?? `Create a role named "${r.name}"`} onClick={() => void create(r.key, r.name)}>
+            {busy === r.key ? "Creating…" : `Create "${r.name}"`}
+          </button>
+        </div>
+      ))}
+    </fieldset>
   );
 }

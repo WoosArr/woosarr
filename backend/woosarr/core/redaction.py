@@ -61,7 +61,9 @@ class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             message = record.getMessage()
-        except Exception:  # malformed format args shouldn't break logging
+        # Deliberately broad: a malformed log call (bad format args, odd __str__)
+        # must never crash logging itself.
+        except Exception:  # noqa: BLE001
             message = str(record.msg)
         record.msg = redact(message)
         record.args = None

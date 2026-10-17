@@ -324,3 +324,16 @@ td .row { gap: 4px; }
 .steps { counter-reset: step; list-style: none; padding: 0; margin: 0; }
 .steps li { counter-increment: step; padding-left: 36px; position: relative; margin-bottom: 12px; }
 .steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; font-weight: 700; font-size: 0.85rem; }
+
+/* ---- Emoji picker ---- */
+.emoji-picker { position: relative; }
+.emoji-btn { min-width: 52px; padding: 4px 8px; }
+.emoji-popover {
+  position: absolute; z-index: 85; top: calc(100% + 4px); left: 0; width: min(340px, 80vw);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px;
+}
+.emoji-popover input[type="search"] { margin-top: 0; }
+.emoji-section { margin: 8px 0 4px; font-weight: 600; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 2px; max-height: 220px; overflow: auto; }
+.emoji-cell { font-size: 20px; line-height: 1; border: 0; background: transparent; padding: 6px; border-radius: var(--radius-sm); cursor: pointer; }
+.emoji-cell:hover, .emoji-cell:focus-visible { background: var(--accent-soft); }

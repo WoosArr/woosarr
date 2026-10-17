@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
+import { EmojiDisplay, EmojiPicker } from "../EmojiPicker";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, ago, useConfirm, useLoad, useToast } from "../ui";
@@ -58,7 +59,7 @@ export default function ReactionsPage() {
                 const libs = libsOf(o.role_ids);
                 return (
                   <span key={o.emoji} className="badge accent" title={libs.length ? `Libraries: ${libs.join(", ")}` : "These roles grant no libraries yet"}>
-                    <span aria-hidden="true">{o.emoji.startsWith("<") ? "🔹" : o.emoji}</span>
+                    <EmojiDisplay value={o.emoji} size={16} />
                     {o.label || o.role_ids.map((id) => roleById.get(id)?.name ?? id).join(", ")}{" "}
                     <span className="muted">· {p.reactions[o.emoji] ?? 0}</span>
                   </span>
@@ -178,9 +179,10 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
           {options.map((o, i) => (
             <div key={i} className="card" style={{ boxShadow: "none", padding: 12 }}>
               <div className="row" style={{ alignItems: "flex-end" }}>
-                <Field label="Emoji" hint="🎬 or a server emoji like <:plex:123…>">
-                  <input type="text" value={o.emoji} onChange={(e) => setOpt(i, { emoji: e.target.value })} style={{ width: 160 }} />
-                </Field>
+                <div className="field">
+                  <span style={{ display: "block", fontWeight: 600, fontSize: "0.88rem" }}>Emoji</span>
+                  <EmojiPicker value={o.emoji} label={`Emoji ${i + 1}`} onChange={(v) => setOpt(i, { emoji: v })} />
+                </div>
                 <Field label="Label">
                   <input type="text" value={o.label ?? ""} onChange={(e) => setOpt(i, { label: e.target.value })} style={{ width: 200 }} />
                 </Field>

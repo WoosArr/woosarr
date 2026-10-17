@@ -669,6 +669,44 @@
         "title": "DiscordTokenIn",
         "type": "object"
       },
+      "EmojiOut": {
+        "properties": {
+          "animated": {
+            "title": "Animated",
+            "type": "boolean"
+          },
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "animated",
+          "text",
+          "url",
+          "available"
+        ],
+        "title": "EmojiOut",
+        "type": "object"
+      },
       "FeatureOut": {
         "properties": {
           "available": {
@@ -1789,8 +1827,116 @@
         "title": "ReactionPostOut",
         "type": "object"
       },
+      "RemoveAccessIn": {
+        "properties": {
+          "library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Library Ids",
+            "type": "array"
+          },
+          "plex_user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Plex User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plex_user_ids",
+          "library_ids"
+        ],
+        "title": "RemoveAccessIn",
+        "type": "object"
+      },
+      "RemoveAccessResult": {
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "kept_by_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kept By Roles",
+            "type": "array"
+          },
+          "manual_removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Manual Removed",
+            "type": "array"
+          },
+          "not_shared": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Not Shared",
+            "type": "array"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plex_user_id",
+          "username",
+          "removed",
+          "kept_by_roles",
+          "manual_removed",
+          "not_shared",
+          "error",
+          "dry_run"
+        ],
+        "title": "RemoveAccessResult",
+        "type": "object"
+      },
       "RoleCreateIn": {
         "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "maximum": 16777215.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
           "library_id": {
             "anyOf": [
               {
@@ -1801,6 +1947,15 @@
               }
             ],
             "title": "Library Id"
+          },
+          "library_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Library Ids",
+            "type": "array"
           },
           "name": {
             "maxLength": 100,
@@ -1814,7 +1969,8 @@
               "unverified_role_id",
               "linked_role_id",
               "library",
-              "reaction"
+              "reaction",
+              "plain"
             ],
             "title": "Purpose",
             "type": "string"
@@ -2832,6 +2988,31 @@
           }
         },
         "summary": "Discord Channels",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/discord/emojis": {
+      "get": {
+        "operationId": "discord_emojis_api_v1_discord_emojis_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EmojiOut"
+                  },
+                  "title": "Response Discord Emojis Api V1 Discord Emojis Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Discord Emojis",
         "tags": [
           "integrations"
         ]
@@ -4344,6 +4525,52 @@
           }
         },
         "summary": "Manual Grants",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/remove-access": {
+      "post": {
+        "description": "Remove libraries from users in Plex now (and their manual grants for them).\n\nLibraries a linked user's Discord roles grant are kept and reported, since the\nnext sync would add them back; change their roles (or the role mapping) instead.",
+        "operationId": "remove_access_api_v1_users_remove_access_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RemoveAccessResult"
+                  },
+                  "title": "Response Remove Access Api V1 Users Remove Access Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Access",
         "tags": [
           "users"
         ]

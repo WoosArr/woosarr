@@ -38,6 +38,10 @@ The rules:
 - Link-status roles (Verified / Unverified / Linked), per-library roles and reaction posts (react to get a role): see `docs/discord-notes.md`.
 - Bot permissions per feature, and how to grant only what you need: `docs/discord-notes.md` → *Bot permissions by feature*.
 
+### Removing access by hand
+
+Users page → select users → **Remove libraries**: removes those libraries from the users in Plex now, together with any manual grants for them (dry-run respected, audited as `access_removed_admin`). For a linked user, libraries their Discord roles grant are kept and listed, because the next sync would add them back: remove the role in Discord or change the role mapping instead. For unlinked users WooSarr doesn't manage access, so nothing re-adds a removed library.
+
 ### Members who leave the Discord server
 
 Default: their role-granted libraries are removed; manual grants and exempt libraries stay. Change this under *Settings → General*.

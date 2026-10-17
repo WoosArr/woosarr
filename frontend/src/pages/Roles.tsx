@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, type ImpactOut, type LibraryOut, type RoleOut } from "../api";
+import { api, type ImpactOut, type LibraryOut, type RoleCreated, type RoleOut } from "../api";
+import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Modal, PageHead, RoleChip, Spinner, useLoad, useToast } from "../ui";
 import { LibraryChooser } from "./LibraryChooser";
@@ -9,6 +10,8 @@ export default function RolesPage() {
   const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const [editing, setEditing] = useState<RoleOut | null>(null);
   const [showManaged, setShowManaged] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const { available, why } = useDiscordFeatures();
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
   const shown = (roles.data ?? []).filter((r) => showManaged || !r.managed || r.library_ids.length);
 
@@ -19,6 +22,9 @@ export default function RolesPage() {
           <input type="checkbox" checked={showManaged} onChange={(e) => setShowManaged(e.target.checked)} />
           Show bot/integration roles
         </label>
+        <button className="btn primary" disabled={!available("create_roles") || !libraries.data} title={why("create_roles") ?? "Create a new Discord role"} onClick={() => setCreating(true)}>
+          <Icon name="plus" /> Create role
+        </button>
       </PageHead>
       <ErrorBanner error={roles.error ?? libraries.error} />
       {roles.loading && !roles.data ? <Spinner /> : null}
@@ -55,6 +61,9 @@ export default function RolesPage() {
             </tbody>
           </table>
         </div>
+      ) : null}
+      {creating && libraries.data ? (
+        <CreateRoleModal libraries={libraries.data} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); void roles.reload(); }} />
       ) : null}
       {editing && libraries.data ? (
         <RoleEditor
@@ -139,6 +148,45 @@ function RoleEditor({ role, libraries, onClose, onSaved }: { role: RoleOut; libr
             </ul>
           </>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+function CreateRoleModal({ libraries, onClose, onCreated }: { libraries: LibraryOut[]; onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#7c3aed");
+  const [libs, setLibs] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post<RoleCreated>("/api/v1/discord/roles", {
+        name: name.trim(), purpose: "plain", library_ids: [...libs], color: parseInt(color.slice(1), 16),
+      });
+      toast.ok(`Created ${r.name} in Discord${libs.size ? " and mapped its libraries. A sync has been queued." : "."}`);
+      onCreated();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Create a Discord role" onClose={onClose} actions={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>{busy ? "Creating…" : "Create role"}</button>
+      </>
+    }>
+      <div className="stack">
+        <label className="field">Name<input type="text" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="e.g. Movie Night" /></label>
+        <label className="field">Colour
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 64, height: 36, padding: 2 }} />
+        </label>
+        <LibraryChooser libraries={libraries} selected={libs} onChange={setLibs} label="Members with this role get (optional, can be changed later):" />
+        <p className="small muted" style={{ margin: 0 }}>The role is created at the bottom of the role list, below the bot's role, so WooSarr can assign it.</p>
       </div>
     </Modal>
   );

@@ -161,6 +161,12 @@ class FakeChannel:
         return self.messages[mid]
 
 
+def discord_emoji(eid, name):
+    import discord
+
+    return discord.PartialEmoji(name=name, id=eid)
+
+
 def perms(**granted):
     base = {n: False for n in F.PERMISSION_BITS}
     base.update(granted)
@@ -175,6 +181,7 @@ class FakeGuild:
         self.channel = FakeChannel(900, "plex-access")
         self.text_channels = [self.channel]
         self.created_roles = []
+        self.emojis = []
 
     def get_role(self, rid):
         return SimpleNamespace(position=self._roles[rid]) if rid in self._roles else None
@@ -185,9 +192,9 @@ class FakeGuild:
     def get_channel(self, cid):
         return next((c for c in self.text_channels if c.id == cid), None)
 
-    async def create_role(self, name, mentionable=False, reason=None):
-        role = SimpleNamespace(id=4242 + len(self.created_roles), name=name, color=SimpleNamespace(value=0),
-                               position=1, managed=False)
+    async def create_role(self, name, mentionable=False, reason=None, colour=None):
+        role = SimpleNamespace(id=4242 + len(self.created_roles), name=name,
+                               color=SimpleNamespace(value=colour.value if colour else 0), position=1, managed=False)
         self.created_roles.append(role)
         return role
 
@@ -237,6 +244,15 @@ class GuildFeatureTests(Base):
         status = {f["key"]: f for f in self.svc.feature_status()}
         self.assertFalse(status["link_roles"]["available"])
         self.assertTrue(status["link_roles"]["notes"])
+
+    def test_create_role_with_colour_and_emoji_list(self):
+        guild = FakeGuild(perms(manage_roles=True))
+        guild.emojis = [discord_emoji(123456, "plex")]
+        self.attach(guild)
+        self.fire(self.svc.create_role("Movie Night", 0x9B59B6))
+        self.assertEqual(guild.created_roles[0].color.value, 0x9B59B6)
+        emojis = self.fire(self.svc.list_emojis())
+        self.assertEqual(emojis[0]["text"], "<:plex:123456>")
 
     def test_create_role_requires_permission(self):
         guild = FakeGuild(perms())

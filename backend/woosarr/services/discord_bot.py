@@ -284,16 +284,23 @@ class _GuildFeatures:
         if not ok:
             raise DiscordConfigError(why)
 
-    async def create_role(self, name: str) -> tuple[str, str]:
+    async def create_role(self, name: str, color: int | None = None) -> tuple[str, str]:
         self.require("create_roles")
         guild = self._guild()
         try:
-            role = await guild.create_role(name=name[:100], mentionable=False, reason="Created by WooSarr")
+            kwargs = {"colour": discord.Colour(color)} if color is not None else {}
+            role = await guild.create_role(name=name[:100], mentionable=False, reason="Created by WooSarr", **kwargs)
         except discord.Forbidden as exc:
             raise DiscordConfigError("Discord refused to create the role (Manage Roles missing?)") from exc
         await self.run_db(cache.upsert_role, _role(role))
         log.info("discord role created %s (%s)", role.name, role.id)
         return str(role.id), role.name
+
+    async def list_emojis(self) -> list[dict[str, object]]:
+        """The server's custom emoji, for the reaction post picker."""
+        guild = self._guild()
+        return [{"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
+                 "url": str(e.url), "available": bool(getattr(e, "available", True))} for e in guild.emojis]
 
     async def list_channels(self) -> list[dict[str, str]]:
         guild = self._guild()

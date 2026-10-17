@@ -80,7 +80,7 @@ export default function UsersPage() {
           <Icon name="plus" /> Add libraries{selected.size ? ` (${selected.size})` : ""}
         </button>
         <button className="btn" disabled={!selected.size} onClick={() => setBulk("remove")}>
-          <Icon name="minus" /> Remove manual grants
+          <Icon name="minus" /> Remove libraries{selected.size ? ` (${selected.size})` : ""}
         </button>
       </PageHead>
 
@@ -209,6 +209,17 @@ export default function UsersPage() {
   );
 }
 
+interface RemoveResult {
+  plex_user_id: string;
+  username: string;
+  removed: string[];
+  kept_by_roles: string[];
+  manual_removed: string[];
+  not_shared: string[];
+  error: string | null;
+  dry_run: boolean;
+}
+
 function BulkModal({
   action,
   users,
@@ -224,31 +235,56 @@ function BulkModal({
 }) {
   const [libs, setLibs] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<RemoveResult[] | null>(null);
   const toast = useToast();
+  const titles = new Map(libraries.map((l) => [l.library_id, l.title]));
+  const names = (ids: string[]) => ids.map((id) => titles.get(id) ?? id).join(", ");
   const submit = async () => {
     setBusy(true);
     try {
-      const r = await api.post<{ changed: number }>("/api/v1/users/manual-grants", {
-        plex_user_ids: users.map((u) => u.plex_user_id),
-        library_ids: [...libs],
-        action,
-      });
-      toast.ok(`${r.changed} manual grant${r.changed === 1 ? "" : "s"} ${action === "add" ? "added" : "removed"}. Syncing.`);
-      onDone();
+      if (action === "add") {
+        const r = await api.post<{ changed: number }>("/api/v1/users/manual-grants", {
+          plex_user_ids: users.map((u) => u.plex_user_id), library_ids: [...libs], action: "add",
+        });
+        toast.ok(`${r.changed} manual grant${r.changed === 1 ? "" : "s"} added. Syncing.`);
+        onDone();
+      } else {
+        setResults(await api.post<RemoveResult[]>("/api/v1/users/remove-access", {
+          plex_user_ids: users.map((u) => u.plex_user_id), library_ids: [...libs],
+        }));
+      }
     } catch (e) {
       toast.error(e);
     } finally {
       setBusy(false);
     }
   };
+  if (results) {
+    return (
+      <Modal title="Remove libraries: results" onClose={onDone} actions={<button className="btn primary" onClick={onDone}>Done</button>}>
+        {results[0]?.dry_run ? <div className="banner warn small"><Icon name="eye" /><div>Dry-run is on: nothing was changed in Plex; the audit trail shows what would have been removed.</div></div> : null}
+        <ul className="small" style={{ paddingLeft: 18 }}>
+          {results.map((r) => (
+            <li key={r.plex_user_id} style={{ marginBottom: 6 }}>
+              <strong>{r.username}</strong>
+              {r.error ? <> — <span style={{ color: "var(--danger)" }}>{r.error}</span></> : null}
+              {r.removed.length ? <> — removed {names(r.removed)}</> : null}
+              {r.kept_by_roles.length ? <> — kept {names(r.kept_by_roles)} (their Discord roles grant it; change roles or the role mapping)</> : null}
+              {!r.error && !r.removed.length && !r.kept_by_roles.length ? <> — nothing to remove</> : null}
+            </li>
+          ))}
+        </ul>
+      </Modal>
+    );
+  }
   return (
     <Modal
-      title={action === "add" ? "Add libraries manually" : "Remove manual grants"}
+      title={action === "add" ? "Add libraries manually" : "Remove libraries"}
       onClose={onClose}
       actions={
         <>
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={!libs.size || busy} onClick={() => void submit()}>
+          <button className={`btn ${action === "remove" ? "danger" : "primary"}`} disabled={!libs.size || busy} onClick={() => void submit()}>
             {action === "add" ? "Add" : "Remove"}
           </button>
         </>
@@ -260,7 +296,7 @@ function BulkModal({
       <p className="small muted">
         {action === "add"
           ? "Manual grants stay no matter which roles a user has."
-          : "Removing a manual grant only removes access that no role or exemption still gives."}
+          : "Removes the libraries from these users in Plex now, plus any manual grants for them. Libraries a linked user's Discord roles grant are kept, since the next sync would add them back."}
       </p>
       <LibraryChooser libraries={libraries} selected={libs} onChange={setLibs} label="Libraries" />
     </Modal>

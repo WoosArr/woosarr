@@ -5,6 +5,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- Reaction post editor: emoji picker with search (this server's custom emoji + common emoji); typing/pasting still works.
+- Roles page: create a Discord role (name, colour, optional libraries).
+- Users page: **Remove libraries** removes the selected libraries from users in Plex now (and their manual grants); libraries a linked user's roles grant are kept and reported. Replaces "Remove manual grants", which only removed WooSarr manual grants and did nothing for shares made in Plex or by roles before unlinking.
 - Link-status roles: the bot keeps optional Verified / Unverified / Linked roles in step with each member's Plex link; roles can be created from Settings.
 - Libraries page: create a Discord role for a library (mapped automatically).
 - `/invite`: "All members" option.

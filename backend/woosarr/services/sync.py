@@ -20,8 +20,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 
+from sqlalchemy import select
+
 from woosarr.core import app_settings
-from woosarr.db.models import utcnow
+from woosarr.db.models import ManualGrant, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
 from woosarr.services import audit, inventory, invites
@@ -218,6 +220,71 @@ class SyncService:
             self.last_report = report
         self._notify(report)
         return report
+
+    def remove_access(self, plex_user_ids: Iterable[str], library_ids: Iterable[str],
+                      actor: str) -> list[dict[str, object]]:
+        """Admin action: take libraries away from users now, in Plex.
+
+        Removes matching manual grants, then removes the libraries from each
+        user's live shares (complete-set write, N6). For a linked user, libraries
+        their Discord roles still grant are kept (the next sync would re-add
+        them); the result says so. Respects dry-run; audited per user.
+        """
+        wanted = frozenset(library_ids)
+        results: list[dict[str, object]] = []
+        with self._run_lock:
+            with self._db.session() as s:
+                settings = app_settings.load(s)
+                manual_removed: dict[str, list[str]] = {}
+                for uid in plex_user_ids:
+                    rows = list(s.scalars(select(ManualGrant).where(ManualGrant.plex_user_id == uid,
+                                                                    ManualGrant.library_id.in_(wanted))))
+                    manual_removed[uid] = sorted(r.library_id for r in rows)
+                    for r in rows:
+                        s.delete(r)
+            gateway = self._gateway()
+            with self._db.session() as s:
+                snap = load_snapshot(s)
+            for uid, manual in manual_removed.items():
+                entry: dict[str, object] = {"plex_user_id": uid, "manual_removed": manual, "removed": [],
+                                            "kept_by_roles": [], "not_shared": [], "error": None}
+                results.append(entry)
+                if uid in snap.owner_ids:
+                    entry["error"] = "the server owner always has every library"
+                    continue
+                if gateway is None:
+                    entry["error"] = "Plex is not configured"
+                    continue
+                with self._user_lock(uid):
+                    try:
+                        current = gateway.get_user_library_ids(uid)
+                    except Exception as exc:  # reported per user
+                        log.exception("remove access: reading shares failed for user=%s", uid)
+                        entry["error"] = f"{type(exc).__name__}: {exc}"
+                        continue
+                    state = user_state(snap, uid, settings, current)
+                    role_libs: set[str] = set()
+                    if state is not None and state.linked:
+                        for role in state.role_ids:
+                            role_libs |= set(snap.role_map.get(role, ())) & snap.universe
+                    keep = wanted & current & role_libs
+                    remove = (wanted & current) - keep
+                    entry.update(removed=sorted(remove), kept_by_roles=sorted(keep),
+                                 not_shared=sorted(wanted - current))
+                    if remove and not settings.dry_run:
+                        try:
+                            gateway.set_user_libraries(uid, current - remove)
+                        except Exception as exc:  # reported per user
+                            log.exception("remove access: write failed for user=%s", uid)
+                            entry["error"] = f"{type(exc).__name__}: {exc}"
+                            continue
+                        with self._db.session() as s:
+                            inventory.store_shares(s, uid, current - remove)
+                with self._db.session() as s:
+                    audit.record(s, actor, "access_removed_admin", "plex_user", uid, dry_run=settings.dry_run,
+                                 removed=entry["removed"], kept_by_roles=entry["kept_by_roles"],
+                                 manual_removed=manual, not_shared=entry["not_shared"])
+        return results
 
     def _run(self, only: list[str] | None, reason: str, drop_roles: bool = False) -> SyncReport:
         with self._db.session() as s:

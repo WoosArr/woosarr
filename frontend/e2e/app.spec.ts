@@ -105,12 +105,28 @@ test("reaction post draft with emoji and roles", async ({ page }) => {
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("group", { name: "Roles for reaction 1" }).getByLabel(/Movie Night/).check();
   await dialog.getByRole("button", { name: "Add reaction" }).click();
-  await dialog.getByLabel("Emoji").nth(1).fill("📺");
+  await dialog.getByRole("button", { name: "Emoji 2: choose emoji" }).click();
+  await dialog.getByLabel("Search emoji").fill("popcorn");
+  await dialog.getByRole("button", { name: /🍿/ }).click();
+  await expect(dialog.getByLabel("Emoji 2", { exact: true })).toHaveValue("🍿");
   await dialog.getByRole("group", { name: "Roles for reaction 2" }).getByLabel(/Series Fans/).check();
   await dialog.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
   await expect(page.getByText("Draft")).toBeVisible();
   await expect(page.getByText(/Series Fans · 0/)).toBeVisible();
+});
+
+test("remove libraries shows per-user results", async ({ page }) => {
+  await login(page);
+  await page.goto("/users");
+  await page.getByLabel("Select bob").check();
+  await page.getByRole("button", { name: /Remove libraries/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Family Videos").check();
+  await dialog.getByRole("button", { name: "Remove" }).click();
+  await expect(dialog.getByText(/Dry-run is on/)).toBeVisible();
+  await expect(dialog.getByText(/removed Family Videos/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Done" }).click();
 });
 
 test("logs and audit trail", async ({ page }) => {

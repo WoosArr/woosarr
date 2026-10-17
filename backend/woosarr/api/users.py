@@ -184,6 +184,40 @@ def manual_grants(body: ManualGrantsIn, request: Request, db: DbDep, principal: 
     return ManualGrantsOut(changed=changed)
 
 
+class RemoveAccessIn(BaseModel):
+    plex_user_ids: list[str] = Field(min_length=1, max_length=500)
+    library_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class RemoveAccessResult(BaseModel):
+    plex_user_id: str
+    username: str
+    removed: list[str]
+    kept_by_roles: list[str]
+    manual_removed: list[str]
+    not_shared: list[str]
+    error: str | None
+    dry_run: bool
+
+
+@router.post("/users/remove-access", response_model=list[RemoveAccessResult])
+def remove_access(body: RemoveAccessIn, request: Request, db: DbDep, principal: AdminDep) -> list[RemoveAccessResult]:
+    """Remove libraries from users in Plex now (and their manual grants for them).
+
+    Libraries a linked user's Discord roles grant are kept and reported, since the
+    next sync would add them back; change their roles (or the role mapping) instead.
+    """
+    names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username)
+                            .where(PlexUser.plex_user_id.in_(body.plex_user_ids))).all())
+    missing = sorted(set(body.plex_user_ids) - set(names))
+    if missing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown Plex users: {missing[:10]}")
+    dry_run = app_settings.load(db).dry_run
+    db.commit()  # release the session before the sync worker takes its lock
+    results = request.app.state.sync.remove_access(body.plex_user_ids, body.library_ids, principal.actor)
+    return [RemoveAccessResult(**r, username=names.get(str(r["plex_user_id"]), ""), dry_run=dry_run) for r in results]
+
+
 class AdminLinkIn(BaseModel):
     discord_user_id: Annotated[str, Field(pattern=r"^\d{5,25}$")]
 

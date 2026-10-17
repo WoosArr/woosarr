@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
@@ -257,9 +258,11 @@ def discord_invite_url(request: Request, features_csv: Annotated[str, Query(alia
 
 class RoleCreateIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=100)]
-    # reaction: just create the role (e.g. to give from a reaction post)
-    purpose: Literal["verified_role_id", "unverified_role_id", "linked_role_id", "library", "reaction"]
+    # plain/reaction: a new role, optionally mapped to library_ids (Roles page, reaction posts)
+    purpose: Literal["verified_role_id", "unverified_role_id", "linked_role_id", "library", "reaction", "plain"]
     library_id: str | None = None
+    library_ids: Annotated[list[str], Field(max_length=200)] = []
+    color: Annotated[int | None, Field(ge=0, le=0xFFFFFF)] = None
 
 
 class RoleCreated(BaseModel):
@@ -271,28 +274,52 @@ class RoleCreated(BaseModel):
 async def discord_create_role(body: RoleCreateIn, request: Request, principal: AdminDep) -> RoleCreated:
     """Create a Discord role and use it as a link-status role or for one library."""
     svc = _discord(request)
-    library_missing = not body.library_id or await svc.run_db(lambda s: s.get(Library, body.library_id)) is None
-    if body.purpose == "library" and library_missing:
+    libraries = set(body.library_ids) | ({body.library_id} if body.purpose == "library" and body.library_id else set())
+    if body.purpose == "library" and not body.library_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "library not found")
+    known = await svc.run_db(lambda s: set(s.scalars(select(Library.library_id)
+                                                    .where(Library.library_id.in_(libraries)))))
+    if libraries - known:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown libraries: {sorted(libraries - known)}")
     try:
-        role_id, name = await svc.create_role(body.name)
+        role_id, name = await svc.create_role(body.name, body.color)
     except DiscordConfigError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
 
     def save(s):
-        if body.purpose == "library":
-            s.add(RoleLibrary(role_id=role_id, library_id=body.library_id))
-        elif body.purpose != "reaction":
+        for lib in sorted(libraries):
+            s.add(RoleLibrary(role_id=role_id, library_id=lib))
+        if body.purpose.endswith("_role_id"):
             app_settings.update(s, {body.purpose: role_id})
         audit.record(s, principal.actor, "discord_role_created", "role", role_id, name=name, purpose=body.purpose,
-                     library_id=body.library_id)
+                     library_ids=sorted(libraries))
 
     await svc.run_db(save)
-    if body.purpose == "library":
-        request.app.state.sync.trigger(None, f"library role {name} created")
-    elif body.purpose != "reaction":
+    if libraries:
+        request.app.state.sync.trigger(None, f"role {name} created with libraries")
+    if body.purpose.endswith("_role_id"):
         svc.schedule_role_sync()
     return RoleCreated(role_id=role_id, name=name)
+
+
+class EmojiOut(BaseModel):
+    id: str
+    name: str
+    animated: bool
+    text: str  # <:name:id> / <a:name:id>, what reaction options store
+    url: str
+    available: bool
+
+
+@router.get("/discord/emojis", response_model=list[EmojiOut])
+async def discord_emojis(request: Request) -> list[EmojiOut]:
+    svc = request.app.state.discord
+    if svc is None:
+        return []  # demo mode
+    try:
+        return [EmojiOut(**e) for e in await svc.list_emojis()]
+    except DiscordConfigError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
 
 
 class ChannelOut(BaseModel):

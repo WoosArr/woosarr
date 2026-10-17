@@ -253,7 +253,8 @@ class SyncService:
                 inventory.store_shares(s, uid, current)
         state = user_state(snap, uid, settings, current)
         if state is None:
-            log.debug("user=%s skipped by leave-server policy", uid)
+            reason = "server owner" if uid in snap.owner_ids else "leave-server policy"
+            log.debug("user=%s skipped (%s)", uid, reason)
             return
         plan = plan_for_user(state, snap.role_map, snap.exempt)
         if plan is None:  # not linked (N5)

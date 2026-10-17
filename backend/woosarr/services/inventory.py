@@ -63,22 +63,41 @@ def rekey_user(session: Session, old_id: str, new_id: str) -> None:
 
     Friends known only from the community list are keyed "uuid:<id>"; once
     plex.tv reports their numeric account id they're re-keyed so nothing that
-    points at them is lost.
+    points at them is lost. If a row with the numeric id already exists (e.g.
+    the friend had a share before, lost it, then got one again), the two are
+    merged; on conflicts the numeric row's data wins.
     """
     old = session.get(PlexUser, old_id)
-    if old is None or session.get(PlexUser, new_id) is not None:
+    if old is None:
         return
-    session.add(PlexUser(plex_user_id=new_id, username=old.username, email=old.email, is_managed=old.is_managed,
-                         is_owner=old.is_owner, thumb=old.thumb))
-    session.flush()
-    for model in (DiscordLink, ManualGrant, LibraryState):
-        session.execute(update(model).where(model.plex_user_id == old_id).values(plex_user_id=new_id))
+    new = session.get(PlexUser, new_id)
+    merged = new is not None
+    if new is None:
+        new = PlexUser(plex_user_id=new_id, username=old.username, email=old.email, is_managed=old.is_managed,
+                       is_owner=old.is_owner, thumb=old.thumb)
+        session.add(new)
+        session.flush()
+
+    old_link = session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == old_id))
+    if old_link is not None:
+        if session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == new_id)) is None:
+            old_link.plex_user_id = new_id
+        else:
+            log.warning("plex user %s and %s both linked; keeping the link on %s", old_id, new_id, new_id)
+            session.delete(old_link)
+    for grant in list(session.scalars(select(ManualGrant).where(ManualGrant.plex_user_id == old_id))):
+        if session.get(ManualGrant, (new_id, grant.library_id)) is None:
+            session.add(ManualGrant(plex_user_id=new_id, library_id=grant.library_id, granted_by=grant.granted_by,
+                                    granted_at=grant.granted_at))
+        session.delete(grant)
+    session.execute(delete(LibraryState).where(LibraryState.plex_user_id == old_id))  # re-read on this sync
     session.execute(update(AuditLog).where(AuditLog.target_type == "plex_user", AuditLog.target_id == old_id)
                     .values(target_id=new_id))
     session.flush()
     session.delete(old)
     session.flush()
-    log.info("plex user re-keyed %s -> %s (%s)", old_id, new_id, old.username)
+    log.info("plex user re-keyed %s -> %s (%s)%s", old_id, new_id, old.username,
+             " (merged into existing row)" if merged else "")
 
 
 def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
@@ -107,7 +126,7 @@ def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
         if uid not in live and not row.removed:
             row.removed = True
             removed += 1
-            log.info("plex user no longer shared with id=%s username=%s", uid, row.username)
+            log.info("plex user gone from the owner's friends/Home list id=%s username=%s", uid, row.username)
     return len(live), removed
 
 

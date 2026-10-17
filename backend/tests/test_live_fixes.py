@@ -168,3 +168,49 @@ class CommunityFriendsTests(Base):
         warnings = [m for m in cm.output if "no friends list available" in m]
         self.assertEqual(len(warnings), 1)
         self.assertTrue(self.gw.state.ok)  # an optional source failing isn't a Plex outage
+
+
+class RekeyMergeTests(Base):
+    """Live: themunchkin (6101685) had a share, lost it (row marked removed), was
+    re-found as uuid:..., got a share again. The uuid row must merge into 6101685."""
+
+    def test_merge_into_existing_removed_row_keeps_uuid_link_and_grants(self):
+        from woosarr.db.models import Library, ManualGrant
+
+        with self.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="12", username="bob", removed=True),
+                       PlexUser(plex_user_id="uuid:uu12", username="bob"),
+                       Library(library_id="2", title="TV", type="show"),
+                       Library(library_id="3", title="Music", type="artist")])
+            s.flush()
+            s.add(DiscordLink(plex_user_id="uuid:uu12", discord_user_id="d-bob", method="username", verified=False,
+                              linked_by="self"))
+            s.add(ManualGrant(plex_user_id="uuid:uu12", library_id="3", granted_by="admin:x"))
+            s.add(ManualGrant(plex_user_id="12", library_id="3", granted_by="admin:old"))  # duplicate
+            s.add(ManualGrant(plex_user_id="uuid:uu12", library_id="2", granted_by="admin:x"))
+        self.tv.shares["12"] = {"id": 8, "sections": {102}}  # bob is back in /api/users
+        self.plex.complete_owner_login(OWNER)
+        self.plex.select_server(MACHINE)
+        with self.db.session() as s:
+            inventory.refresh_all(s, self.plex.gateway())
+        with self.db.session() as s:
+            self.assertIsNone(s.get(PlexUser, "uuid:uu12"))
+            bob = s.get(PlexUser, "12")
+            self.assertFalse(bob.removed)
+            link = s.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == "d-bob"))
+            self.assertEqual(link.plex_user_id, "12")
+            grants = {(g.library_id, g.granted_by) for g in s.scalars(select(ManualGrant))}
+            self.assertEqual(grants, {("3", "admin:old"), ("2", "admin:x")})
+
+    def test_both_linked_keeps_numeric_link(self):
+        with self.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="12", username="bob", removed=True),
+                       PlexUser(plex_user_id="uuid:uu12", username="bob")])
+            s.flush()
+            s.add(DiscordLink(plex_user_id="12", discord_user_id="d-old", method="oauth", verified=True,
+                              linked_by="self"))
+            s.add(DiscordLink(plex_user_id="uuid:uu12", discord_user_id="d-new", method="username", verified=False,
+                              linked_by="self"))
+            inventory.rekey_user(s, "uuid:uu12", "12")
+        with self.db.session() as s:
+            self.assertEqual([lk.discord_user_id for lk in s.scalars(select(DiscordLink))], ["d-old"])

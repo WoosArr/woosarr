@@ -243,7 +243,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px
 .segmented { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
 .segmented button { font: inherit; font-size: 0.85rem; border: 0; padding: 6px 12px; background: var(--surface); color: var(--text); cursor: pointer; }
 .segmented button + button { border-left: 1px solid var(--border); }
-.segmented button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.segmented button[aria-pressed="true"], .segmented button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
 
 /* ---- Badges ---- */
 .badge {

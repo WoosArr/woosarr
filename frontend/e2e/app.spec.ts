@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 // One fresh demo backend per run; tests run in order and share its state.
@@ -136,6 +137,24 @@ test("going live needs confirmation; sign out returns to login", async ({ page }
   await expect(page.getByText("Dry-run is on.")).toHaveCount(0);
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+});
+
+test("no serious accessibility violations on any page (light and dark)", async ({ page }) => {
+  await login(page);
+  const problems: string[] = [];
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
+    for (const path of ["/", "/users", "/roles", "/libraries", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+      for (const v of results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")) {
+        problems.push(`${theme} ${path}: ${v.id} (${v.nodes.length}) ${v.nodes[0]?.target.join(" ")}`);
+      }
+    }
+  }
+  expect(problems).toEqual([]);
 });
 
 test("mobile layout uses a drawer for navigation", async ({ page }) => {

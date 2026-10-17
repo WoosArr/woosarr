@@ -26,7 +26,7 @@ export default function RolesPage() {
         <div className="card"><Empty icon="roles" title="No roles yet">Roles appear once the Discord bot is connected.</Empty></div>
       ) : null}
       {shown.length > 0 ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Discord roles">
           <table className="responsive">
             <thead>
               <tr><th>Role</th><th>Libraries</th><th>Linked members</th><th aria-label="Actions" /></tr>

@@ -104,7 +104,7 @@ export default function UsersPage() {
         </div>
       ) : null}
       {shown.length > 0 ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Plex users">
           <table className="responsive">
             <thead>
               <tr>

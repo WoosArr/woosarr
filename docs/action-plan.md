@@ -17,11 +17,12 @@
 
 - **Repo:** https://github.com/WoosArr/woosarr, branch `main`. Local clone: `~/Documents/GitHub/git-WoosArr/woosarr`.
 - **Port:** **31337** (D15; was 2000).
-- **Done and tested (71 backend tests + 6 opt-in real-Plex contract tests skipped, 2 vitest):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API** (`GET /api/v1/logs`, `GET /api/v1/logs/file`), `PlexGateway` contract tests.
+- **Done and tested (146 backend tests + 6 opt-in real-Plex contract tests skipped, 2 vitest, 9 Playwright incl. axe):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API**, SQLite + migrations, admin auth (sessions, CSRF, lockout, API keys, first-run setup code), sync service (worker, debounce, periodic reconcile, audit), full domain API, the **web UI** (all pages, themes, colour-vision palettes), recovery CLI, multi-arch image with smoke test and secret scan.
 - **Ran for real locally:** `python -m woosarr` serves health, UI, logs on :31337 and stops cleanly on SIGTERM (~0.2 s).
 - **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs green through `d68c5e8`, including the image smoke test; that image is published as `latest`. No Docker on the dev Mac, so the image is only exercised in CI.
 - **Diagnostics:** nobody has shell access to the deployed server (D16, http://10.0.1.101:31337). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`, which need an admin session or a `read` API key (`Authorization: Bearer wsk_…`). Claude reads the key from `~/.config/woosarr/api-key` and never prints it.
-- **Not started:** every Plex-write implementation, Discord bot, DB layer, auth/wizard/SAML, the entire UI beyond a placeholder.
+- **Not started (all gated, §8):** python-plexapi gateway + Plex OAuth/wizard (P0-02/03/07, P3-*), Discord bot + `/link` + wizard (P0-05, P4-*), SAML (P0-08, P6-05), Unraid install test, v1.0 release.
+- **Live server:** running the new image; waiting for first-run setup (setup code is in the Unraid container log).
 - **First thing to do in a fresh session:** `make install && make check`, and `gh run list --workflow "Docker publish" --limit 3`; fix anything red before new work.
 
 ## 2. Commands
@@ -178,8 +179,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-02** Healthcheck + graceful shutdown (uvicorn `timeout_graceful_shutdown=5`; `docker stop` ~1 s in CI). *Verify:* Docker healthy; `docker stop` exits < 10 s.
 - [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. Done: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. *Remaining:* test install on an Unraid box.
 - [~] **P2-04** Workflows. Done: CI + gated publish + image smoke test; green end-to-end (`d68c5e8`). *Remaining:* push a `v0.1.0` tag (ask first, it publishes a release image) and confirm semver tags. *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
-- [~] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. *Remaining:* first green multi-arch publish. *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
-- [ ] **P2-06** **HUMAN** Make the GHCR package public; document `docker run` / Unraid install in README. *Verify:* anonymous `docker pull` works.
+- [x] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. First multi-arch publish green (`e09ed1c`). *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
+- [x] **P2-06** GHCR package is public (anonymous manifest fetch → 200); README documents `docker run` and Unraid install.
 
 ### Phase 3 — Plex integration (all gated by P0-03)
 - [~] **P3-00** `PlexGateway` interface + `FakePlexGateway` done; shared contract tests in `tests/test_plex_contract.py` (replace-not-merge, round trip, remove last library, idempotent) pass against the fake; real run is opt-in via `WOOSARR_PLEX_CONTRACT=1`. *Remaining:* python-plexapi implementation (`plex_gateway_plexapi.py`) — write only after P0-03 — and wire it into the contract test. *Verify:* contract tests pass against both.
@@ -212,8 +213,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P6-03** Theme: light/dark (OS default + toggle), purple accent, red-green and blue-yellow palettes, extra-contrast option, stored per browser; statuses always icon + text (N8). *Verify:* `python3 scripts/check_contrast.py` (all 12 combinations ≥ 4.5:1, in CI); Playwright `theme` test.
 - [x] **P6-04** Shared components in `src/ui.tsx`: badges, accessible `Field` (hint via aria-describedby), modal, confirm dialog, toasts, empty/loading/error states (with request id), responsive tables.
 - [ ] **P6-05** **HUMAN (needs IdP)** SAML SSO: SP metadata, SP-initiated login + ACS, signature/audience/skew validation, attribute and group mapping, SAML-only toggle with lockout guard. *Verify:* works with a test IdP; unsigned/replayed/expired assertions rejected.
-- [~] **P6-06** First-run admin creation: `POST /api/v1/setup/admin`, disabled forever once an admin exists, race-safe (process lock + PK claim row), needs the one-time setup code printed to **stdout only** (never the log file/API; `WOOSARR_SETUP_CODE_REQUIRED=false` to skip). *Remaining:* wizard UI (P9-03). *Verify:* `test_concurrent_claims_create_exactly_one_admin`.
-- [~] **P6-07** Admin user management API (create/disable/delete/reset/unlock; last active admin protected; disable/reset ends sessions). *Remaining:* Settings UI. *Verify:* `AdminManagementTests`.
+- [x] **P6-06** First-run admin creation: `POST /api/v1/setup/admin`, disabled forever once an admin exists, race-safe (process lock + PK claim row), needs the one-time setup code printed to **stdout only** (never the log file/API; `WOOSARR_SETUP_CODE_REQUIRED=false` to skip). Setup screen in the UI. *Verify:* `test_concurrent_claims_create_exactly_one_admin`; Playwright `first-run setup`.
+- [x] **P6-07** Admin user management API + Settings → Admins UI (create/disable/delete/reset/unlock; last active admin protected; disable/reset ends sessions). *Verify:* `AdminManagementTests`.
 
 ### Phase 7 — Feature pages
 - [x] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked. *Verify:* Playwright `admin links a user…`, `manual grant…`.
@@ -233,7 +234,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P9-03** First-run onboarding: admin step done (setup screen gates the whole UI; Setup page explains Plex/Discord steps). *Remaining:* Plex and Discord steps (P9-01/02). *Verify:* fresh container → working system via UI only.
 
 ### Phase 10 — Security
-- [~] **P10-01** Secret scan: gitleaks over the full git history (CI + pre-commit), Trivy secret scan of the built image before publishing (fails the publish). *Remaining:* first green Trivy run. *Verify:* CI `build` job.
+- [x] **P10-01** Secret scan: gitleaks over the full git history (CI + pre-commit), Trivy secret scan of the built image before publishing (fails the publish); zero findings (`e09ed1c`). *Verify:* CI `build` job.
 - [x] **P10-02** Redaction audit: canaries through urllib3/requests/plexapi/aiohttp/discord.http/httpx debug logs, unregistered token shapes, tracebacks, the 500 handler, startup re-registration, API responses. *Verify:* `pytest tests/test_redaction_audit.py` (5 of 6 fail with redaction disabled; the 6th checks responses structurally).
 - [x] **P10-03** Cookies, headers, CORS, input validation, auth rate limits. Done (live API audit 2026-10-17): CSP/nosniff/frame/referrer/COOP headers, cache policy (`no-store` API, immutable assets, `no-cache` HTML), validated `X-Request-ID`, no `Server` header, real 404 for missing static files, no CORS (same origin only). Cookie flags and auth rate limits in P6-01. Confirmed on the live server after deploy. *Verify:* `pytest tests/test_app.py tests/test_auth.py`; `curl -I http://10.0.1.101:31337/`.
 - [x] **P10-04** README *HTTPS and reverse proxies* (`WOOSARR_FORWARDED_ALLOW_IPS`, `WOOSARR_COOKIE_SECURE`, Caddy example).
@@ -242,11 +243,11 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P10-07** Auth hardening: argon2id defaults (t=3, m=64 MiB, p=4, rehash on login), session rotation, lockout + IP limiter, console recovery (`python -m woosarr.admin`). *Remaining:* SAML-only lockout guard (P6-05).
 
 ### Phase 11 — Testing
-- [ ] **P11-01** Keep unit coverage on engine, secrets, redaction, linking (exists; extend as code grows).
+- [x] **P11-01** Unit tests cover engine, apply, secrets, redaction, linking, config, logs, DB, auth, sync service, recovery (146 backend tests). Keep extending as code grows.
 - [~] **P11-02** Integration tests over HTTP with demo data (`WOOSARR_DEMO=true`: fake Plex + seeded Discord cache) in `tests/test_domain_api.py`, `tests/test_sync_service.py`. *Remaining:* mocked Discord *events* once P4-03 exists.
 - [~] **P11-03** Playwright UI tests (`frontend/e2e`, `make e2e`, CI job `e2e`) against a demo backend: first-run setup, navigation, link/unlink, role mapping + impact, manual grants, exemptions, logs/audit, theme/palette, API key, go-live, mobile drawer; fails on any console error/CSP violation. *Remaining:* Plex/Discord wizards when they exist.
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
-- [~] **P11-05** Contrast checked for every theme combination; labels/hints/ARIA reviewed while fixing Playwright findings. *Remaining:* screen-reader pass (HUMAN) and an axe run.
+- [~] **P11-05** Contrast checked for every theme combination; axe (WCAG 2.1 AA, serious/critical) runs on 10 pages × light/dark in Playwright and passes (fixed: tab ARIA, keyboard-focusable scroll regions, field hints). *Remaining:* **HUMAN** screen-reader pass.
 - [ ] **P11-06** **HUMAN** Unraid install/upgrade/restart/persistence test.
 
 ### Phase 12 — Docs and release

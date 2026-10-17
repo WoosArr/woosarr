@@ -14,8 +14,8 @@ export default function LogsPage() {
     <>
       <PageHead title="Logs" sub="Application logs for debugging, and the audit trail of every access and account change." />
       <div className="segmented" role="tablist" aria-label="Log type" style={{ marginBottom: 14 }}>
-        <button role="tab" aria-selected={tab === "logs"} aria-pressed={tab === "logs"} onClick={() => setParams({})}>Application log</button>
-        <button role="tab" aria-selected={tab === "audit"} aria-pressed={tab === "audit"} onClick={() => setParams({ tab: "audit" })}>Audit trail</button>
+        <button role="tab" aria-selected={tab === "logs"} onClick={() => setParams({})}>Application log</button>
+        <button role="tab" aria-selected={tab === "audit"} onClick={() => setParams({ tab: "audit" })}>Audit trail</button>
       </div>
       {tab === "logs" ? <AppLog initialLevel={params.get("level")} /> : <AuditTrail />}
     </>
@@ -95,6 +95,7 @@ function AppLog({ initialLevel }: { initialLevel: string | null }) {
       <div
         className="log-view"
         ref={view}
+        tabIndex={0}
         role="log"
         aria-label="Application log"
         onScroll={(e) => {
@@ -178,7 +179,7 @@ function AuditTrail() {
       {loading && !entries.length ? <Spinner /> : null}
       {!loading && !entries.length ? <div className="card"><Empty icon="logs" title="Nothing audited yet" /></div> : null}
       {entries.length ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Audit trail">
           <table>
             <thead><tr><th>When</th><th>Who</th><th>What</th><th>Target</th><th>Details</th></tr></thead>
             <tbody>

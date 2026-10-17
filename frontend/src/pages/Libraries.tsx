@@ -43,7 +43,7 @@ export default function LibrariesPage() {
         <div className="card"><Empty icon="library" title="No libraries yet">They appear after WooSarr reads your Plex server.</Empty></div>
       ) : null}
       {libs.data && libs.data.length > 0 ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Plex libraries">
           <table className="responsive">
             <thead><tr><th>Library</th><th>Type</th><th>Granted by roles</th><th>Shared with</th><th>Exempt</th></tr></thead>
             <tbody>

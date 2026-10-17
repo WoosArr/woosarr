@@ -22,7 +22,7 @@ export default function SettingsPage() {
       <PageHead title="Settings" />
       <div className="segmented" role="tablist" aria-label="Settings sections" style={{ marginBottom: 16, flexWrap: "wrap" }}>
         {TABS.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} aria-pressed={tab === k} onClick={() => setParams({ tab: k })}>{label}</button>
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setParams({ tab: k })}>{label}</button>
         ))}
       </div>
       {tab === "general" ? <General /> : null}
@@ -195,7 +195,7 @@ function Admins() {
       </div>
       <ErrorBanner error={admins.error} />
       {admins.data ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Admin accounts">
           <table>
             <thead><tr><th>Username</th><th>Status</th><th>Last sign-in</th><th aria-label="Actions" /></tr></thead>
             <tbody>
@@ -303,7 +303,7 @@ function ApiKeys() {
       </div>
       <ErrorBanner error={keys.error} />
       {keys.data?.length ? (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="API keys">
           <table>
             <thead><tr><th>Name</th><th>Key</th><th>Scope</th><th>Owner</th><th>Last used</th><th aria-label="Actions" /></tr></thead>
             <tbody>

@@ -34,6 +34,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up QEMU (arm64)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -70,12 +73,18 @@ jobs:
       - name: Smoke test (health, healthy status, /config persistence, graceful stop)
         run: scripts/smoke-test.sh woosarr:smoke 31337
 
+      - name: Scan image for secrets (fails) and vulnerabilities (report)
+        run: |
+          trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 "$@"; }
+          trivy image --scanners secret --exit-code 1 --no-progress woosarr:smoke
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --no-progress woosarr:smoke
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -7,12 +7,16 @@ use is_set() / secrets.mask() for display.
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from woosarr.core import redaction
-from woosarr.core.secrets import SecretBox
+from woosarr.core.secrets import SecretBox, SecretError
 from woosarr.db.models import Secret
+
+log = logging.getLogger("woosarr.secrets")
 
 # Known names, so typos don't silently create new secrets.
 PLEX_TOKEN = "plex.token"
@@ -58,10 +62,27 @@ class SecretStore:
         self._check(name)
         return session.get(Secret, name) is not None
 
-    def register_all(self, session: Session) -> None:
-        """At startup: make every stored value known to the log redactor."""
+    def register_all(self, session: Session) -> list[str]:
+        """At startup: make every stored value known to the log redactor.
+
+        Returns the names that can't be decrypted (wrong or lost master key).
+        Those are skipped rather than stopping startup, so the admin can sign
+        in and enter the tokens again.
+        """
+        unreadable = []
         for row in session.scalars(select(Secret)):
-            redaction.register_secret(self._box.decrypt(row.ciphertext))
+            try:
+                redaction.register_secret(self._box.decrypt(row.ciphertext))
+            except SecretError:
+                unreadable.append(row.name)
+                log.error("stored secret %s can't be decrypted with the current master key; enter it again", row.name)
+        return unreadable
+
+    def readable(self, session: Session, name: str) -> bool:
+        try:
+            return self.get(session, name) is not None
+        except SecretError:
+            return False
 
     def rotate(self, session: Session) -> int:
         """Re-encrypt every secret with the current key (after a key change)."""

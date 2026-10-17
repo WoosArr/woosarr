@@ -6,7 +6,7 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo
+.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
@@ -22,7 +22,7 @@ backend/.venv:
 	python3 -m venv backend/.venv
 
 install: backend/.venv
-	cd backend && .venv/bin/pip install -e ".[dev]"
+	cd backend && .venv/bin/pip install -c constraints.txt -e ".[dev]"
 	cd frontend && if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 lint:
@@ -53,6 +53,18 @@ demo: ui
 dev: ui
 	WOOSARR_CONFIG_DIR=$(DEVCONF) WOOSARR_STATIC_DIR=$(CURDIR)/frontend/dist WOOSARR_LOG_FORMAT=text \
 		WOOSARR_PORT=$(PORT) $(PY) -m woosarr
+
+# Re-pin backend runtime dependencies from a clean venv.
+lock:
+	rm -rf .lockvenv && python3 -m venv .lockvenv && .lockvenv/bin/pip install -q ./backend
+	( echo "# Pinned runtime dependency versions (plan P10-05). Regenerate with \`make lock\`."; \
+	  echo "# Used by the Dockerfile and CI: pip install -c constraints.txt ."; \
+	  .lockvenv/bin/pip freeze --exclude-editable | grep -viE "^woosarr" ) > backend/constraints.txt
+	rm -rf .lockvenv
+
+audit:
+	cd backend && .venv/bin/pip-audit --skip-editable
+	cd frontend && npm audit --omit=dev --audit-level=moderate
 
 image:
 	docker build -f docker/Dockerfile -t $(IMAGE) .

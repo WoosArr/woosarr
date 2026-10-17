@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # ---- Stage 1: build the React UI ----
-FROM node:22-alpine AS ui
+# Static output is the same on every platform, so build it natively (no QEMU).
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui
 WORKDIR /ui
 COPY frontend/package.json ./
 # Use the lockfile when present (npm ci), otherwise fall back to npm install.
@@ -26,9 +27,10 @@ RUN apt-get update \
     && useradd -u 99 -g 99 -d /app -s /usr/sbin/nologin woosarr
 
 WORKDIR /app
-COPY backend/pyproject.toml ./pyproject.toml
+COPY backend/pyproject.toml backend/constraints.txt ./
 COPY backend/woosarr ./woosarr
-RUN pip install --no-cache-dir .
+# Pinned versions (P10-05); see `make lock`.
+RUN pip install --no-cache-dir -c constraints.txt .
 
 COPY --from=ui /ui/dist ./static
 COPY docker/entrypoint.sh /entrypoint.sh

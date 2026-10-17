@@ -22,13 +22,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: |
+            backend/pyproject.toml
+            backend/constraints.txt
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -c constraints.txt -e ".[dev]"
       - name: Lint
         run: ruff check .
       - name: Test
         run: python -m pytest -q
+      - name: Dependency audit (pip-audit)
+        run: pip-audit --skip-editable
 
   frontend:
     runs-on: ubuntu-latest
@@ -41,7 +45,9 @@ jobs:
         with:
           node-version: "22"
       - name: Install
-        run: if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        run: npm ci
+      - name: Dependency audit (production deps)
+        run: npm audit --omit=dev --audit-level=moderate
       - name: Test
         run: npm test
       - name: Type-check and build
@@ -64,7 +70,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install backend
-        run: pip install -e backend
+        run: pip install -c backend/constraints.txt -e backend
       - name: Install frontend
         working-directory: frontend
         run: npm ci && npx playwright install --with-deps chromium

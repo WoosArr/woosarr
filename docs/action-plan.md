@@ -178,7 +178,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-02** Healthcheck + graceful shutdown (uvicorn `timeout_graceful_shutdown=5`; `docker stop` ~1 s in CI). *Verify:* Docker healthy; `docker stop` exits < 10 s.
 - [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. Done: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. *Remaining:* test install on an Unraid box.
 - [~] **P2-04** Workflows. Done: CI + gated publish + image smoke test; green end-to-end (`d68c5e8`). *Remaining:* push a `v0.1.0` tag (ask first, it publishes a release image) and confirm semver tags. *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
-- [ ] **P2-05** Re-enable `linux/arm64` (QEMU) once the amd64 pipeline is stable; fix any arm-only dependency problem. *Verify:* multi-arch manifest.
+- [~] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. *Remaining:* first green multi-arch publish. *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
 - [ ] **P2-06** **HUMAN** Make the GHCR package public; document `docker run` / Unraid install in README. *Verify:* anonymous `docker pull` works.
 
 ### Phase 3 — Plex integration (all gated by P0-03)
@@ -233,13 +233,13 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P9-03** First-run onboarding: admin step done (setup screen gates the whole UI; Setup page explains Plex/Discord steps). *Remaining:* Plex and Discord steps (P9-01/02). *Verify:* fresh container → working system via UI only.
 
 ### Phase 10 — Security
-- [ ] **P10-01** Secret scan of repo, image and history (gitleaks, already in CI) — zero findings.
-- [ ] **P10-02** Redaction audit across exception traces and HTTP client debug logs (canary tests).
-- [~] **P10-03** Cookies, headers, CORS, input validation, auth rate limits. Done (live API audit 2026-10-17): CSP/nosniff/frame/referrer/COOP headers, cache policy (`no-store` API, immutable assets, `no-cache` HTML), validated `X-Request-ID`, no `Server` header, real 404 for missing static files, no CORS (same origin only). *Remaining:* cookie flags and auth rate limits (P6-01). *Verify:* `pytest tests/test_app.py`; `curl -I` on the live server.
-- [ ] **P10-04** README guidance: reverse proxy/HTTPS (port 31337 is plain HTTP).
-- [ ] **P10-05** Non-root container, dependency audit (`pip-audit`, `npm audit`), pin versions. Known: `npm audit` flags esbuild/vite ≤ 6.4.2 (dev-server only, not in the built image); fixing it means a vite major upgrade.
-- [ ] **P10-06** Threat model `docs/threat-model.md`: unverified `/link` claims (accepted, mitigated by badge/one-to-one/cooldown/audit/unlink), role escalation, `/config` theft, SAML forgery/replay, first-run takeover.
-- [ ] **P10-07** Auth hardening: argon2 parameters, session rotation, SAML-only lockout guard, brute-force protection.
+- [~] **P10-01** Secret scan: gitleaks over the full git history (CI + pre-commit), Trivy secret scan of the built image before publishing (fails the publish). *Remaining:* first green Trivy run. *Verify:* CI `build` job.
+- [x] **P10-02** Redaction audit: canaries through urllib3/requests/plexapi/aiohttp/discord.http/httpx debug logs, unregistered token shapes, tracebacks, the 500 handler, startup re-registration, API responses. *Verify:* `pytest tests/test_redaction_audit.py` (5 of 6 fail with redaction disabled; the 6th checks responses structurally).
+- [x] **P10-03** Cookies, headers, CORS, input validation, auth rate limits. Done (live API audit 2026-10-17): CSP/nosniff/frame/referrer/COOP headers, cache policy (`no-store` API, immutable assets, `no-cache` HTML), validated `X-Request-ID`, no `Server` header, real 404 for missing static files, no CORS (same origin only). Cookie flags and auth rate limits in P6-01. Confirmed on the live server after deploy. *Verify:* `pytest tests/test_app.py tests/test_auth.py`; `curl -I http://10.0.1.101:31337/`.
+- [x] **P10-04** README *HTTPS and reverse proxies* (`WOOSARR_FORWARDED_ALLOW_IPS`, `WOOSARR_COOKIE_SECURE`, Caddy example).
+- [x] **P10-05** Non-root (gosu → PUID); `backend/constraints.txt` pins runtime deps (`make lock`; Dockerfile + CI install with `-c`); npm lockfile; CI runs `pip-audit` and `npm audit --omit=dev --audit-level=moderate` (`make audit`). react-router upgraded to 7.18.4 for GHSA-wrjc-x8rr-h8h6. Accepted: dev-only vite/esbuild advisory (dev server, not in the image).
+- [x] **P10-06** Threat model `docs/threat-model.md`: unverified `/link` claims (accepted, mitigated by badge/one-to-one/cooldown/audit/unlink), role escalation, `/config` theft, SAML forgery/replay, first-run takeover.
+- [~] **P10-07** Auth hardening: argon2id defaults (t=3, m=64 MiB, p=4, rehash on login), session rotation, lockout + IP limiter, console recovery (`python -m woosarr.admin`). *Remaining:* SAML-only lockout guard (P6-05).
 
 ### Phase 11 — Testing
 - [ ] **P11-01** Keep unit coverage on engine, secrets, redaction, linking (exists; extend as code grows).
@@ -250,9 +250,9 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P11-06** **HUMAN** Unraid install/upgrade/restart/persistence test.
 
 ### Phase 12 — Docs and release
-- [ ] **P12-01** README: install on Unraid, first-run walkthrough, FAQ.
-- [ ] **P12-02** Admin docs for sync rules (additive, exemptions, manual grants, external shares, verified links).
-- [ ] **P12-03** Backup/restore and master-key handling (losing `master.key` = re-enter secrets).
+- [x] **P12-01** README: install (Unraid, Docker), first-run walkthrough with setup code, HTTPS, troubleshooting, backups, FAQ.
+- [x] **P12-02** `docs/admin-guide.md`: sync rules, triggers, leave policy, verified links, dry-run, troubleshooting, admins, env vars.
+- [x] **P12-03** Backup/restore and master key in `docs/admin-guide.md`; startup survives an unreadable secret (logs an error, admin re-enters it). *Verify:* `tests/test_recovery.py`.
 - [ ] **P12-04** v1.0 release: changelog, tag, image, Community Apps submission.
 
 ## 10. Risks and open questions

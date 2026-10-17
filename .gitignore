@@ -37,3 +37,4 @@ frontend/src/generated/
 *.swp
 frontend/test-results/
 frontend/playwright-report/
+.lockvenv/

@@ -40,7 +40,7 @@ class IntegrationApiTests(unittest.TestCase):
         self.assertEqual(poll["state"], "done")
         self.assertEqual(poll["account"]["username"], "owner")
         servers = self.c.get("/api/v1/plex/servers").json()
-        self.assertEqual({s["machine_id"] for s in servers}, {MACHINE, "friend-srv"})
+        self.assertEqual({s["machine_id"] for s in servers}, {MACHINE})
         self.assertEqual(self.c.put("/api/v1/plex/server", json={"machine_id": "friend-srv"}).status_code, 400)
         st = self.c.put("/api/v1/plex/server", json={"machine_id": MACHINE}).json()
         self.assertTrue(st["configured"])

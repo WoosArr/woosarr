@@ -180,14 +180,13 @@ function PlexServerPicker({ current, onDone }: { current?: string; onDone: (s: P
       <legend className="small"><strong>Choose your server</strong></legend>
       <ErrorBanner error={servers.error} />
       {servers.loading && !servers.data ? <Spinner label="Finding servers" /> : null}
-      {servers.data?.length === 0 ? <p className="small muted">No Plex Media Server found on this account.</p> : null}
+      {servers.data?.length === 0 ? <p className="small muted">No Plex Media Server owned by this account. Sign in with the account that owns the server.</p> : null}
       {servers.data?.map((s) => (
         <label key={s.machine_id} className="check">
-          <input type="radio" name="plex-server" value={s.machine_id} checked={pick === s.machine_id} disabled={!s.owned} onChange={() => setPick(s.machine_id)} />
+          <input type="radio" name="plex-server" value={s.machine_id} checked={pick === s.machine_id} onChange={() => setPick(s.machine_id)} />
           <span>
             <strong>{s.name}</strong> <span className="small muted">{s.platform} · {s.version}</span>{" "}
             {s.online ? <Badge tone="ok">Online</Badge> : <Badge tone="neutral">Offline</Badge>}{" "}
-            {!s.owned ? <Badge tone="neutral" icon="lock">Not yours (can't share)</Badge> : null}
           </span>
         </label>
       ))}

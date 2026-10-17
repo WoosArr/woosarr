@@ -118,7 +118,7 @@ class PlexServiceTests(Base):
     def test_server_choice_requires_an_owned_server(self):
         self.plex.complete_owner_login(OWNER)
         servers = {s["machine_id"]: s for s in self.plex.list_servers()}
-        self.assertEqual(set(servers), {MACHINE, "friend-srv"})  # players filtered out
+        self.assertEqual(set(servers), {MACHINE})  # players and servers shared with us left out
         with self.assertRaises(ValueError):
             self.plex.select_server("friend-srv")
         self.plex.select_server(MACHINE)

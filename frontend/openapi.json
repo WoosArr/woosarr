@@ -1185,10 +1185,6 @@
             "title": "Online",
             "type": "boolean"
           },
-          "owned": {
-            "title": "Owned",
-            "type": "boolean"
-          },
           "platform": {
             "anyOf": [
               {
@@ -1215,7 +1211,6 @@
         "required": [
           "machine_id",
           "name",
-          "owned",
           "online",
           "version",
           "platform"

@@ -196,14 +196,15 @@ class PlexService:
     # ---- server choice (P3-02) -----------------------------------------------
 
     def list_servers(self) -> list[dict[str, Any]]:
+        """Servers this account owns. Shared-with-you servers are left out: only an
+        owner can change who a server's libraries are shared with."""
         out = []
         for r in self.owner_account().resources():
-            if "server" not in (r.provides or "").split(","):
+            if "server" not in (r.provides or "").split(",") or not r.owned:
                 continue
             out.append({
                 "machine_id": r.clientIdentifier,
                 "name": r.name,
-                "owned": bool(r.owned),
                 "online": bool(r.presence),
                 "version": r.productVersion,
                 "platform": r.platform,
@@ -213,9 +214,7 @@ class PlexService:
     def select_server(self, machine_id: str) -> dict[str, str]:
         match = next((s for s in self.list_servers() if s["machine_id"] == machine_id), None)
         if match is None:
-            raise ValueError("server not found on this Plex account")
-        if not match["owned"]:
-            raise ValueError("only servers you own can share libraries")
+            raise ValueError("no server you own has that id")
         server = {"machine_id": machine_id, "name": match["name"]}
         with self._db.session() as s:
             kv.put(s, K_SERVER, server)

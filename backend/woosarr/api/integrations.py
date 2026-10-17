@@ -80,7 +80,6 @@ class PlexLoginPoll(BaseModel):
 class PlexServerOut(BaseModel):
     machine_id: str
     name: str
-    owned: bool
     online: bool
     version: str | None
     platform: str | None

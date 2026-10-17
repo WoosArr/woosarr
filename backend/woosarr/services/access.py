@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,8 +22,6 @@ from woosarr.db.models import (
     LibraryState,
     ManualGrant,
     PlexUser,
-    Reaction,
-    ReactionPost,
     RoleLibrary,
 )
 from woosarr.sync.engine import UserState, managed_universe
@@ -41,8 +39,6 @@ class Snapshot:
     cached_shares: dict[str, frozenset[str]]  # plex_user_id -> last observed
     plex_user_ids: list[str]
     owner_ids: frozenset[str] = frozenset()
-    # plex_user_id -> libraries granted by reaction posts (like manual grants)
-    reaction: dict[str, frozenset[str]] = field(default_factory=dict)
 
     @property
     def universe(self) -> frozenset[str]:
@@ -70,26 +66,7 @@ def load_snapshot(session: Session) -> Snapshot:
             session.scalars(select(PlexUser.plex_user_id).where(PlexUser.removed.is_(False)))
         ),
         owner_ids=frozenset(session.scalars(select(PlexUser.plex_user_id).where(PlexUser.is_owner.is_(True)))),
-        reaction=_reaction_grants(session),
     )
-
-
-def _reaction_grants(session: Session) -> dict[str, frozenset[str]]:
-    """Libraries each linked user gets from their reactions on enabled posts."""
-    options: dict[tuple[int, str], set[str]] = {}
-    for post in session.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True))):
-        for opt in post.options or []:
-            options.setdefault((post.id, opt.get("emoji", "")), set()).update(opt.get("library_ids") or [])
-    if not options:
-        return {}
-    plex_of = dict(session.execute(select(DiscordLink.discord_user_id, DiscordLink.plex_user_id)).all())
-    out: dict[str, set[str]] = defaultdict(set)
-    for r in session.scalars(select(Reaction)):
-        libs = options.get((r.post_id, r.emoji))
-        pid = plex_of.get(r.discord_user_id)
-        if libs and pid:
-            out[pid] |= libs
-    return {k: frozenset(v) for k, v in out.items()}
 
 
 def user_state(
@@ -113,8 +90,7 @@ def user_state(
         plex_user_id=plex_user_id,
         linked=linked,
         role_ids=roles,
-        # Reaction grants behave like manual grants: kept regardless of roles.
-        manual=snap.manual.get(plex_user_id, frozenset()) | snap.reaction.get(plex_user_id, frozenset()),
+        manual=snap.manual.get(plex_user_id, frozenset()),
         current=current,
     )
 
@@ -125,12 +101,10 @@ def library_sources(
     """Why each library the user has (or will get) is there: role/manual/exempt/external."""
     out: dict[str, list[str]] = {}
     roles = state.role_ids if state else frozenset()
-    pid = state.plex_user_id if state else ""
-    reaction = snap.reaction.get(pid, frozenset())
-    manual = snap.manual.get(pid, frozenset())
+    manual = state.manual if state else frozenset()
     role_libs = {lib for r in roles for lib in snap.role_map.get(r, ())}
     universe = snap.universe
-    for lib in sorted(current | role_libs | manual | reaction):
+    for lib in sorted(current | role_libs | manual):
         sources: list[str] = []
         if lib in snap.exempt and lib in current:
             sources.append("exempt")
@@ -138,8 +112,6 @@ def library_sources(
             sources.append("role")
         if lib in manual:
             sources.append("manual")
-        if lib in reaction:
-            sources.append("reaction")
         if not sources and lib in current:
             sources.append("external")
         if sources:

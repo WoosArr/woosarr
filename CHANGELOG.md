@@ -8,7 +8,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Link-status roles: the bot keeps optional Verified / Unverified / Linked roles in step with each member's Plex link; roles can be created from Settings.
 - Libraries page: create a Discord role for a library (mapped automatically).
 - `/invite`: "All members" option.
-- Reaction posts (new Reactions page): post and pin a message in a chosen or newly created channel; reacting grants libraries, removing the reaction takes them away; reactions re-read on reconnect.
+- Reaction posts (new Reactions page): post and pin a message in a chosen or newly created channel; reacting gives Discord roles and removing the reaction takes them away (libraries follow from the role mappings); roles re-synced from the reactions on every reconnect.
 - Bot permissions per feature: live availability in Setup, features disabled when permissions are missing, invite link built for the chosen features; documented in `docs/discord-notes.md`.
 - `/unlink` Discord command with a confirmation; new setting *When a member unlinks themselves* (remove role-granted libraries, or leave access as it is).
 - `/invite email [member]` Discord command: invites a Plex account with the libraries the member's roles grant; members with an allowed role can invite themselves, Discord admins can invite for anyone; accepted invites are linked automatically; pending invites shown on the Users page.

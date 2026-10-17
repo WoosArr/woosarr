@@ -204,7 +204,8 @@ class PlexInvite(Base):
 
 
 class ReactionPost(Base):
-    """A message the bot posts (and pins); reacting with an emoji grants libraries."""
+    """A message the bot posts (and pins); reacting with an emoji gives Discord roles
+    (which grant libraries through the normal role mappings)."""
 
     __tablename__ = "reaction_posts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -213,7 +214,7 @@ class ReactionPost(Base):
     channel_id: Mapped[str | None] = mapped_column(String(32))
     message_id: Mapped[str | None] = mapped_column(String(32), unique=True)
     pin: Mapped[bool] = mapped_column(Boolean, default=True)
-    # [{"emoji": "🎬", "label": "Movies", "library_ids": ["1", "4"]}, ...]
+    # [{"emoji": "🎬", "label": "Movies", "role_ids": ["1234…"]}, ...]
     options: Mapped[list[Any]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

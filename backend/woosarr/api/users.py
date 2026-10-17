@@ -47,7 +47,7 @@ class RoleRef(BaseModel):
 class LibraryAccess(BaseModel):
     library_id: str
     title: str
-    sources: list[Literal["role", "manual", "reaction", "exempt", "external"]]
+    sources: list[Literal["role", "manual", "exempt", "external"]]
     shared: bool  # currently shared on Plex (last observed)
 
 

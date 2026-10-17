@@ -51,8 +51,10 @@ FEATURES: tuple[Feature, ...] = (
     Feature("create_roles", "Create roles",
             "Create roles from WooSarr (link-status roles, a role per library).", ("manage_roles",)),
     Feature("reaction_posts", "Reaction posts",
-            "Post a message, add the reactions, and grant/remove libraries when members react.",
-            ("view_channel", "send_messages", "add_reactions", "read_message_history")),
+            "Post a message with reactions; reacting gives the member Discord roles, removing the reaction "
+            "takes them away (libraries follow from the role mappings).",
+            ("view_channel", "send_messages", "add_reactions", "read_message_history", "manage_roles"),
+            needs_role_hierarchy=True),
     Feature("pin_posts", "Pin reaction posts", "Pin the reaction post in its channel.", ("pin_messages",)),
     Feature("create_channel", "Create the reaction channel",
             "Create the channel for a reaction post if it doesn't exist.", ("manage_channels",)),
@@ -71,13 +73,20 @@ def permissions_value(feature_keys: Iterable[str]) -> int:
     return value
 
 
-def feature_report(granted: Mapping[str, bool], hierarchy_ok: bool | None = None) -> list[dict[str, object]]:
-    """Availability of each feature given the bot's guild permissions."""
+def feature_report(
+    granted: Mapping[str, bool], hierarchy_ok: bool | None | Mapping[str, bool | None] = None
+) -> list[dict[str, object]]:
+    """Availability of each feature given the bot's guild permissions.
+
+    hierarchy_ok: whether the bot's top role is above the roles a feature assigns,
+    as one flag for all features or per feature key (None = nothing to check).
+    """
     out = []
     for f in FEATURES:
         missing = [PERMISSION_LABELS[p] for p in f.permissions if not granted.get(p, False)]
         notes = []
-        if f.needs_role_hierarchy and hierarchy_ok is False:
+        ok = hierarchy_ok.get(f.key) if isinstance(hierarchy_ok, Mapping) else hierarchy_ok
+        if f.needs_role_hierarchy and ok is False:
             notes.append("move the bot's role above the roles it should assign (Server Settings → Roles)")
         out.append({
             "key": f.key, "label": f.label, "description": f.description,

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut } from "../api";
+import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, ago, useConfirm, useLoad, useToast } from "../ui";
@@ -8,31 +8,35 @@ type Option = ReactionPostIn["options"] extends (infer O)[] | undefined ? O : ne
 
 const BLANK: ReactionPostIn = {
   title: "Plex libraries",
-  content: "React below to get access to these Plex libraries. Remove your reaction to give it back.\nNot linked yet? Run /link first.",
+  content: "React below to get these roles (and the Plex libraries they unlock). Remove your reaction to drop the role.\nNot linked yet? Run /link so your roles can update your Plex access.",
   pin: true,
   enabled: true,
-  options: [{ emoji: "🎬", label: "Movies", library_ids: [] }],
+  options: [{ emoji: "🎬", label: "Movies", role_ids: [] }],
 };
 
 export default function ReactionsPage() {
   const posts = useLoad(() => api.get<ReactionPostOut[]>("/api/v1/reaction-posts"));
   const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
+  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
   const [editing, setEditing] = useState<ReactionPostOut | "new" | null>(null);
   const { why } = useDiscordFeatures();
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
+  const roleById = new Map((roles.data ?? []).map((r) => [r.role_id, r]));
+  const libsOf = (roleIds: string[]) =>
+    [...new Set(roleIds.flatMap((id) => roleById.get(id)?.library_ids ?? []))].map((id) => titles.get(id) ?? id);
   const blocked = why("reaction_posts");
 
   return (
     <>
-      <PageHead title="Reactions" sub="Pinned Discord posts where reacting grants libraries and removing the reaction takes them away.">
+      <PageHead title="Reactions" sub="Pinned Discord posts where reacting gives members roles and removing the reaction takes them away.">
         <button className="btn primary" onClick={() => setEditing("new")}><Icon name="plus" /> New post</button>
       </PageHead>
       {blocked ? <div className="banner warn"><Icon name="alert" /><div className="small">{blocked}. See Setup → Discord for the bot's permissions.</div></div> : null}
       <div className="banner info">
         <Icon name="info" />
         <div className="small">
-          Reaction access works like a manual grant: it stays when roles change and is removed when the member removes the reaction.
-          Only linked members get access; reactions from unlinked members apply once they <code>/link</code>.
+          Reactions give and remove <strong>Discord roles</strong>. Plex libraries then follow from the role mappings on the Roles page,
+          for linked members. Removing a reaction removes its roles unless another reaction the member kept gives the same role.
         </div>
       </div>
       <ErrorBanner error={posts.error} />
@@ -50,27 +54,32 @@ export default function ReactionsPage() {
               </div>
             </div>
             <div className="row">
-              {(p.options ?? []).map((o) => (
-                <span key={o.emoji} className="badge accent">
-                  <span aria-hidden="true">{o.emoji.startsWith("<") ? "🔹" : o.emoji}</span>
-                  {o.label || o.library_ids.map((id) => titles.get(id) ?? id).join(", ")}{" "}
-                  <span className="muted">· {p.reactions[o.emoji] ?? 0}</span>
-                </span>
-              ))}
+              {(p.options ?? []).map((o) => {
+                const libs = libsOf(o.role_ids);
+                return (
+                  <span key={o.emoji} className="badge accent" title={libs.length ? `Libraries: ${libs.join(", ")}` : "These roles grant no libraries yet"}>
+                    <span aria-hidden="true">{o.emoji.startsWith("<") ? "🔹" : o.emoji}</span>
+                    {o.label || o.role_ids.map((id) => roleById.get(id)?.name ?? id).join(", ")}{" "}
+                    <span className="muted">· {p.reactions[o.emoji] ?? 0}</span>
+                  </span>
+                );
+              })}
             </div>
           </section>
         ))}
       </div>
-      {editing && libraries.data ? (
-        <PostEditor post={editing === "new" ? null : editing} libraries={libraries.data}
+      {editing && roles.data ? (
+        <PostEditor post={editing === "new" ? null : editing} roles={roles.data} libraryTitles={titles}
+          onRolesChanged={() => void roles.reload()}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void posts.reload(); }} />
       ) : null}
     </>
   );
 }
 
-function PostEditor({ post, libraries, onClose, onSaved }: {
-  post: ReactionPostOut | null; libraries: LibraryOut[]; onClose: () => void; onSaved: () => void;
+function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSaved }: {
+  post: ReactionPostOut | null; roles: RoleOut[]; libraryTitles: Map<string, string>;
+  onRolesChanged: () => void; onClose: () => void; onSaved: () => void;
 }) {
   const [draft, setDraft] = useState<ReactionPostIn>(post ? {
     title: post.title, content: post.content, channel_id: post.channel_id, pin: post.pin, enabled: post.enabled,
@@ -85,7 +94,20 @@ function PostEditor({ post, libraries, onClose, onSaved }: {
   const confirm = useConfirm();
   const options = draft.options ?? [];
   const setOpt = (i: number, patch: Partial<Option>) =>
-    setDraft({ ...draft, options: options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
+    setDraft((d) => ({ ...d, options: (d.options ?? []).map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
+  const assignable = roles.filter((r) => !r.managed && !r.deleted);
+
+  const createRole = async (i: number) => {
+    const name = options[i].label?.trim() || `Reaction ${options[i].emoji}`;
+    try {
+      const r = await api.post<RoleCreated>("/api/v1/discord/roles", { name, purpose: "reaction" });
+      setOpt(i, { role_ids: [...options[i].role_ids, r.role_id] });
+      toast.ok(`Created role ${r.name}. Map it to libraries on the Roles page.`);
+      onRolesChanged();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
 
   const save = async (): Promise<ReactionPostOut | null> => {
     setError(null);
@@ -166,20 +188,26 @@ function PostEditor({ post, libraries, onClose, onSaved }: {
                   <Icon name="trash" size={14} />
                 </button>
               </div>
-              <div className="chooser" style={{ marginTop: 8 }} role="group" aria-label={`Libraries for reaction ${i + 1}`}>
-                {libraries.filter((l) => !l.removed).map((l) => {
-                  const on = o.library_ids.includes(l.library_id);
+              <div className="chooser" style={{ marginTop: 8 }} role="group" aria-label={`Roles for reaction ${i + 1}`}>
+                {assignable.map((r) => {
+                  const on = o.role_ids.includes(r.role_id);
+                  const libs = r.library_ids.map((id) => libraryTitles.get(id) ?? id);
                   return (
-                    <label key={l.library_id} className="check">
-                      <input type="checkbox" checked={on} onChange={() => setOpt(i, { library_ids: on ? o.library_ids.filter((x) => x !== l.library_id) : [...o.library_ids, l.library_id] })} />
-                      <span>{l.title}</span>
+                    <label key={r.role_id} className="check" title={libs.length ? `Grants: ${libs.join(", ")}` : "Grants no libraries yet"}>
+                      <input type="checkbox" checked={on} onChange={() => setOpt(i, { role_ids: on ? o.role_ids.filter((x) => x !== r.role_id) : [...o.role_ids, r.role_id] })} />
+                      <span>{r.name}{libs.length ? <span className="small muted"> · {libs.join(", ")}</span> : null}</span>
                     </label>
                   );
                 })}
               </div>
+              <div style={{ marginTop: 8 }}>
+                <button className="btn sm" disabled={!available("create_roles")} title={why("create_roles") ?? "Create a new Discord role for this reaction"} onClick={() => void createRole(i)}>
+                  <Icon name="plus" size={14} /> Create role{o.label ? ` "${o.label}"` : ""}
+                </button>
+              </div>
             </div>
           ))}
-          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", label: "", library_ids: [] }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
+          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", label: "", role_ids: [] }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
         </fieldset>
       </div>
     </Modal>

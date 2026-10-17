@@ -248,24 +248,31 @@ class _GuildFeatures:
             raise DiscordConfigError("The bot isn't in the selected Discord server.")
         return guild
 
-    def _permissions(self) -> tuple[dict[str, bool], bool | None, int | None]:
-        """(granted permissions, role hierarchy ok for link roles, bot's top role position)."""
+    def _permissions(self) -> tuple[dict[str, bool], dict[str, bool | None]]:
+        """(granted permissions, per-feature "bot's role is above the roles it assigns")."""
         try:
             guild = self._guild()
         except DiscordConfigError:
-            return {}, None, None
+            return {}, {}
         me = guild.me
         perms = me.guild_permissions
         granted = {name: bool(getattr(perms, name, False) or perms.administrator) for name in features.PERMISSION_BITS}
         with self._db.session() as s:
             st = app_settings.load(s)
-        targets = [guild.get_role(int(r)) for r in (st.verified_role_id, st.unverified_role_id, st.linked_role_id) if r]
-        positions = [r.position for r in targets if r is not None]
-        hierarchy = me.top_role.position > max(positions) if positions else None
-        return granted, hierarchy, me.top_role.position
+            reaction_roles = {r for p in s.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True)))
+                              for o in p.options or [] for r in o.get("role_ids") or []}
+        top = me.top_role.position
+
+        def above(role_ids) -> bool | None:
+            roles = [guild.get_role(int(r)) for r in role_ids]
+            positions = [r.position for r in roles if r is not None]
+            return top > max(positions) if positions else None
+
+        link_roles = [r for r in (st.verified_role_id, st.unverified_role_id, st.linked_role_id) if r]
+        return granted, {"link_roles": above(link_roles), "reaction_posts": above(reaction_roles)}
 
     def feature_status(self) -> list[dict[str, object]]:
-        granted, hierarchy, _pos = self._permissions()
+        granted, hierarchy = self._permissions()
         if not granted:
             # Unknown permissions: features that need none (slash commands) still work.
             return [f if not f["permissions"] else dict(f, available=False, missing=[], notes=["bot not connected"])
@@ -372,34 +379,83 @@ class _GuildFeatures:
         except (discord.NotFound, discord.Forbidden, DiscordConfigError) as exc:
             log.warning("could not delete reaction post message %s: %s", message_id, exc)
 
+    @staticmethod
+    def _reaction_roles(session) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[str]]]:
+        """(message_id, emoji) -> role ids for enabled posts, and member -> roles wanted by reactions."""
+        options: dict[tuple[str, str], set[str]] = {}
+        by_post: dict[int, str] = {}
+        for post in session.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True),
+                                                               ReactionPost.message_id.is_not(None))):
+            by_post[post.id] = post.message_id
+            for o in post.options or []:
+                options.setdefault((post.message_id, normalize_emoji(o["emoji"])), set()).update(o.get("role_ids") or [])
+        wanted: dict[str, set[str]] = {}
+        for r in session.scalars(select(Reaction)):
+            roles = options.get((by_post.get(r.post_id, ""), r.emoji))
+            if roles:
+                wanted.setdefault(r.discord_user_id, set()).update(roles)
+        return options, wanted
+
+    async def _apply_member_roles(self, guild: discord.Guild, discord_user_id: str, add: set[str],
+                                  remove: set[str], reason: str) -> None:
+        member = guild.get_member(int(discord_user_id))
+        if member is None:
+            return
+        have = {str(r.id) for r in member.roles}
+        add, remove = add - have, remove & have
+        try:
+            if add:
+                await member.add_roles(*[discord.Object(int(r)) for r in add], reason=reason)
+            if remove:
+                await member.remove_roles(*[discord.Object(int(r)) for r in remove], reason=reason)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            log.warning("reaction roles for %s not updated (%s); check Manage Roles and role order", discord_user_id, exc)
+            return
+        if add or remove:
+            log.info("reaction roles for %s: +%s -%s", discord_user_id, sorted(add), sorted(remove))
+
     async def reaction_changed(self, message_id: str, discord_user_id: str, emoji: str,
                                added: bool) -> None:
+        """React -> give the option's roles; un-react -> remove them unless another kept
+        reaction still gives them. Libraries then follow from the role mappings."""
         emoji = normalize_emoji(emoji)
 
         def work(s):
             post = s.scalar(select(ReactionPost).where(ReactionPost.message_id == message_id))
             if post is None or not any(normalize_emoji(o["emoji"]) == emoji for o in post.options or []):
-                return None, False
+                return None
             row = s.get(Reaction, (post.id, discord_user_id, emoji))
             if added and row is None:
                 s.add(Reaction(post_id=post.id, discord_user_id=discord_user_id, emoji=emoji))
             elif not added and row is not None:
                 s.delete(row)
-            pid = s.scalar(select(DiscordLink.plex_user_id).where(DiscordLink.discord_user_id == discord_user_id))
+            s.flush()
+            options, wanted = self._reaction_roles(s)
+            roles = options.get((message_id, emoji), set()) if post.enabled else set()
             audit.record(s, f"discord:{discord_user_id}", "reaction_added" if added else "reaction_removed",
-                         "reaction_post", str(post.id), emoji=emoji, linked_plex_user_id=pid)
-            return pid, True
+                         "reaction_post", str(post.id), emoji=emoji, role_ids=sorted(roles))
+            return roles, wanted.get(discord_user_id, set())
 
-        pid, relevant = await self.run_db(work)
-        if not relevant:
+        result = await self.run_db(work)
+        if not result:
             return
-        if pid:
-            self.trigger([pid], f"reaction {'added' if added else 'removed'} by discord {discord_user_id}")
+        roles, still_wanted = result
+        if not roles:
+            return
+        ok, why = features.available(self.feature_status(), "reaction_posts")
+        if not ok:
+            log.warning("reaction recorded but roles not changed: %s", why)
+            return
+        guild = self._guild()
+        if added:
+            await self._apply_member_roles(guild, discord_user_id, roles, set(), "WooSarr reaction role")
         else:
-            log.info("reaction %s by discord %s recorded; not linked yet, applies after /link", emoji, discord_user_id)
+            await self._apply_member_roles(guild, discord_user_id, set(), roles - still_wanted,
+                                           "WooSarr reaction role removed")
 
     async def reconcile_reactions(self) -> None:
-        """Re-read every published post's reactions (catches changes made while offline)."""
+        """Re-read every published post's reactions (catches changes made while offline)
+        and give/remove the reaction roles to match."""
         try:
             guild = self._guild()
         except DiscordConfigError:
@@ -407,6 +463,7 @@ class _GuildFeatures:
         posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id, [o["emoji"] for o in p.options or []])
                                              for p in s.scalars(select(ReactionPost).where(
                                                  ReactionPost.message_id.is_not(None)))])
+        before = await self.run_db(lambda s: self._reaction_roles(s)[1])
         for post_id, channel_id, message_id, emojis in posts:
             channel = guild.get_channel(int(channel_id)) if channel_id else None
             if not isinstance(channel, discord.TextChannel):
@@ -434,6 +491,13 @@ class _GuildFeatures:
 
             await self.run_db(replace)
             log.info("reaction post %s: %s reactions read", post_id, len(rows))
+        after = await self.run_db(lambda s: self._reaction_roles(s)[1])
+        if not features.available(self.feature_status(), "reaction_posts")[0]:
+            return
+        for uid in set(before) | set(after):
+            add, remove = after.get(uid, set()), before.get(uid, set()) - after.get(uid, set())
+            if add or remove:
+                await self._apply_member_roles(guild, uid, add, remove, "WooSarr reaction roles (resync)")
 
     def schedule_role_sync(self) -> None:
         """Thread-safe: refresh link-status roles soon (coalesces bursts)."""

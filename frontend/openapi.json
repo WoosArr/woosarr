@@ -936,7 +936,6 @@
               "enum": [
                 "role",
                 "manual",
-                "reaction",
                 "exempt",
                 "external"
               ],
@@ -1628,19 +1627,20 @@
             "title": "Label",
             "type": "string"
           },
-          "library_ids": {
+          "role_ids": {
             "items": {
+              "pattern": "^\\d{1,25}$",
               "type": "string"
             },
-            "maxItems": 50,
+            "maxItems": 10,
             "minItems": 1,
-            "title": "Library Ids",
+            "title": "Role Ids",
             "type": "array"
           }
         },
         "required": [
           "emoji",
-          "library_ids"
+          "role_ids"
         ],
         "title": "ReactionOption",
         "type": "object"
@@ -1813,7 +1813,8 @@
               "verified_role_id",
               "unverified_role_id",
               "linked_role_id",
-              "library"
+              "library",
+              "reaction"
             ],
             "title": "Purpose",
             "type": "string"

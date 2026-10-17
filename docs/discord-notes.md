@@ -10,7 +10,7 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | **/link, /unlink, /invite** | Slash commands with private replies | *(none)* | `applications.commands` scope (in the invite link) |
 | **Link-status roles** | Give/remove the Verified, Unverified and Linked roles | **Manage Roles** | The bot's highest role must be **above** those roles (Server Settings → Roles, drag the bot's role up) |
 | **Create roles** | Create link-status roles and per-library roles from WooSarr | **Manage Roles** | New roles are created at the bottom, below the bot's role |
-| **Reaction posts** | Post the message, add its reactions, grant/remove libraries when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) | Guild reactions intent (not privileged; always on) |
+| **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |
 | **Pin reaction posts** | Pin the post | **Pin Messages** | Optional; without it the post is still sent, just not pinned |
 | **Create the reaction channel** | Create the channel if it doesn't exist | **Manage Channels** | Optional; pick an existing channel instead |
 
@@ -78,7 +78,7 @@ Libraries page → **Create role** creates `Plex · <library>` and maps it to th
 
 Reactions page:
 
-1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit), each mapped to one or more libraries. Unicode emoji (🎬) or server emoji (`<:plex:123…>`).
+1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit), each giving one or more **Discord roles** (pick existing roles or **Create role** inline). Unicode emoji (🎬) or server emoji (`<:plex:123…>`). Bot/integration roles can't be chosen.
 2. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
-3. Members **react** to get the libraries and **remove the reaction** to give them back. Reaction access works like a manual grant (kept when roles change, never blocked by exemptions). Only linked members get access; reactions from unlinked members are stored and apply after `/link`.
-4. On every (re)connect the bot re-reads each post's reactions, so changes made while it was offline are caught. Disabling a post (or deleting it) removes the access it granted on the next sync.
+3. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
+4. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.

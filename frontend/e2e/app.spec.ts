@@ -98,19 +98,19 @@ test("manual grant, exemption and unlink with confirmation", async ({ page }) =>
   await expect(page.getByRole("row", { name: /alice/ }).getByText("Not linked")).toBeVisible();
 });
 
-test("reaction post draft with emoji and libraries", async ({ page }) => {
+test("reaction post draft with emoji and roles", async ({ page }) => {
   await login(page);
   await page.goto("/reactions");
   await page.getByRole("button", { name: "New post" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("group", { name: "Libraries for reaction 1" }).getByLabel("Movies", { exact: true }).check();
+  await dialog.getByRole("group", { name: "Roles for reaction 1" }).getByLabel(/Movie Night/).check();
   await dialog.getByRole("button", { name: "Add reaction" }).click();
   await dialog.getByLabel("Emoji").nth(1).fill("📺");
-  await dialog.getByRole("group", { name: "Libraries for reaction 2" }).getByLabel("TV Shows").check();
+  await dialog.getByRole("group", { name: "Roles for reaction 2" }).getByLabel(/Series Fans/).check();
   await dialog.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
   await expect(page.getByText("Draft")).toBeVisible();
-  await expect(page.getByText(/TV Shows · 0/)).toBeVisible();
+  await expect(page.getByText(/Series Fans · 0/)).toBeVisible();
 });
 
 test("logs and audit trail", async ({ page }) => {

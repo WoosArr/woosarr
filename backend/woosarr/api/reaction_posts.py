@@ -1,4 +1,7 @@
-"""Reaction posts: a pinned message whose reactions grant/remove libraries."""
+"""Reaction posts: a pinned message whose reactions give/remove Discord roles.
+
+Libraries follow from the normal role -> library mappings (Roles page).
+"""
 
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
-from woosarr.db.models import Library, Reaction, ReactionPost
+from woosarr.db.models import DiscordRole, Reaction, ReactionPost
 from woosarr.services import audit
 from woosarr.services.discord_bot import DiscordConfigError, normalize_emoji
 
@@ -20,7 +23,7 @@ router = APIRouter(prefix="/reaction-posts", tags=["reaction-posts"], dependenci
 class ReactionOption(BaseModel):
     emoji: Annotated[str, Field(min_length=1, max_length=100)]
     label: Annotated[str, Field(max_length=100)] = ""
-    library_ids: Annotated[list[str], Field(min_length=1, max_length=50)]
+    role_ids: Annotated[list[Annotated[str, Field(pattern=r"^\d{1,25}$")]], Field(min_length=1, max_length=10)]
 
     @field_validator("emoji")
     @classmethod
@@ -61,7 +64,10 @@ def _out(db, post: ReactionPost) -> ReactionPostOut:
     counts = dict(db.execute(select(Reaction.emoji, func.count()).where(Reaction.post_id == post.id)
                              .group_by(Reaction.emoji)).all())
     return ReactionPostOut(id=post.id, title=post.title, content=post.content, channel_id=post.channel_id,
-                           pin=post.pin, enabled=post.enabled, options=[ReactionOption(**o) for o in post.options],
+                           pin=post.pin, enabled=post.enabled,
+                           options=[ReactionOption.model_construct(emoji=o.get("emoji", ""), label=o.get("label", ""),
+                                                                   role_ids=o.get("role_ids") or [])
+                                    for o in post.options],
                            message_id=post.message_id, published_at=post.published_at, reactions=counts)
 
 
@@ -69,10 +75,15 @@ def _validate(db, body: ReactionPostIn) -> list[dict]:
     emojis = [o.emoji for o in body.options]
     if len(set(emojis)) != len(emojis):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "each emoji can only be used once")
-    wanted = {lib for o in body.options for lib in o.library_ids}
-    known = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(wanted))))
-    if wanted - known:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown libraries: {sorted(wanted - known)}")
+    wanted = {r for o in body.options for r in o.role_ids}
+    roles = {r.role_id: r for r in db.scalars(select(DiscordRole).where(DiscordRole.role_id.in_(wanted)))}
+    unknown = sorted(wanted - set(roles))
+    if unknown:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown Discord roles: {unknown}")
+    unusable = sorted(r.name for r in roles.values() if r.managed or r.deleted)
+    if unusable:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            f"these roles can't be given by a bot: {unusable}")
     return [o.model_dump() for o in body.options]
 
 
@@ -108,8 +119,6 @@ def update_post(post_id: int, body: ReactionPostIn, request: Request, db: DbDep,
     db.flush()
     audit.record(db, principal.actor, "reaction_post_updated", "reaction_post", str(post_id),
                  options=post.options, enabled=post.enabled)
-    # Mapping or enabled changes can move access for everyone who reacted.
-    request.app.state.sync.trigger(None, f"reaction post {post_id} changed")
     return _out(db, post)
 
 
@@ -123,8 +132,8 @@ async def delete_post(post_id: int, request: Request, principal: AdminDep) -> No
         s.delete(post)
         audit.record(s, principal.actor, "reaction_post_deleted", "reaction_post", str(post_id))
     if svc is not None:
+        # Roles members got from this post are left as they are.
         await svc.unpublish_post(channel_id, message_id)
-    request.app.state.sync.trigger(None, f"reaction post {post_id} deleted")
 
 
 @router.post("/{post_id}/publish", response_model=PublishOut)
@@ -133,8 +142,7 @@ async def publish(post_id: int, body: PublishIn, request: Request, principal: Ad
     if svc is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Discord isn't available in demo mode")
     try:
-        result = await svc.publish_post(post_id, body.new_channel_name)
+        result = await svc.publish_post(post_id, body.new_channel_name)  # also re-syncs reaction roles
     except DiscordConfigError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
-    request.app.state.sync.trigger(None, f"reaction post {post_id} published by {principal.actor}")
     return PublishOut(**result)

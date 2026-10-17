@@ -206,7 +206,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P4-08** `/invite email [member]`: self-invite for allowed roles, admins for anyone, libraries from roles (no exempt), refusals (dry-run, linked, pending, already on server, cooldown), `plex_invites` table (migration 0003), auto-link on acceptance, Users page list/cancel. *Verify:* `tests/test_invite_unlink.py::InviteTests`, gateway invite test. *Remaining:* **LIVE** send and accept a real invite.
 - [~] **P4-09** Link-status roles (Verified/Unverified/Linked) kept in step after every sync; create from Settings. *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** with Manage Roles + hierarchy.
 - [~] **P4-10** Per-library role creation (Libraries page) mapped to the library. *Remaining:* **LIVE**.
-- [~] **P4-11** Reaction posts: channel pick/create, post/edit, reactions, pin, reaction events and reconnect re-read, reaction access source (migration 0004). *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** post + react.
+- [~] **P4-11** Reaction posts (reaction roles): channel pick/create, post/edit, reactions, pin; reacting gives Discord roles, un-reacting removes them (kept if another reaction gives the same role); re-synced on reconnect (migration 0004). Libraries follow from role mappings. *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** post + react.
 - [x] **P4-12** Bot permission feature gating + invite-link builder + `docs/discord-notes.md` breakdown.
 - [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 

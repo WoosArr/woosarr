@@ -257,7 +257,8 @@ def discord_invite_url(request: Request, features_csv: Annotated[str, Query(alia
 
 class RoleCreateIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=100)]
-    purpose: Literal["verified_role_id", "unverified_role_id", "linked_role_id", "library"]
+    # reaction: just create the role (e.g. to give from a reaction post)
+    purpose: Literal["verified_role_id", "unverified_role_id", "linked_role_id", "library", "reaction"]
     library_id: str | None = None
 
 
@@ -281,7 +282,7 @@ async def discord_create_role(body: RoleCreateIn, request: Request, principal: A
     def save(s):
         if body.purpose == "library":
             s.add(RoleLibrary(role_id=role_id, library_id=body.library_id))
-        else:
+        elif body.purpose != "reaction":
             app_settings.update(s, {body.purpose: role_id})
         audit.record(s, principal.actor, "discord_role_created", "role", role_id, name=name, purpose=body.purpose,
                      library_id=body.library_id)
@@ -289,7 +290,7 @@ async def discord_create_role(body: RoleCreateIn, request: Request, principal: A
     await svc.run_db(save)
     if body.purpose == "library":
         request.app.state.sync.trigger(None, f"library role {name} created")
-    else:
+    elif body.purpose != "reaction":
         svc.schedule_role_sync()
     return RoleCreated(role_id=role_id, name=name)
 

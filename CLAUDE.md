@@ -1,17 +1,20 @@
 # WooSarr — instructions for Claude Code
 
-WooSarr syncs Plex library access from Discord roles. Single Docker container (Unraid), web UI on port 2000.
+WooSarr syncs Plex library access from Discord roles. Single Docker container (Unraid), web UI on port 31337.
 
 **Read `docs/action-plan.md` first.** It holds the status snapshot, decisions, non-negotiables, pitfalls and the task list. Work the next unblocked task, run its *Verify* command, update the plan in the same commit.
 
 ## Commands
+- Everything: `make install && make check` (lint + tests, both halves); `make dev` runs the app on :31337
 - Backend: `cd backend && pip install -e ".[dev]" && ruff check . && python -m pytest -q`
 - Frontend: `cd frontend && npm install && npm run build`
-- Image: `docker build -f docker/Dockerfile -t woosarr:dev .`
+- Image: `make image && make smoke` (needs Docker; CI runs the smoke test before publishing)
+- Logs of a running instance: `curl "<host>:31337/api/v1/logs?level=WARNING"`
 - CI: `gh run list --workflow "Docker publish" --limit 3`
 
 ## Rules that matter
-- Commit per task, message `P5-01: short description`. **Do not `git push` unless the user asks**: pushes to `main` publish a Docker image.
+- Always verify (run `make check`) before committing. Commit per task, message `P5-01: short description`, then **always `git push`**. Pushes to `main` publish a Docker image once CI and the image smoke test pass, so never commit half-done work.
+- There is no access to the deployed server. All diagnostics come from logs read through the API (`/api/v1/logs`), so new code must log enough (redacted) to be debugged that way.
 - Never commit, log or print secrets/tokens. Never put a complete token-shaped string in source (GitHub push protection blocks it); assemble canaries at runtime as `tests/test_redaction.py` does.
 - PyPI package for python-plexapi is **`PlexAPI`** (import `plexapi`).
 - All Plex access goes through `PlexGateway`; write the complete library set, never a partial one.

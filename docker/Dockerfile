@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     WOOSARR_CONFIG_DIR=/config \
     WOOSARR_STATIC_DIR=/app/static \
-    WOOSARR_PORT=2000
+    WOOSARR_PORT=31337
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gosu \
@@ -35,10 +35,11 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && mkdir -p /config && chown woosarr:woosarr /config
 
 VOLUME ["/config"]
-EXPOSE 2000
+EXPOSE 31337
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:2000/api/health', timeout=4).status == 200 else 1)"
+    CMD python -c "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('WOOSARR_PORT', '31337'), timeout=4).status == 200 else 1)"
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python", "-m", "uvicorn", "woosarr.main:app", "--host", "0.0.0.0", "--port", "2000"]
+# Host/port come from WOOSARR_HOST / WOOSARR_PORT (core/config.py).
+CMD ["python", "-m", "woosarr"]

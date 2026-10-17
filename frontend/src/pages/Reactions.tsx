@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
 import { EmojiDisplay, EmojiPicker } from "../EmojiPicker";
 import { useDiscordFeatures } from "../features";
@@ -8,12 +8,34 @@ import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, ago, useCon
 type Option = ReactionPostIn["options"] extends (infer O)[] | undefined ? O : never;
 const NEW_ROLE = "__new__";
 
+const DEFAULT_LINE = "{emoji} {role} — {libraries}";
+
+/** Discord-ish preview: role mentions as coloured @chips, line breaks kept. */
+function MessagePreview({ text, roles }: { text: string; roles: Map<string, RoleOut> }) {
+  const parts = text.split(/(<@&\d+>)/g);
+  return (
+    <div className="discord-preview" aria-label="Message preview">
+      {parts.map((part, i) => {
+        const m = /^<@&(\d+)>$/.exec(part);
+        if (!m) return <span key={i}>{part}</span>;
+        const role = roles.get(m[1]);
+        const hex = role?.color ? `#${role.color.toString(16).padStart(6, "0")}` : "var(--accent)";
+        // Text stays in the theme colour (role colours can be low-contrast); the role colour tints it.
+        return <span key={i} className="mention" style={{ borderBottom: `2px solid ${hex}`, background: `color-mix(in srgb, ${hex} 16%, transparent)` }}>@{role?.name ?? "role"}</span>;
+      })}
+    </div>
+  );
+}
+
 const BLANK: ReactionPostIn = {
   title: "Plex libraries",
   content: "React below to get these roles (and the Plex libraries they unlock). Remove your reaction to drop the role.\nNot linked yet? Run /link so your roles can update your Plex access.",
   pin: true,
   enabled: true,
-  options: [{ emoji: "🎬", role_id: "", label: "" }],
+  legend: true,
+  legend_template: DEFAULT_LINE,
+  legend_header: "",
+  options: [{ emoji: "🎬", role_id: "", label: "", text: "" }],
 };
 
 export default function ReactionsPage() {
@@ -51,6 +73,7 @@ export default function ReactionsPage() {
               <h2 id={`post-${p.id}`}>{p.title}</h2>
               <div className="row">
                 {p.message_id ? <Badge tone="ok">Posted {ago(p.published_at)}</Badge> : <Badge tone="neutral">Draft</Badge>}
+                {p.outdated ? <Badge tone="info" icon="refresh" title="The text changed (e.g. a role's libraries); the bot updates the post shortly">Update pending</Badge> : null}
                 {!p.enabled ? <Badge tone="warn">Disabled</Badge> : null}
                 <button className="btn sm" onClick={() => setEditing(p)}>Edit</button>
               </div>
@@ -85,8 +108,21 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
 }) {
   const [draft, setDraft] = useState<ReactionPostIn>(post ? {
     title: post.title, content: post.content, channel_id: post.channel_id, pin: post.pin, enabled: post.enabled,
-    options: post.options,
+    options: post.options, legend: post.legend, legend_template: post.legend_template, legend_header: post.legend_header,
   } : BLANK);
+  const [preview, setPreview] = useState<{ text: string; length: number; max_length: number } | null>(null);
+  const roleMap = new Map(roles.map((r) => [r.role_id, r]));
+  const draftKey = JSON.stringify([draft.content, draft.legend, draft.legend_template, draft.legend_header,
+    (draft.options ?? []).map((o) => [o.emoji, o.role_id, o.text])]);
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => {
+      const body = { ...draft, options: (draft.options ?? []).filter((o) => o.emoji && o.role_id) };
+      api.post<{ text: string; length: number; max_length: number }>("/api/v1/reaction-posts/preview", body)
+        .then((r) => live && setPreview(r), () => live && setPreview(null));
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [draftKey]);
   const [newChannel, setNewChannel] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -159,9 +195,21 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
       <div className="stack">
         <ErrorBanner error={error} />
         <Field label="Name (only shown in WooSarr)"><input type="text" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
-        <Field label="Message" hint="What members see in Discord (max 2000 characters).">
+        <Field label="Message" hint="The intro members see in Discord. The legend below is added after it.">
           <textarea rows={4} value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} maxLength={2000} />
         </Field>
+        <label className="check"><input type="checkbox" checked={draft.legend ?? true} onChange={(e) => setDraft({ ...draft, legend: e.target.checked })} />
+          <span>Show the roles and libraries under the message <span className="small muted">— updated automatically when a role's libraries change</span></span></label>
+        {draft.legend ?? true ? (
+          <>
+            <Field label="Legend heading (optional)">
+              <input type="text" value={draft.legend_header ?? ""} maxLength={200} placeholder="e.g. **React to get access:**" onChange={(e) => setDraft({ ...draft, legend_header: e.target.value })} />
+            </Field>
+            <Field label="Line for each reaction" hint="Placeholders: {emoji} {role} (mention) {role_name} {libraries}. Discord markdown works (**bold**, *italic*).">
+              <input type="text" value={draft.legend_template ?? DEFAULT_LINE} maxLength={300} onChange={(e) => setDraft({ ...draft, legend_template: e.target.value || DEFAULT_LINE })} />
+            </Field>
+          </>
+        ) : null}
         <Field label="Channel" hint={channels.error ? "Connect the Discord bot to list channels." : undefined}>
           <select value={draft.channel_id ?? ""} onChange={(e) => setDraft({ ...draft, channel_id: e.target.value || null })}>
             <option value="">{available("create_channel") ? "New channel…" : "Choose…"}</option>
@@ -216,6 +264,13 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
                   <Icon name="trash" size={14} />
                 </button>
               </div>
+              {draft.legend ?? true ? (
+                <div style={{ marginTop: 8 }}>
+                  <Field label="Custom line for this reaction (optional)" hint="Leave empty to use the line above. Same placeholders.">
+                    <input type="text" value={o.text ?? ""} maxLength={300} placeholder={draft.legend_template ?? DEFAULT_LINE} onChange={(e) => setOpt(i, { text: e.target.value })} />
+                  </Field>
+                </div>
+              ) : null}
               {newRoleFor === i ? (
                 <div className="row" style={{ marginTop: 8, alignItems: "flex-end" }}>
                   <Field label="New role name">
@@ -228,8 +283,19 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
               {!available("create_roles") ? <p className="small muted" style={{ margin: "6px 0 0" }}>{why("create_roles")}</p> : null}
             </div>
           ))}
-          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", role_id: "", label: "" }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
+          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", role_id: "", label: "", text: "" }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
         </fieldset>
+        <div>
+          <div className="row spread">
+            <h3 style={{ margin: 0 }}>Preview</h3>
+            {preview ? (
+              <span className="small" style={{ color: preview.length > preview.max_length ? "var(--danger)" : "var(--text-muted)" }}>
+                {preview.length} / {preview.max_length} characters
+              </span>
+            ) : null}
+          </div>
+          {preview ? <MessagePreview text={preview.text} roles={roleMap} /> : <Spinner label="Rendering" />}
+        </div>
       </div>
     </Modal>
   );

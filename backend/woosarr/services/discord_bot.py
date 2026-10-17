@@ -25,7 +25,7 @@ from woosarr.core import app_settings, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, Reaction, ReactionPost, utcnow
 from woosarr.db.session import Database
-from woosarr.services import audit, invites, link_service
+from woosarr.services import audit, invites, link_service, reaction_text
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
 
@@ -185,6 +185,8 @@ class WooSarrBot(discord.Client):
     async def on_guild_role_update(self, before: discord.Role, after: discord.Role) -> None:
         if self._ours(after.guild):
             await self.service.run_db(cache.upsert_role, _role(after))
+            if before.name != after.name:
+                self.service.schedule_post_refresh()  # {role_name} in legends
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         if payload.guild_id == self.guild_id and self.user and payload.user_id != self.user.id:
@@ -201,6 +203,7 @@ class WooSarrBot(discord.Client):
             affected = await self.service.run_db(cache.role_deleted, str(role.id))
             if affected:
                 self.service.trigger(affected, f"discord role {role.id} deleted")
+            self.service.schedule_post_refresh()
 
 
 class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
@@ -328,7 +331,8 @@ class _GuildFeatures:
             post = s.get(ReactionPost, post_id)
             if post is None:
                 raise DiscordConfigError("reaction post not found")
-            return {"channel_id": post.channel_id, "message_id": post.message_id, "content": post.content,
+            return {"channel_id": post.channel_id, "message_id": post.message_id,
+                    "content": reaction_text.render_post(s, post),
                     "pin": post.pin, "options": list(post.options or []), "title": post.title}
 
         post = await self.run_db(load)
@@ -350,7 +354,7 @@ class _GuildFeatures:
         if post["message_id"] and str(channel.id) == post["channel_id"]:
             try:
                 message = await channel.fetch_message(int(post["message_id"]))
-                await message.edit(content=post["content"])
+                await message.edit(content=post["content"], allowed_mentions=discord.AllowedMentions.none())
             except discord.NotFound:
                 message = None
         if message is None:
@@ -373,6 +377,7 @@ class _GuildFeatures:
         def save(s):
             row = s.get(ReactionPost, post_id)
             row.channel_id, row.message_id, row.published_at = str(channel.id), str(message.id), utcnow()
+            row.rendered_content = post["content"]
             audit.record(s, "system", "reaction_post_published", "reaction_post", str(post_id),
                          channel=channel.name, message_id=str(message.id), pinned=pinned)
 
@@ -513,6 +518,62 @@ class _GuildFeatures:
             if add or remove:
                 await self._apply_member_roles(guild, uid, add, remove, "WooSarr reaction roles (resync)")
 
+    def schedule_post_refresh(self) -> None:
+        """Thread-safe: re-render published posts soon and edit those whose text changed."""
+        loop = self._loop
+        if loop is None or self._client is None:
+            return
+
+        def start() -> None:
+            if self._post_task is None or self._post_task.done():
+                self._post_task = asyncio.create_task(self.refresh_posts())
+            else:
+                self._post_again = True
+
+        loop.call_soon_threadsafe(start)
+
+    async def refresh_posts(self) -> int:
+        """Edit published reaction posts whose legend changed (role renamed, role
+        -> library mapping changed, library renamed...). Returns posts edited."""
+        edited = 0
+        while True:
+            self._post_again = False
+            try:
+                guild = self._guild()
+            except DiscordConfigError:
+                return edited
+
+            def due(s):
+                out = []
+                for p in s.scalars(select(ReactionPost).where(ReactionPost.message_id.is_not(None))):
+                    text = reaction_text.render_post(s, p)
+                    if text != p.rendered_content and len(text) <= reaction_text.MAX_MESSAGE:
+                        out.append((p.id, p.channel_id, p.message_id, text))
+                return out
+
+            for post_id, channel_id, message_id, text in await self.run_db(due):
+                channel = guild.get_channel(int(channel_id)) if channel_id else None
+                if not isinstance(channel, discord.TextChannel):
+                    continue
+                try:
+                    msg = await channel.fetch_message(int(message_id))
+                    await msg.edit(content=text, allowed_mentions=discord.AllowedMentions.none())
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                    log.warning("reaction post %s not updated: %s", post_id, exc)
+                    continue
+
+                def save(s, post_id=post_id, text=text):
+                    row = s.get(ReactionPost, post_id)
+                    if row is not None:
+                        row.rendered_content = text
+                        audit.record(s, "system", "reaction_post_updated_text", "reaction_post", str(post_id))
+
+                await self.run_db(save)
+                edited += 1
+                log.info("reaction post %s text updated in Discord", post_id)
+            if not self._post_again:
+                return edited
+
     def schedule_role_sync(self) -> None:
         """Thread-safe: refresh link-status roles soon (coalesces bursts)."""
         loop = self._loop
@@ -601,8 +662,12 @@ class DiscordService(_GuildFeatures):
         self._role_task: asyncio.Task | None = None
         self._role_again = False
         self._role_problem: str | None = None
+        self._post_task: asyncio.Task | None = None
+        self._post_again = False
         if sync is not None:
             sync.after_run.append(lambda _report: self.schedule_role_sync())
+            # Role mappings / library names may have changed: keep reaction post legends current.
+            sync.after_run.append(lambda _report: self.schedule_post_refresh())
         self._client: WooSarrBot | None = None
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None

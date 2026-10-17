@@ -133,8 +133,9 @@ class FakeMessage:
     async def pin(self, reason=None):
         self.pinned = True
 
-    async def edit(self, content=None):
+    async def edit(self, content=None, allowed_mentions=None):
         self.content = content
+        self.edits = getattr(self, "edits", 0) + 1
 
     async def delete(self):
         self.deleted = True
@@ -209,7 +210,9 @@ ALL = {"view_channel": True, "send_messages": True, "add_reactions": True, "read
        "manage_roles": True}
 
 
-class GuildFeatureTests(Base):
+class GuildMixin:
+    """Fake connected guild for DiscordService (use with Base)."""
+
     def setUp(self):
         super().setUp()
         # The service checks isinstance(channel, discord.TextChannel); our fake stands in for it.
@@ -222,6 +225,9 @@ class GuildFeatureTests(Base):
 
     def fire(self, coro):
         return asyncio.run(coro)
+
+
+class GuildFeatureTests(GuildMixin, Base):
 
     def test_link_roles_follow_links(self):
         guild = FakeGuild(perms(manage_roles=True), top=10, role_positions={555: 1, 556: 1, 557: 1})
@@ -273,8 +279,10 @@ class GuildFeatureTests(Base):
             s.get(ReactionPost, 1).message_id = None
         out = self.fire(self.svc.publish_post(1))
         msg = guild.channel.sent[0]
-        self.assertEqual((msg.content, msg.added, msg.pinned, out["pinned"]),
-                         ("React!", ["🎬", "📺", "🍿"], True, True))
+        self.assertEqual((msg.added, msg.pinned, out["pinned"]), (["🎬", "📺", "🍿"], True, True))
+        self.assertTrue(msg.content.startswith("React!\n\n🎬 <@&8001> — "))  # legend under the intro
+        with self.db.session() as s:
+            self.assertEqual(s.get(ReactionPost, 1).rendered_content, msg.content)
         with self.db.session() as s:
             self.assertEqual(s.get(ReactionPost, 1).message_id, str(msg.id))
 
@@ -365,6 +373,54 @@ class GuildFeatureTests(Base):
         self.assertFalse({"8002", "8003"} & self.roles_of(guild, 777))
 
 
+class LegendTests(GuildMixin, Base):
+    def setUp(self):
+        super().setUp()
+        with self.db.session() as s:
+            s.add_all([DiscordRole(role_id="8001", name="Movie Night"), DiscordRole(role_id="8002", name="Snacks")])
+            s.flush()
+            s.add(RoleLibrary(role_id="8001", library_id="1"))
+            s.add(RoleLibrary(role_id="8001", library_id="3"))
+
+    def test_render(self):
+        from woosarr.services import reaction_text as rt
+
+        opts = [{"emoji": "🎬", "role_id": "8001"}, {"emoji": "🍿", "role_id": "8002", "text": "{emoji} snacks for {role_name}"}]
+        text = rt.render("Hi", opts, legend=True, line_template="{emoji} {role} — {libraries}", header="**Pick:**",
+                         role_names={"8001": "Movie Night", "8002": "Snacks"},
+                         role_libraries={"8001": ["Anime", "Movies"]})
+        self.assertEqual(text, "Hi\n\n**Pick:**\n🎬 <@&8001> — Anime, Movies\n🍿 snacks for Snacks")
+        self.assertEqual(rt.render("Hi", opts, legend=False, line_template="x", header="", role_names={},
+                                   role_libraries={}), "Hi")
+        no_libs = rt.render("", opts[1:2], legend=True, line_template="{role_name}: {libraries}", header="",
+                            role_names={"8002": "Snacks"}, role_libraries={})
+        self.assertEqual(no_libs, "🍿 snacks for Snacks")
+        self.assertEqual(rt.render_line("{role.__class__} {unknown} {emoji}", {"emoji": "🎬"}),
+                         "{role.__class__} {unknown} 🎬")
+
+    def test_post_text_updates_when_mapping_or_role_name_changes(self):
+        guild = FakeGuild(perms(**ALL))
+        guild.channel.messages[7001] = FakeMessage(7001)
+        self.attach(guild)
+        from woosarr.services import reaction_text as rt
+
+        with self.db.session() as s:
+            post = s.get(ReactionPost, 1)
+            post.rendered_content = rt.render_post(s, post)  # as published
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 0)  # nothing changed: no edit
+        with self.db.session() as s:
+            s.add(RoleLibrary(role_id="8001", library_id="2"))  # Movie Night now also grants TV
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 1)
+        msg = guild.channel.messages[7001]
+        self.assertIn("Anime, Movies, TV", msg.content)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).options = [{"emoji": "🎬", "role_id": "8001", "text": "{emoji} {role_name}"}]
+            s.get(DiscordRole, "8001").name = "Film Club"
+        self.fire(self.svc.refresh_posts())
+        self.assertIn("🎬 Film Club", msg.content)
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 0)
+
+
 class InviteAllMembersTests(Base):
     def test_all_members_can_self_invite(self):
         from woosarr.plex_gateway import FakePlexGateway
@@ -421,6 +477,14 @@ class ReactionPostApiTests(unittest.TestCase):
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=many).status_code, 422)
         self.assertEqual(self.c.post(f"/api/v1/reaction-posts/{pid}/publish", json={}).status_code, 409)  # demo
         self.assertEqual(len(self.c.get("/api/v1/reaction-posts").json()), 1)
+        pv = self.c.post("/api/v1/reaction-posts/preview", json=dict(body, legend_header="Pick one")).json()
+        self.assertIn("Pick one\n🎬 <@&9001> — ", pv["text"])
+        self.assertEqual(pv["length"], len(pv["text"]))
+        out = self.c.get("/api/v1/reaction-posts").json()[0]
+        self.assertFalse(out["outdated"])  # never posted
+        self.assertIn("<@&9002>", out["preview"])
+        long = dict(body, content="x" * 1990)
+        self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=long).status_code, 422)
         self.assertEqual(self.c.delete(f"/api/v1/reaction-posts/{pid}").status_code, 204)
         self.assertEqual(self.c.get("/api/v1/reaction-posts").json(), [])
 

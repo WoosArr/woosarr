@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Changed
+- Reaction posts list each emoji's role and libraries under the message (editable line template, heading and per-reaction lines, live preview with length check); posts are edited automatically when a role's libraries, a library name or a role name changes.
 - Remove libraries: each library shows ✓ / – / empty for whether all, some or none of the selected users have it; untick to remove; live impact preview, Reset, and Undo after removing.
 - Settings that change access (dry-run, leave-server policy, ignore unverified links) show who gains/loses what before saving; the go-live confirmation includes the numbers.
 - Login rate limiting counts only failed attempts per IP (successful sign-ins no longer count towards the limit).

@@ -114,7 +114,13 @@ test("reaction post draft with emoji and roles", async ({ page }) => {
   await dialog.getByLabel("Search emoji").fill("popcorn");
   await dialog.getByRole("button", { name: /🍿/ }).click();
   await expect(dialog.getByLabel("Emoji 2", { exact: true })).toHaveValue("🍿");
+  await dialog.getByLabel("Legend heading (optional)").fill("Pick one:");
   await pickRole(1, "Series Fans");
+  const preview = dialog.getByLabel("Message preview");
+  await expect(preview).toContainText("Pick one:");
+  await expect(preview).toContainText("@Movie Night");
+  await expect(preview).toContainText("🍿 @Series Fans");
+  await expect(dialog.getByText(/\d+ \/ 2000 characters/)).toBeVisible();
   await dialog.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
   await expect(page.getByText("Draft")).toBeVisible();

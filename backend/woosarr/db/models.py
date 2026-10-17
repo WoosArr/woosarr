@@ -217,6 +217,13 @@ class ReactionPost(Base):
     # [{"emoji": "🎬", "role_id": "1234…", "label": "<role name>"}, ...]; one role per reaction
     options: Mapped[list[Any]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Legend under the message: one line per reaction (services/reaction_text.py).
+    legend: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    legend_template: Mapped[str] = mapped_column(String(300), default="{emoji} {role} — {libraries}",
+                                                 server_default="{emoji} {role} — {libraries}")
+    legend_header: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    # Exactly what was last posted, to edit the message only when the text changes.
+    rendered_content: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
     published_at: Mapped[datetime | None]

@@ -1599,6 +1599,29 @@
         "title": "PlexStatus",
         "type": "object"
       },
+      "PreviewOut": {
+        "properties": {
+          "length": {
+            "title": "Length",
+            "type": "integer"
+          },
+          "max_length": {
+            "default": 2000,
+            "title": "Max Length",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "length"
+        ],
+        "title": "PreviewOut",
+        "type": "object"
+      },
       "PublishIn": {
         "properties": {
           "new_channel_name": {
@@ -1669,6 +1692,12 @@
             "pattern": "^\\d{1,25}$",
             "title": "Role Id",
             "type": "string"
+          },
+          "text": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Text",
+            "type": "string"
           }
         },
         "required": [
@@ -1702,6 +1731,24 @@
             "default": true,
             "title": "Enabled",
             "type": "boolean"
+          },
+          "legend": {
+            "default": true,
+            "title": "Legend",
+            "type": "boolean"
+          },
+          "legend_header": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Legend Header",
+            "type": "string"
+          },
+          "legend_template": {
+            "default": "{emoji} {role} \u2014 {libraries}",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Legend Template",
+            "type": "string"
           },
           "options": {
             "default": [],
@@ -1760,6 +1807,24 @@
             "title": "Id",
             "type": "integer"
           },
+          "legend": {
+            "default": true,
+            "title": "Legend",
+            "type": "boolean"
+          },
+          "legend_header": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Legend Header",
+            "type": "string"
+          },
+          "legend_template": {
+            "default": "{emoji} {role} \u2014 {libraries}",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Legend Template",
+            "type": "string"
+          },
           "message_id": {
             "anyOf": [
               {
@@ -1780,10 +1845,22 @@
             "title": "Options",
             "type": "array"
           },
+          "outdated": {
+            "title": "Outdated",
+            "type": "boolean"
+          },
           "pin": {
             "default": true,
             "title": "Pin",
             "type": "boolean"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "string"
+          },
+          "preview_length": {
+            "title": "Preview Length",
+            "type": "integer"
           },
           "published_at": {
             "anyOf": [
@@ -1817,7 +1894,10 @@
           "id",
           "message_id",
           "published_at",
-          "reactions"
+          "reactions",
+          "preview",
+          "preview_length",
+          "outdated"
         ],
         "title": "ReactionPostOut",
         "type": "object"
@@ -4107,6 +4187,48 @@
           }
         },
         "summary": "Create Post",
+        "tags": [
+          "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts/preview": {
+      "post": {
+        "description": "The message text a draft would post (legend included), without saving.",
+        "operationId": "preview_post_api_v1_reaction_posts_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionPostIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Post",
         "tags": [
           "reaction-posts"
         ]

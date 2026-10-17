@@ -14,7 +14,6 @@ from woosarr import __version__
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
 from woosarr.core import logs as logcore
-from woosarr.core import secret_store as names
 from woosarr.core.app_settings import AppSettings
 from woosarr.db.models import (
     AuditLog,
@@ -57,7 +56,7 @@ def _count(db, model, *where) -> int:
 def get_status(request: Request, db: DbDep) -> StatusOut:
     state = request.app.state
     settings = app_settings.load(db)
-    plex_gw = state.plex_gateway()
+    plex = state.plex_status()
     discord = state.discord_status()
     entries, _ = logcore.buffer().query(min_level=logging.WARNING, limit=5000)
     cutoff = (utcnow() - timedelta(hours=24)).isoformat()
@@ -65,12 +64,10 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     return StatusOut(
         version=__version__,
         dry_run=settings.dry_run,
-        plex=IntegrationStatus(
-            configured=state.secrets.is_set(db, names.PLEX_TOKEN) or plex_gw is not None,
-            connected=plex_gw is not None,
-            detail=None if plex_gw is not None else "Plex integration not set up yet",
+        plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"], detail=plex.get("detail")),
+        discord=IntegrationStatus(
+            configured=discord["configured"], connected=discord["connected"], detail=discord.get("detail")
         ),
-        discord=IntegrationStatus(**discord),
         sync=state.sync.status(),
         counts={
             "plex_users": _count(db, PlexUser, PlexUser.removed.is_(False)),

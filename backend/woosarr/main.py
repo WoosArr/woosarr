@@ -16,6 +16,7 @@ from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
 from woosarr.api import audit_api
 from woosarr.api import auth as auth_api
+from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
 from woosarr.api import roles as roles_api
@@ -31,6 +32,8 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
+from woosarr.services.discord_bot import DiscordService
+from woosarr.services.plex import PlexService
 from woosarr.services.sync import SyncService
 
 log = logging.getLogger("woosarr.app")
@@ -67,21 +70,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         needs_setup = not auth.admin_exists(s)
         stored_settings = app_settings.load(s)
 
-    plex: PlexGateway | None = None
+    plex_service: PlexService | None = None
+    discord_service: DiscordService | None = None
     if settings.demo:
         from woosarr.dev import demo
 
-        plex = demo.make_gateway()
+        demo_gateway: PlexGateway = demo.make_gateway()
         demo.seed_discord(db)
         log.warning("DEMO MODE: fake Plex server and Discord data; nothing real is touched")
-    sync = SyncService(db, lambda: plex)
+
+        def gateway() -> PlexGateway | None:
+            return demo_gateway
+    else:
+        plex_service = PlexService(db, secret_store)
+        gateway = plex_service.gateway
+    sync = SyncService(db, gateway)
+    if not settings.demo:
+        discord_service = DiscordService(db, secret_store, sync.trigger, plex_service)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         sync.start()
-        if plex is not None:
+        if gateway() is not None:
             sync.trigger(None, "startup", delay=1)
+        if discord_service is not None:
+            await discord_service.start()
         yield
+        if discord_service is not None:
+            await discord_service.stop()
         sync.stop()
         log.info("shutdown complete")
 
@@ -92,13 +108,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db = db
     app.state.secrets = secret_store
     app.state.sync = sync
-    app.state.plex_gateway = lambda: plex
-    # Replaced by the Discord service in P4-01.
-    app.state.discord_status = lambda: {
-        "configured": settings.demo,
-        "connected": settings.demo,
-        "detail": "demo data" if settings.demo else "Discord bot not set up yet",
-    }
+    app.state.plex_gateway = gateway
+    app.state.plex = plex_service
+    app.state.discord = discord_service
+    app.state.plex_status = (
+        plex_service.status if plex_service else lambda: {"configured": True, "connected": True, "detail": "demo data"}
+    )
+    app.state.discord_status = (
+        discord_service.status if discord_service
+        else lambda: {"configured": True, "connected": True, "detail": "demo data"}
+    )
     status_api.apply_runtime_settings(app, stored_settings)
     app.state.login_limiter = auth.RateLimiter(max_attempts=10, window_seconds=300)
     app.state.setup_limiter = auth.RateLimiter(max_attempts=10, window_seconds=300)
@@ -137,7 +156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
-                   roles_api, libraries_api, audit_api):
+                   roles_api, libraries_api, audit_api, integrations_api):
         v1.include_router(module.router)
     app.include_router(v1)
 

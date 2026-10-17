@@ -21,6 +21,12 @@ export type ApiKeyCreated = Schemas["ApiKeyCreated"];
 export type MemberOut = Schemas["MemberOut"];
 export type PlanOut = Schemas["PlanOut"];
 export type LoginOut = Schemas["LoginOut"];
+export type PlexStatus = Schemas["PlexStatus"];
+export type PlexServerOut = Schemas["PlexServerOut"];
+export type PlexLoginStart = Schemas["PlexLoginStart"];
+export type PlexLoginPoll = Schemas["PlexLoginPoll"];
+export type DiscordStatus = Schemas["DiscordStatus"];
+export type GuildOut = Schemas["GuildOut"];
 
 export interface Health {
   status: string;

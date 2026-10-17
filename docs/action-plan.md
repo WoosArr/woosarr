@@ -5,7 +5,7 @@
 > **Operating loop**
 > 1. Pick the first task in §9 that is `[ ]` or `[~]`, whose *Depends* are all `[x]`, and that is not marked **HUMAN** (see §8).
 > 2. Do the work. Run the task's **Verify** command(s). Only when they pass, change the checkbox and the *Status snapshot* (§1) in the same commit.
-> 3. Commit per task: `P5-01: short description`. **Do not `git push` unless the user asks** — pushes to `main` publish a Docker image (§3, D14).
+> 3. Commit per task: `P5-01: short description`, then **`git push`** (user rule). Pushes to `main` run CI and publish a Docker image only if CI passes (§3, D14), so never commit half-done work.
 > 4. If a decision is `OPEN` or a task is **HUMAN**-gated, stop and ask. Record answers in §3.
 > 5. Keep task IDs stable. Add new tasks with the next free ID in the phase.
 >
@@ -16,23 +16,30 @@
 ## 1. Status snapshot (2026-10-17)
 
 - **Repo:** https://github.com/WoosArr/woosarr, branch `main`. Local clone: `~/Documents/GitHub/git-WoosArr/woosarr`.
-- **Done and tested (49 stdlib unit tests):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture.
-- **Written, not yet exercised:** FastAPI skeleton (`/api/health` + SPA serving), Vite/React placeholder, `PlexGateway` interface + fake, Unraid template.
-- **CI/CD:** `docker-publish.yml` calls `ci.yml` first (lint, tests, frontend build, gitleaks), then builds `linux/amd64` and pushes to GHCR. An earlier ungated run published an image successfully. The gated pipeline's last known state: frontend and secret-scan passed; backend failed `ruff` (BLE001 in `core/redaction.py`) and the fix was awaiting push; pytest has **not yet run in CI**. Re-check with `gh run list --workflow "Docker publish" --limit 3`.
+- **Port:** **31337** (D15; was 2000).
+- **Done and tested (71 backend tests + 6 opt-in real-Plex contract tests skipped, 2 vitest):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API** (`GET /api/v1/logs`, `GET /api/v1/logs/file`), `PlexGateway` contract tests.
+- **Ran for real locally:** `python -m woosarr` serves health, UI, logs on :31337 and stops cleanly on SIGTERM (~0.2 s).
+- **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs up to `b285b88` are green. No Docker on the dev Mac, so the image is only exercised in CI.
+- **Diagnostics:** nobody has shell access to the deployed server (D16). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`.
 - **Not started:** every Plex-write implementation, Discord bot, DB layer, auth/wizard/SAML, the entire UI beyond a placeholder.
-- **First thing to do in a fresh session:** run the baseline commands in §2 and fix anything red before new work.
+- **First thing to do in a fresh session:** `make install && make check`, and `gh run list --workflow "Docker publish" --limit 3`; fix anything red before new work.
 
 ## 2. Commands
 
 ```bash
-# Backend (CI uses Python 3.12)
+# Everything (repo root): venv in backend/.venv, lint + tests for both halves, UI build
+make install && make check
+make dev                     # backend on :31337 with ./config (git-ignored) and the built UI
+# Backend by hand (CI uses Python 3.12)
 cd backend && pip install -e ".[dev]" && ruff check . && python -m pytest -q
-# Frontend
-cd frontend && npm install && npm run build
-# Image (from repo root) and smoke test
-docker build -f docker/Dockerfile -t woosarr:dev .
-docker run --rm -p 2000:2000 -v "$PWD/config:/config" woosarr:dev   # config/ is git-ignored
-curl -fsS localhost:2000/api/health
+# Frontend by hand
+cd frontend && npm ci && npm test && npm run build
+# Image (needs Docker) and smoke test
+make image && make smoke     # = scripts/smoke-test.sh woosarr:dev 31337
+curl -fsS localhost:31337/api/health
+curl -fsS "localhost:31337/api/v1/logs?level=WARNING&limit=100"
+# Pre-commit hooks (ruff + gitleaks)
+pip install pre-commit && pre-commit install
 # CI
 gh run list --workflow "Docker publish" --limit 3
 gh run view <id> --log-failed | grep -v '^$' | tail -60
@@ -59,7 +66,9 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 | D11 | Scope | DECIDED | One Discord guild, one Plex server in v1. |
 | D12 | Dry-run | DECIDED | Global toggle; logs intended changes only. |
 | D13 | Source control | DECIDED | Git, branch `main`, GitHub. |
-| D14 | CI/CD | DECIDED | GitHub Actions. `docker-publish.yml` = CI (reusable `ci.yml`) → build → push to GHCR on `main` and `v*.*.*` tags, `GITHUB_TOKEN` only. PRs run CI only. `linux/amd64` only for now. |
+| D14 | CI/CD | DECIDED | GitHub Actions. `docker-publish.yml` = CI (reusable `ci.yml`) → build → image smoke test → push to GHCR on `main` and `v*.*.*` tags, `GITHUB_TOKEN` only. PRs run CI only. `linux/amd64` only for now. Every commit is pushed (user rule). |
+| D15 | Port | DECIDED | **31337** (container and default host port). Overrides the 2000 in `docs/specsheet.md`, which is kept read-only as the original spec. Set by `WOOSARR_PORT`. |
+| D16 | Diagnostics | DECIDED | No access to the deployed server. All diagnostics come from logs read through the API (`/api/v1/logs`, `/api/v1/logs/file`). New features must log enough (redacted) to be debugged that way; raise `WOOSARR_LOG_LEVEL=DEBUG` when needed. |
 
 ## 4. Non-negotiables
 
@@ -72,13 +81,13 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 - **N7** Secrets never appear in logs, API responses or UI (masked / "set" indicator only).
 - **N8** UI: sidebar nav, light + dark modes, colorblind option(s), purple as a featured colour; never rely on colour alone.
 - **N9** `/link` must never persist Plex credentials/tokens; any token is used once, then invalidated.
-- **N10** Every web route requires auth except health, login, SAML metadata/ACS, and the first-run wizard (only while no admin exists).
+- **N10** Every web route requires auth except health, login, SAML metadata/ACS, and the first-run wizard (only while no admin exists). Enforced by `api/deps.py` (`require_admin`, `PUBLIC_PATHS`) and `tests/test_app.py::test_every_non_public_route_requires_admin`. **Until P6-01, `require_admin` is a pass-through**, so the logs API is open to anyone who can reach the port.
 
 ## 5. Architecture
 
 ```
-Container (port 2000)
-├── FastAPI: /api/* (REST), / (built React bundle), auth/session middleware
+Container (port 31337)
+├── FastAPI: /api/v1/* (REST), /api/health, / (built React bundle), auth/session middleware
 ├── PlexGateway (python-plexapi impl + FakePlexGateway)
 ├── Discord service (discord.py) in the same event loop
 ├── Sync engine (pure) + apply layer ← backend/woosarr/sync/
@@ -89,14 +98,15 @@ Container (port 2000)
 Current layout (planned items in *italics*):
 ```
 backend/pyproject.toml
-backend/woosarr/{__init__,main,linking,plex_gateway}.py
-backend/woosarr/core/{secrets,redaction}.py      + config, logging, db, auth (planned)
+backend/woosarr/{__init__,__main__,main,linking,plex_gateway}.py   (python -m woosarr runs the server)
+backend/woosarr/api/{deps,logs}.py               + routers per feature (planned)
+backend/woosarr/core/{config,logs,secrets,redaction}.py   + db, auth (planned)
 backend/woosarr/sync/{engine,apply}.py           + scheduler (planned)
 backend/tests/                                   (unittest-style, run by pytest)
-frontend/{package.json,vite.config.ts,src/main.tsx}
-docker/{Dockerfile,entrypoint.sh}   unraid/woosarr.xml
-.github/workflows/{ci,docker-publish}.yml   .gitleaks.toml
-docs/{action-plan,specsheet}.md   CLAUDE.md   README.md   LICENSE
+frontend/{package.json,package-lock.json,vite.config.ts,src/{main.tsx,api.ts,api.test.ts}}
+docker/{Dockerfile,entrypoint.sh}   unraid/{woosarr.xml,icon.png}   scripts/smoke-test.sh
+.github/workflows/{ci,docker-publish}.yml   .gitleaks.toml   .pre-commit-config.yaml   Makefile
+docs/{action-plan,specsheet,unraid-notes}.md   CLAUDE.md   README.md   LICENSE
 ```
 
 Data model (adjust in P1-03): `settings`, `secrets`, `plex_users`, `discord_links` (plex_user_id, discord_user_id — both unique, `method`, `verified`, `linked_at`, `linked_by`; **no tokens**), `admin_users` (argon2id hash, `auth_source` local|saml), `saml_config`, `sessions`, `discord_roles_cache`, `discord_members_cache`, `libraries` (`is_exempt`), `role_library_map`, `manual_grants`, `library_state` (source role|manual|external), `audit_log`, `app_logs`.
@@ -120,7 +130,11 @@ remove_all       = target empty and current non-empty                # use the r
 - **Ruff 0.17+ default rules are strict** (e.g. `BLE001` on bare `except Exception`). Run `ruff check .` before committing; use `# noqa: <rule>` with a reason only when intentional.
 - **Pushing to `main` publishes an image** and CI now gates it. Don't push half-done work.
 - **gitleaks action needs a licence on org repos**; CI runs the `zricethezav/gitleaks` container instead.
-- `docker/Dockerfile` copies `frontend/package-lock.json*` optionally; commit a lockfile once `npm install` has produced one (then CI uses `npm ci`).
+- `frontend/package-lock.json` is committed; CI and the Dockerfile use `npm ci`. Add packages with `npm install -D pkg@x.y.z`.
+- **Don't serve the live log file with `FileResponse`**: it grows while streaming and breaks Content-Length ("Response content longer than Content-Length"). `/api/v1/logs/file` returns a snapshot.
+- Ruff run from the repo root (pre-commit) doesn't know `woosarr` is first-party; `known-first-party` is set in `pyproject.toml`.
+- `docs/specsheet.md` is read-only on purpose; record changes to it as decisions in §3.
+- Library loggers (`uvicorn*`, `discord`, `plexapi`) are routed to the redacting root handlers by `core/logs.py`; run uvicorn with `log_config=None` (as `__main__.py` does) or they bypass redaction.
 - python-plexapi is **synchronous**: run Plex calls in a thread pool, never on the event loop.
 
 ## 8. Human gates (stop and ask)
@@ -142,29 +156,29 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P0-03** **HUMAN, gate for all Plex write code.** Write `scripts/spike_plex_share.py` (reads `PLEX_TOKEN`/`PLEX_SERVER` from env; never commit them). Answer in `docs/plex-notes.md`: (a) does `updateFriend(sections=…)` replace or merge? (b) does `MyPlexServerShare.sections()` return only shared sections or all with a `shared` flag? (c) how to revoke the *last* library? (d) does updating sections reset `allowSync/allowChannels/allowCameraUpload` or filters? (e) does it work for Home/managed users? (f) how to map `LibrarySection` ↔ shared `Section.key` and get `machineIdentifier`? *Verify:* spike proves read-then-write preserves existing access.
 - [x] **P0-04** SDK chosen: python-plexapi (PyPI `PlexAPI`).
 - [ ] **P0-05** **HUMAN** Discord facts: intents (Guild Members is privileged), permissions, slash command registration, ephemeral replies, modal + buttons for `/link`. *Verify:* `docs/discord-notes.md`.
-- [ ] **P0-06** Unraid template requirements (appdata, port, icon, WebUI). *Verify:* `docs/unraid-notes.md`.
+- [x] **P0-06** Unraid template requirements (appdata, port, icon, WebUI). *Verify:* `docs/unraid-notes.md`.
 - [ ] **P0-07** **HUMAN** Plex token invalidation for `/link` OAuth (N9): after reading account info with the temporary token, invalidate it and prove it no longer works. *Verify:* notes + test in `docs/plex-notes.md`.
 - [ ] **P0-08** **HUMAN** SAML library choice and flow (SP-initiated, metadata, signature validation, clock skew, replay) against a test IdP. *Verify:* `docs/saml-notes.md`; resolves D7a.
 
 ### Phase 1 — Foundation
-- [~] **P1-01** Tooling. Done: `.gitignore`, `.gitattributes`, `.dockerignore`, `pyproject.toml`, CI. *Remaining:* pre-commit (ruff + gitleaks), vitest, a `Makefile` or `scripts/` wrapper for §2 commands. *Verify:* one command runs lint + tests for both halves.
-- [ ] **P1-02** Config loader (env + `/config`, no secrets in defaults). *Depends:* P1-01. *Verify:* app boots with only a `/config` volume.
+- [x] **P1-01** Tooling: `.gitignore`, `.gitattributes`, `.dockerignore`, `pyproject.toml`, CI, `.pre-commit-config.yaml` (ruff + gitleaks), vitest, `Makefile`. *Verify:* `make check` runs lint + tests for both halves.
+- [x] **P1-02** Config loader `core/config.py` (`WOOSARR_*` env, everything persistent under `config_dir`, no secret settings). *Verify:* `pytest tests/test_config.py`; app boots with only a `/config` volume (smoke test).
 - [ ] **P1-03** SQLAlchemy models + Alembic migrations for §5 data model. *Verify:* fresh DB migrates; migration test passes.
 - [x] **P1-04** Secrets manager — `core/secrets.py`. *Verify:* `pytest tests/test_secrets.py`.
-- [~] **P1-05** Logging. Done: redaction (`core/redaction.py`, tested). *Remaining:* structured logging setup, install `RedactingFilter` on all handlers, DB + rotating-file persistence, streaming. *Verify:* canary secrets never appear in any sink.
-- [~] **P1-06** FastAPI app. Done: skeleton in `main.py`. *Remaining:* run it for real, error handling, API versioning, sessions. *Verify:* `curl localhost:2000/api/health` → 200 in the container.
+- [~] **P1-05** Logging. Done: redaction; `core/logs.py` (JSON to stderr, rotating `/config/logs/woosarr.log`, in-memory ring buffer; `RedactingFilter` on every handler; library loggers routed through them); logs API with cursor polling (`?since=`) and file download. *Remaining:* DB persistence of app logs (needs P1-03); push streaming (SSE/WebSocket) for the live tail (P8-01). *Verify:* `pytest tests/test_logs.py` (canary never reaches any sink).
+- [~] **P1-06** FastAPI app: `create_app()` factory, `python -m woosarr`, `/api/v1` router + `/api/health` alias, JSON 500 handler that logs the traceback with a request id and leaks no details, `X-Request-ID`, SPA serving with traversal guard. Ran for real on :31337. Sessions moved to P6-01. *Remaining:* green image smoke test in CI. *Verify:* `pytest tests/test_app.py`; `curl localhost:31337/api/health` → 200 in the container (`scripts/smoke-test.sh`).
 - [ ] **P1-07** OpenAPI → TypeScript type pipeline into `frontend/src/generated/` (git-ignored; generated in build/CI). *Verify:* changing a response model breaks the frontend build until types regenerate.
 
 ### Phase 2 — Container and CI/CD
-- [~] **P2-01** Dockerfile + entrypoint (PUID/PGID, gosu, healthcheck). CI builds it (amd64). *Remaining:* run the image locally and confirm `/api/health`, healthy status, `/config` persistence, graceful SIGTERM. *Verify:* §2 smoke test.
-- [~] **P2-02** Healthcheck + graceful shutdown. *Verify:* `docker ps` healthy; `docker stop` exits < 10 s.
-- [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. *Remaining:* icon, replace `OWNER` placeholders with `WoosArr`, test install.
-- [~] **P2-04** Workflows. Done: CI + gated publish; first publish succeeded. *Remaining:* confirm the gated run goes green end-to-end; test a `v0.1.0` tag produces semver tags. *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:latest`.
+- [~] **P2-01** Dockerfile + entrypoint (PUID/PGID, gosu, healthcheck on `WOOSARR_PORT`, `CMD python -m woosarr`). *Remaining:* green `scripts/smoke-test.sh` run in CI (health, healthy status, `/config` persistence across restart, graceful SIGTERM); no Docker on the dev Mac. *Verify:* smoke-test step in `docker-publish.yml`.
+- [~] **P2-02** Healthcheck + graceful shutdown (uvicorn `timeout_graceful_shutdown=5`; SIGTERM → exit in ~0.2 s locally). *Remaining:* same CI smoke test. *Verify:* Docker healthy; `docker stop` exits < 10 s.
+- [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. Done: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. *Remaining:* test install on an Unraid box.
+- [~] **P2-04** Workflows. Done: CI + gated publish; gated runs green end-to-end (`b285b88`). *Remaining:* push a `v0.1.0` tag (ask first, it publishes a release image) and confirm semver tags. *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
 - [ ] **P2-05** Re-enable `linux/arm64` (QEMU) once the amd64 pipeline is stable; fix any arm-only dependency problem. *Verify:* multi-arch manifest.
 - [ ] **P2-06** **HUMAN** Make the GHCR package public; document `docker run` / Unraid install in README. *Verify:* anonymous `docker pull` works.
 
 ### Phase 3 — Plex integration (all gated by P0-03)
-- [~] **P3-00** `PlexGateway` interface + `FakePlexGateway` done. *Remaining:* python-plexapi implementation (`plex_gateway_plexapi.py`) — write only after P0-03. *Verify:* shared contract tests run against both the fake and (opt-in, env-gated) the real implementation.
+- [~] **P3-00** `PlexGateway` interface + `FakePlexGateway` done; shared contract tests in `tests/test_plex_contract.py` (replace-not-merge, round trip, remove last library, idempotent) pass against the fake; real run is opt-in via `WOOSARR_PLEX_CONTRACT=1`. *Remaining:* python-plexapi implementation (`plex_gateway_plexapi.py`) — write only after P0-03 — and wire it into the contract test. *Verify:* contract tests pass against both.
 - [ ] **P3-01** Plex OAuth login endpoints (start/poll), token stored encrypted, expiry/revocation handling. *Depends:* P0-02, P1-04.
 - [ ] **P3-02** Server discovery/selection; store machine identifier.
 - [ ] **P3-03** Library sync (key, title, type; handle renames/removals).
@@ -189,7 +203,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P5-05** Concurrency control and idempotency (running twice = no changes the second time).
 
 ### Phase 6 — Web UI shell, auth, theme
-- [ ] **P6-01** Local admin login (argon2id), server-side sessions, CSRF, logout, lockout/rate limit. *Verify:* unauthenticated requests rejected on all routes except those in N10.
+- [ ] **P6-01** Local admin login (argon2id), server-side sessions, CSRF, logout, lockout/rate limit. Replace the pass-through body of `api/deps.require_admin` (the logs API is open until then). *Verify:* unauthenticated requests rejected on all routes except those in N10.
 - [ ] **P6-02** App shell with sidebar (Dashboard, Users, Roles, Libraries, Logs, Settings, Setup); responsive, keyboard accessible.
 - [ ] **P6-03** Theme system: light/dark (OS + toggle), purple accent, colorblind palettes, WCAG AA contrast, state persisted.
 - [ ] **P6-04** Shared components: tables, modals, toasts, confirm dialogs, badges, empty states.
@@ -218,8 +232,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P10-01** Secret scan of repo, image and history (gitleaks, already in CI) — zero findings.
 - [ ] **P10-02** Redaction audit across exception traces and HTTP client debug logs (canary tests).
 - [ ] **P10-03** Cookies, headers, CORS, input validation, auth rate limits.
-- [ ] **P10-04** README guidance: reverse proxy/HTTPS (port 2000 is plain HTTP).
-- [ ] **P10-05** Non-root container, dependency audit (`pip-audit`, `npm audit`), pin versions.
+- [ ] **P10-04** README guidance: reverse proxy/HTTPS (port 31337 is plain HTTP).
+- [ ] **P10-05** Non-root container, dependency audit (`pip-audit`, `npm audit`), pin versions. Known: `npm audit` flags esbuild/vite ≤ 6.4.2 (dev-server only, not in the built image); fixing it means a vite major upgrade.
 - [ ] **P10-06** Threat model `docs/threat-model.md`: unverified `/link` claims (accepted, mitigated by badge/one-to-one/cooldown/audit/unlink), role escalation, `/config` theft, SAML forgery/replay, first-run takeover.
 - [ ] **P10-07** Auth hardening: argon2 parameters, session rotation, SAML-only lockout guard, brute-force protection.
 

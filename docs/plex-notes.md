@@ -27,6 +27,12 @@ Write paths in `woosarr/plex_api_gateway.py`:
 - user has no share, non-empty set → `POST shared_servers` `{"server_id", "shared_server": {"library_section_ids": [...], "invited_id": <user id>}}`
 - empty set → `DELETE shared_servers/{shareId}` (nothing if there's no share)
 
+### Live result (2026-10-17, server *Bragi*)
+
+Write check on user 6101685: `rewrite same set` ✓, `add one library` (5 → 6, all original kept) ✓, `restore original` ✓; `allowSync`/`allowChannels`/`allowCameraUpload`/filters unchanged after every step. Confirms (a) replace semantics and (d).
+
+Performance: per-user reads cost ~0.5 s each (they re-fetch the friends list), so full reconciles now batch-read all shares.
+
 ### Verifying on your server
 
 Setup → Plex → **Verify sharing on a test user…** rewrites the user's current set, adds one library, then restores the original, checking shares and per-friend settings after each step. Keep dry-run on until it passes.

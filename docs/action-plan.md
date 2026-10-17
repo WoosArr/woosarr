@@ -21,7 +21,7 @@
 - **Ran for real locally:** `python -m woosarr` serves health, UI, logs on :31337 and stops cleanly on SIGTERM (~0.2 s).
 - **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs green through `d68c5e8`, including the image smoke test; that image is published as `latest`. No Docker on the dev Mac, so the image is only exercised in CI.
 - **Diagnostics:** nobody has shell access to the deployed server (D16, http://10.0.1.101:31337). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`, which need an admin session or a `read` API key (`Authorization: Bearer wsk_…`). Claude reads the key from `~/.config/woosarr/api-key` and never prints it.
-- **Built, waiting for live use (§8):** Plex sign-in/server/gateway and the Discord bot + `/link` are implemented and tested against fakes; they need the owner to run the Setup wizards on the live server. SAML is deferred (D7a).
+- **Live (http://10.0.1.101:31337):** admin set up; Plex signed in (*Bragi*, 15 libraries, 63 users); Discord bot connected (*Dave's Plex Chat*); write check passed; still in dry-run with no role mappings or links yet. Remaining live checks: a real `/link` (P0-07, P4-04) and going live with mappings (P11-04).
 - **Live server:** running the new image; waiting for first-run setup (setup code is in the Unraid container log).
 - **First thing to do in a fresh session:** `make install && make check`, and `gh run list --workflow "Docker publish" --limit 3`; fix anything red before new work.
 
@@ -159,8 +159,8 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 0 — Discovery
 - [x] **P0-00** Git repo, `.gitignore`, LICENSE, README, pushed to GitHub. *Verify:* `git ls-remote origin main`.
 - [x] **P0-01** Decisions D4, D7, D10 resolved (§3).
-- [~] **P0-02** Plex auth: PIN/OAuth flow, stable per-install client id, stored session = encrypted owner token; JWT login not needed (`docs/plex-notes.md`). *Remaining:* **HUMAN** owner signs in on the live server (Setup → Plex).
-- [~] **P0-03** Share semantics answered from the python-plexapi source (`docs/plex-notes.md`); found `updateFriend(removeSections=True)` is a no-op for users with a share, so WooSarr calls the endpoints directly. Instead of a local spike script (no tokens outside the UI, D19), Setup → Plex → **Verify sharing on a test user** runs the check on the live server and logs every step. *Remaining:* **HUMAN** run it once; keep dry-run on until it passes.
+- [x] **P0-02** Plex auth: PIN/OAuth flow, stable per-install client id, stored session = encrypted owner token; JWT login not needed (`docs/plex-notes.md`). **Live:** owner signed in through Setup → Plex (2026-10-17, audit `plex_signed_in`).
+- [x] **P0-03** Share semantics from the python-plexapi source + **live write check passed** on server *Bragi* (2026-10-17, user 6101685): rewrite same set, add one library (old five kept → replace semantics), restore; friend settings unchanged at every step. (b)/(f) confirmed by the read path; (c) remove-last covered by tests and exercised live when a test user starts with no libraries; (e) this server has no Home users. Results: audit `plex_write_check`, `docs/plex-notes.md`.
 - [x] **P0-04** SDK chosen: python-plexapi (PyPI `PlexAPI`).
 - [x] **P0-05** Discord facts: `docs/discord-notes.md` (intents + flag check, invite scopes/permissions, guild command registration, ephemeral replies, buttons + modal).
 - [x] **P0-06** Unraid template requirements (appdata, port, icon, WebUI). *Verify:* `docs/unraid-notes.md`.
@@ -185,12 +185,12 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-06** GHCR package is public (anonymous manifest fetch → 200); README documents `docker run` and Unraid install.
 
 ### Phase 3 — Plex integration (all gated by P0-03)
-- [~] **P3-00** `PlexApiGateway` (`plex_api_gateway.py`, plex.tv only, writes by key) passes the shared `GatewayContract` against a fake plex.tv (`tests/fake_plextv.py`) as well as the in-memory fake. *Remaining:* opt-in run against the real account = the write check (P0-03).
+- [x] **P3-00** `PlexApiGateway` passes the shared `GatewayContract` (fake plex.tv) and the live write check.
 - [x] **P3-01** Plex OAuth endpoints (`POST /api/v1/plex/login`, `/login/poll`), token stored encrypted, 401 → "sign in again", disconnect signs the token out. *Verify:* `tests/test_integrations.py`, `tests/test_integrations_api.py`.
 - [x] **P3-02** Server discovery (`GET /api/v1/plex/servers`, owned servers only selectable) and selection (`PUT /api/v1/plex/server`, machine id stored).
-- [~] **P3-03** Library sync from plex.tv (`/api/servers/{machineId}`; renames; removals flagged). *Remaining:* **LIVE** first sync on the real server.
-- [~] **P3-04** User sync from `account.users()` incl. Home users (`home` and no email → managed). *Remaining:* **LIVE** first sync.
-- [~] **P3-05** Per-user read (`sections()` filtered on `shared`) and complete-set write (PUT/POST/DELETE as in plex-notes). *Verify:* contract + gateway tests. *Remaining:* **LIVE** write check.
+- [x] **P3-03** Library sync from plex.tv. **Live:** 15 libraries.
+- [x] **P3-04** User sync from `account.users()` incl. Home users. **Live:** 63 users.
+- [x] **P3-05** Per-user read/write by key; full reconciles batch-read every user's shares (one friends-list fetch + parallel share reads; live 63 users took 36 s before). **Live:** write check passed.
 - [x] **P3-06** Retries with exponential backoff (reads on connection errors/timeouts/429/5xx; writes only on connection errors), connection state (`last_ok_at`, `last_error`, `auth_failed`) on the dashboard and Setup page.
 - [x] **P3-07** All Plex calls run on the sync worker thread (`services/sync.py`), never the event loop; global run lock + per-user locks. *Verify:* `test_triggers_are_debounced_on_the_worker`; API stays responsive during runs (HTTP handlers never call Plex).
 
@@ -231,9 +231,9 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P8-03** Log level setting applies live; file logs rotate by size (`WOOSARR_LOG_FILE_MAX_BYTES` × backups); audit retention in days, pruned on full reconcile.
 
 ### Phase 9 — Setup assistants
-- [~] **P9-01** Discord wizard on the Setup page: portal steps, token check (incl. Members intent) → invite link → server pick → status/restart/replace/disconnect. *Remaining:* **HUMAN** run it with the real bot.
-- [~] **P9-02** Plex wizard: Sign in with Plex (popup + polling) → server pick → read check → optional write check. *Remaining:* **HUMAN** run it on the live server.
-- [~] **P9-03** First-run onboarding: admin → Plex → Discord, all in the UI. *Remaining:* end-to-end on the live server (P11-04).
+- [x] **P9-01** Discord wizard on the Setup page. **Live:** bot *WooSarr* connected to *Dave's Plex Chat* (6 roles, 36 members).
+- [x] **P9-02** Plex wizard: sign in → server → read check → write check. **Live:** done on *Bragi*.
+- [x] **P9-03** First-run onboarding admin → Plex → Discord entirely in the UI. **Live:** done 2026-10-17.
 
 ### Phase 10 — Security
 - [x] **P10-01** Secret scan: gitleaks over the full git history (CI + pre-commit), Trivy secret scan of the built image before publishing (fails the publish); zero findings (`e09ed1c`). *Verify:* CI `build` job.
@@ -250,13 +250,13 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P11-03** Playwright UI tests (`frontend/e2e`, `make e2e`, CI job `e2e`) against a demo backend: first-run setup, navigation, link/unlink, role mapping + impact, manual grants, exemptions, logs/audit, theme/palette, API key, go-live, mobile drawer; fails on any console error/CSP violation. *Remaining:* Plex/Discord wizards when they exist.
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
 - [~] **P11-05** Contrast checked for every theme combination; axe (WCAG 2.1 AA, serious/critical) runs on 10 pages × light/dark in Playwright and passes (fixed: tab ARIA, keyboard-focusable scroll regions, field hints). *Remaining:* **HUMAN** screen-reader pass.
-- [ ] **P11-06** **HUMAN** Unraid install/upgrade/restart/persistence test.
+- [~] **P11-06** **Live evidence:** the container was updated several times on the Unraid host with admin, sessions, secrets and settings kept (`/config` persistence). *Remaining:* **HUMAN** fresh install from the template.
 
 ### Phase 12 — Docs and release
 - [x] **P12-01** README: install (Unraid, Docker), first-run walkthrough with setup code, HTTPS, troubleshooting, backups, FAQ.
 - [x] **P12-02** `docs/admin-guide.md`: sync rules, triggers, leave policy, verified links, dry-run, troubleshooting, admins, env vars.
 - [x] **P12-03** Backup/restore and master key in `docs/admin-guide.md`; startup survives an unreadable secret (logs an error, admin re-enters it). *Verify:* `tests/test_recovery.py`.
-- [ ] **P12-04** v1.0 release: changelog, tag, image, Community Apps submission.
+- [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` tagged (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (HUMAN, forum).
 
 ## 10. Risks and open questions
 

@@ -160,7 +160,7 @@ class PlexServiceTests(Base):
         self.plex.select_server(MACHINE)
         self.tv.shares["11"] = {"id": 7, "sections": {101}}
         report = self.plex.read_check()
-        self.assertEqual(report["users"], 3)
+        self.assertEqual(report["users"], 4)  # incl. the owner
         self.assertEqual(report["errors"], [])
         result = self.plex.write_check("11")
         self.assertTrue(result["passed"], result)

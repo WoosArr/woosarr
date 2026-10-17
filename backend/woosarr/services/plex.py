@@ -274,6 +274,7 @@ class PlexService:
         if not isinstance(gw, PlexApiGateway):
             raise PlexAuthError("Plex isn't set up yet")
         steps: list[dict[str, Any]] = []
+        gw._check_not_owner(plex_user_id)
         original = gw.get_user_library_ids(plex_user_id)
         settings_before = gw.user_settings(plex_user_id)
         libs = [lib.library_id for lib in gw.list_libraries()]
@@ -282,10 +283,13 @@ class PlexService:
         def step(name: str, wrote: frozenset[str] | None, expect: frozenset[str]) -> None:
             got = gw.get_user_library_ids(plex_user_id)
             settings_now = gw.user_settings(plex_user_id)
+            # plex.tv only reports friend settings while the user has a share.
+            comparable = settings_before is not None and settings_now is not None
+            unchanged = settings_now == settings_before if comparable else True
             entry = {"step": name, "wrote": sorted(wrote) if wrote is not None else None,
                      "expected": sorted(expect), "got": sorted(got), "ok": got == expect,
-                     "settings_unchanged": settings_now == settings_before}
-            if settings_now != settings_before:
+                     "settings_unchanged": unchanged, "settings_compared": comparable}
+            if not unchanged:
                 entry["settings_after"] = settings_now
             steps.append(entry)
             log.info("plex write check user=%s %s", plex_user_id, entry)

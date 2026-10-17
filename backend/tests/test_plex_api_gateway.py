@@ -95,8 +95,47 @@ class PlexApiGatewayTests(unittest.TestCase):
         self.assertEqual(len(gw.list_libraries()), 4)  # signs in again on the next call
 
     def test_user_settings_snapshot(self):
-        _fake, gw = make()
+        fake, gw = make()
+        gw.list_users()
+        self.assertIsNone(gw.user_settings("11"))  # no share: plex.tv doesn't report settings
+        fake.shares["11"] = {"id": 9, "sections": {101}}
         self.assertEqual(gw.user_settings("11")["allowSync"], True)
+
+    def test_roster_merges_all_sources(self):
+        fake, gw = make()
+        fake.shares["11"] = {"id": 9, "sections": {101}}
+        users = {u.plex_user_id: u for u in gw.list_users()}
+        # alice (share), bob (friend, no share: only in v2), kid (Home only), owner; pending invite left out
+        self.assertEqual(set(users), {"1", "11", "12", "13"})
+        self.assertTrue(users["1"].is_owner)
+        self.assertTrue(users["13"].is_managed)
+        self.assertEqual(gw.get_user_library_ids("12"), frozenset())
+
+    def test_friend_without_share_gets_one(self):
+        fake, gw = make()
+        gw.set_user_libraries("12", ["2"])
+        self.assertEqual(fake.calls[-1][0], "post")
+        self.assertEqual(gw.get_user_library_ids("12"), frozenset({"2"}))
+
+    def test_owner_is_never_written(self):
+        _fake, gw = make()
+        with self.assertRaises(ValueError):
+            gw.set_user_libraries("1", ["1"])
+
+    def test_v2_friends_outage_falls_back_to_shared_list(self):
+        fake, gw = make()
+        fake.shares["11"] = {"id": 9, "sections": {101}}
+        fake.friends_v2_fails = True
+        gw._retries = 0
+        ids = {u.plex_user_id for u in gw.list_users()}
+        self.assertEqual(ids, {"1", "11", "13"})  # bob missing, nothing crashed
+
+    def test_unknown_user_still_not_found(self):
+        _fake, gw = make()
+        from plexapi.exceptions import NotFound
+
+        with self.assertRaises(NotFound):
+            gw.get_user_library_ids("4040")
 
 
 class BatchReadTests(unittest.TestCase):
@@ -104,10 +143,12 @@ class BatchReadTests(unittest.TestCase):
         fake, gw = make()
         fake.shares["11"] = {"id": 9, "sections": {101}}
         fake.shares["12"] = {"id": 10, "sections": {102, 103}}
+        gw.list_users()  # a full sync runs the inventory first
         fake.users_calls = 0
         shares, errors = gw.get_all_user_library_ids()
         self.assertEqual(fake.users_calls, 1)
-        self.assertEqual(shares, {"11": frozenset({"1"}), "12": frozenset({"2", "3"}), "13": frozenset()})
+        self.assertEqual(shares, {"1": frozenset(), "11": frozenset({"1"}), "12": frozenset({"2", "3"}),
+                                  "13": frozenset()})
         self.assertEqual(errors, {})
 
     def test_failed_user_is_reported_not_fatal(self):

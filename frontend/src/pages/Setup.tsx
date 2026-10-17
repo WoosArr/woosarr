@@ -245,7 +245,7 @@ function PlexChecks() {
 function WriteCheckModal({ onClose }: { onClose: () => void }) {
   const users = useLoad(() => api.get<UserOut[]>("/api/v1/users"));
   const [uid, setUid] = useState("");
-  const noUsersYet = users.data !== null && users.data.length === 0;
+  const noUsersYet = users.data !== null && users.data.filter((u) => !u.is_owner).length === 0;
   // Right after choosing a server the first sync is still reading users: keep checking.
   useEffect(() => {
     if (!noUsersYet) return;
@@ -286,7 +286,7 @@ function WriteCheckModal({ onClose }: { onClose: () => void }) {
         <Field label="Test user">
           <select value={uid} onChange={(e) => setUid(e.target.value)}>
             <option value="">Choose…</option>
-            {users.data?.filter((u) => !u.removed).map((u) => <option key={u.plex_user_id} value={u.plex_user_id}>{u.username}</option>)}
+            {users.data?.filter((u) => !u.removed && !u.is_owner).map((u) => <option key={u.plex_user_id} value={u.plex_user_id}>{u.username}</option>)}
           </select>
         </Field>
       ) : (

@@ -57,10 +57,12 @@ def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
         row = existing.get(uid)
         if row is None:
             session.add(
-                PlexUser(plex_user_id=uid, username=user.username, email=user.email, is_managed=user.is_managed)
+                PlexUser(plex_user_id=uid, username=user.username, email=user.email, is_managed=user.is_managed,
+                         is_owner=user.is_owner)
             )
             continue
         row.username, row.email, row.is_managed, row.removed = user.username, user.email, user.is_managed, False
+        row.is_owner = user.is_owner
         row.synced_at = utcnow()
     removed = 0
     for uid, row in existing.items():

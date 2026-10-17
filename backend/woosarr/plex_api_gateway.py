@@ -36,6 +36,10 @@ log = logging.getLogger("woosarr.plex")
 PLEXSERVERS = "https://plex.tv/api/servers/{machineId}"
 FRIENDINVITE = "https://plex.tv/api/servers/{machineId}/shared_servers"
 FRIENDSERVERS = "https://plex.tv/api/servers/{machineId}/shared_servers/{serverId}"
+# plex.tv/api/users (python-plexapi's users()) only lists friends who currently
+# have a share; these two list everyone (live finding 2026-10-17).
+FRIENDS_V2 = "https://plex.tv/api/v2/friends"
+HOME_USERS = "https://plex.tv/api/home/users"
 
 T = TypeVar("T")
 
@@ -78,6 +82,7 @@ class PlexApiGateway:
         self._backoff = backoff
         self._sleep = sleep
         self.parallel_reads = 6  # concurrent share reads against plex.tv
+        self._roster: dict[str, PlexUser] = {}
         self.state = ConnectionState()
 
     # ---- plumbing -----------------------------------------------------------
@@ -147,18 +152,77 @@ class PlexApiGateway:
         acct = self.account()
         return self._call(acct.users, idempotent=True)
 
-    def list_users(self) -> list[PlexUser]:
+    def _friends_v2(self) -> list[PlexUser]:
+        data = self._query(FRIENDS_V2, headers={"Accept": "application/json"})
         out = []
-        for u in self._users():
-            name = u.username or u.title or str(u.id)
-            out.append(PlexUser(str(u.id), name, u.email or None, is_managed=bool(u.home and not u.email)))
+        for f in data if isinstance(data, list) else []:
+            if not isinstance(f, dict) or not f.get("id"):
+                continue
+            if f.get("status") not in (None, "accepted"):
+                continue  # pending invites aren't users yet
+            name = f.get("username") or f.get("title") or str(f["id"])
+            out.append(PlexUser(str(f["id"]), name, f.get("email") or None, is_managed=bool(f.get("home"))))
         return out
 
-    def _user(self, plex_user_id: str) -> Any:
+    def _home_users(self) -> list[PlexUser]:
+        data = self._query(HOME_USERS)
+        out = []
+        for elem in data if data is not None else []:
+            uid = elem.attrib.get("id")
+            if not uid or elem.attrib.get("admin") in ("1", "true"):
+                continue  # the admin of the Home is the owner
+            name = elem.attrib.get("username") or elem.attrib.get("title") or uid
+            restricted = elem.attrib.get("restricted") in ("1", "true")
+            out.append(PlexUser(uid, name, elem.attrib.get("email") or None,
+                                is_managed=restricted or not elem.attrib.get("email")))
+        return out
+
+    def owner(self) -> PlexUser:
+        acct = self.account()
+        return PlexUser(str(acct.id), acct.username or acct.title or str(acct.id), acct.email or None,
+                        is_owner=True)
+
+    def list_users(self) -> list[PlexUser]:
+        """Everyone the owner can share with: friends (with or without a share), Home
+        users, plus the owner (flagged; WooSarr never changes the owner's access)."""
+        roster: dict[str, PlexUser] = {}
+        counts: dict[str, int | str] = {}
+        for u in self._users():
+            name = u.username or u.title or str(u.id)
+            roster[str(u.id)] = PlexUser(str(u.id), name, u.email or None, is_managed=bool(u.home and not u.email))
+        counts["with_share"] = len(roster)
+        for label, source in (("friends_v2", self._friends_v2), ("home", self._home_users)):
+            try:
+                found = source()
+            except Exception as exc:  # noqa: BLE001 - optional source; the shared list still works
+                counts[label] = f"error {type(exc).__name__}"
+                log.warning("plex %s list unavailable (%s: %s); friends without a share may be missing",
+                            label, type(exc).__name__, exc)
+                continue
+            counts[label] = len(found)
+            for u in found:
+                roster.setdefault(u.plex_user_id, u)
+        owner = self.owner()
+        roster.pop(owner.plex_user_id, None)
+        users = [owner, *roster.values()]
+        self._roster = {u.plex_user_id: u for u in users}
+        log.info("plex users: %s merged=%s (incl. owner)", counts, len(users))
+        return users
+
+    def _shared_user(self, plex_user_id: str) -> Any | None:
+        """The /api/users entry (with share details), or None for a known user without a share."""
         for u in self._users():
             if str(u.id) == str(plex_user_id):
                 return u
-        raise NotFound(f"Plex user {plex_user_id} is not a friend or Home user of this account")
+        if plex_user_id not in self._roster:
+            self.list_users()
+        if plex_user_id not in self._roster:
+            raise NotFound(f"Plex user {plex_user_id} is not a friend or Home user of this account")
+        return None
+
+    def _check_not_owner(self, plex_user_id: str) -> None:
+        if str(self.account().id) == str(plex_user_id):
+            raise ValueError("the server owner always has every library; WooSarr never changes it")
 
     def _share(self, user: Any) -> Any | None:
         shares = [s for s in user.servers if s.machineIdentifier == self.machine_id]
@@ -166,8 +230,8 @@ class PlexApiGateway:
 
     def get_user_library_ids(self, plex_user_id: str) -> frozenset[str]:
         """Read live: re-fetches the user and their share every call (R2 drift check)."""
-        user = self._user(plex_user_id)
-        share = self._share(user)
+        user = self._shared_user(plex_user_id)
+        share = self._share(user) if user is not None else None
         if share is None:
             return frozenset()
         sections = self._call(share.sections, idempotent=True)
@@ -209,12 +273,22 @@ class PlexApiGateway:
                     errors[uid] = err or "unknown error"
                 else:
                     shares[uid] = ids
+        # Friends/Home users without a share aren't in /api/users at all.
+        for uid in self._roster:
+            if uid not in errors:
+                shares.setdefault(uid, frozenset())
         log.debug("plex batch read users=%s shared=%s errors=%s", len(users), len(todo), len(errors))
         return shares, errors
 
-    def user_settings(self, plex_user_id: str) -> dict[str, Any]:
-        """Per-friend settings that a share update must not change (P0-03 d)."""
-        u = self._user(plex_user_id)
+    def user_settings(self, plex_user_id: str) -> dict[str, Any] | None:
+        """Per-friend settings that a share update must not change (P0-03 d).
+
+        None for a user without a share: plex.tv only reports these settings
+        for users that appear in /api/users.
+        """
+        u = self._shared_user(plex_user_id)
+        if u is None:
+            return None
         return {k: getattr(u, k, None) for k in (
             "allowSync", "allowCameraUpload", "allowChannels",
             "filterMovies", "filterTelevision", "filterMusic", "filterPhotos", "filterAll",
@@ -234,8 +308,9 @@ class PlexApiGateway:
     def set_user_libraries(self, plex_user_id: str, library_ids: Iterable[str]) -> None:
         """Write the COMPLETE set (N6). Empty removes the share entirely."""
         wanted = frozenset(library_ids)
-        user = self._user(plex_user_id)
-        share = self._share(user)
+        self._check_not_owner(plex_user_id)
+        user = self._shared_user(plex_user_id)
+        share = self._share(user) if user is not None else None
         headers = {"Content-Type": "application/json"}
         if not wanted:
             if share is None:
@@ -257,6 +332,6 @@ class PlexApiGateway:
             self._query(
                 FRIENDINVITE.format(machineId=self.machine_id), "post", idempotent=False,
                 json={"server_id": self.machine_id,
-                      "shared_server": {"library_section_ids": section_ids, "invited_id": int(user.id)}},
+                      "shared_server": {"library_section_ids": section_ids, "invited_id": int(plex_user_id)}},
                 headers=headers,
             )

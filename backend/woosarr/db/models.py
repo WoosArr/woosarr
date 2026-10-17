@@ -102,6 +102,8 @@ class PlexUser(Base):
     username: Mapped[str] = mapped_column(String(255), index=True)
     email: Mapped[str | None] = mapped_column(String(255))
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The Plex account that owns the server: linkable, never synced.
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     thumb: Mapped[str | None] = mapped_column(String(512))
     # No longer a friend/home user on the Plex side.
     removed: Mapped[bool] = mapped_column(Boolean, default=False)

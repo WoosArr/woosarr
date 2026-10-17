@@ -3,6 +3,10 @@
 Mimics python-plexapi's object shapes (MyPlexUser, MyPlexServerShare, Section)
 and plex.tv's replace semantics for shared_servers, so gateway logic and the
 shared GatewayContract can run without a real account.
+
+Like the real plex.tv (live finding 2026-10-17), /api/users only lists users
+who currently have a share; /api/v2/friends lists every accepted friend and
+/api/home/users every Home member (the owner as admin).
 """
 
 import itertools
@@ -24,6 +28,8 @@ class FakePlexTV:
         # user id -> {"username", "email", "home", "allowSync", ...}
         self.users = users or {"11": {"username": "alice", "email": "a@x"}, "12": {"username": "bob", "email": "b@x"},
                                "13": {"username": "kid", "email": None, "home": True}}
+        self.owner = {"id": "1", "username": "owner", "email": "owner@x"}
+        self.friends_v2_fails = False
         self.shares = {}  # user id -> {"id": share id, "sections": set(plex.tv ids)}
         self._ids = itertools.count(500)
         self.calls = []
@@ -35,7 +41,9 @@ class FakePlexTV:
         if not self.token_valid:
             raise Unauthorized("(401) unauthorized")
         session = SimpleNamespace(get="get", put="put", post="post", delete="delete")
-        return SimpleNamespace(_session=session, query=self.query, users=self.users_list)
+        return SimpleNamespace(_session=session, query=self.query, users=self.users_list, id=int(self.owner["id"]),
+                               username=self.owner["username"], title=self.owner["username"],
+                               email=self.owner["email"])
 
     def _maybe_fail(self):
         if self.fail_next:
@@ -47,6 +55,8 @@ class FakePlexTV:
         out = []
         for uid, u in self.users.items():
             share = self.shares.get(uid)
+            if not share:
+                continue  # plex.tv/api/users leaves out users without a share
             servers = []
             if share:
                 servers.append(SimpleNamespace(id=share["id"], machineIdentifier=MACHINE, allLibraries=False,
@@ -69,6 +79,21 @@ class FakePlexTV:
     def query(self, url, method="get", json=None, headers=None, **_):
         self._maybe_fail()
         self.calls.append((method, url, json))
+        if method == "get" and url == "https://plex.tv/api/v2/friends":
+            if self.friends_v2_fails:
+                raise requests.ConnectionError("v2 friends down")
+            return [{"id": int(uid), "username": u["username"], "title": u["username"], "email": u.get("email"),
+                     "home": u.get("home", False), "status": "accepted"}
+                    for uid, u in self.users.items() if not u.get("home")] + [
+                    {"id": 99, "username": "pending-pal", "status": "pending"}]
+        if method == "get" and url == "https://plex.tv/api/home/users":
+            root = ET.Element("MediaContainer")
+            ET.SubElement(root, "User", id=self.owner["id"], title=self.owner["username"], admin="1",
+                          email=self.owner["email"])
+            for uid, u in self.users.items():
+                if u.get("home"):
+                    ET.SubElement(root, "User", id=uid, title=u["username"], restricted="1", admin="0")
+            return root
         if method == "get" and re.fullmatch(r"https://plex.tv/api/servers/[\w-]+", url):
             server = ET.Element("Server", machineIdentifier=MACHINE)
             for key, (sid, title, ty) in self.libraries.items():

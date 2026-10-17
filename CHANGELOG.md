@@ -9,6 +9,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Playwright tests for the Plex and Discord setup wizards; simulated Discord event tests.
 
 ### Fixed
+- Friends without any shared library (and users whose last library was removed) are now listed and can be managed: plex.tv's `/api/users` leaves them out, so WooSarr also reads `/api/v2/friends` and Home users.
+- The server owner can `/link`; the owner is shown with an Owner badge and is never synced.
+- "Verify sharing" works on a user with no libraries (adds one, then removes the share again).
 - "Verify sharing" dialog waits for the first user sync instead of showing an empty list.
 
 ## [0.1.0] - 2026-10-17

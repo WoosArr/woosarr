@@ -19,6 +19,8 @@ class PlexUser:
     username: str
     email: str | None = None
     is_managed: bool = False
+    # The server owner: listed and linkable, but its access is never changed.
+    is_owner: bool = False
 
 
 @dataclass(frozen=True)

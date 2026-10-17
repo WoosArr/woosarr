@@ -38,6 +38,7 @@ class Snapshot:
     manual: dict[str, frozenset[str]]  # plex_user_id -> library ids
     cached_shares: dict[str, frozenset[str]]  # plex_user_id -> last observed
     plex_user_ids: list[str]
+    owner_ids: frozenset[str] = frozenset()
 
     @property
     def universe(self) -> frozenset[str]:
@@ -64,6 +65,7 @@ def load_snapshot(session: Session) -> Snapshot:
         plex_user_ids=list(
             session.scalars(select(PlexUser.plex_user_id).where(PlexUser.removed.is_(False)))
         ),
+        owner_ids=frozenset(session.scalars(select(PlexUser.plex_user_id).where(PlexUser.is_owner.is_(True)))),
     )
 
 
@@ -71,6 +73,8 @@ def user_state(
     snap: Snapshot, plex_user_id: str, settings: AppSettings, current: frozenset[str]
 ) -> UserState | None:
     """UserState for one Plex user, or None if policy says leave them alone."""
+    if plex_user_id in snap.owner_ids:
+        return None  # the owner has every library; never planned or written
     link = snap.links.get(plex_user_id)
     linked = link is not None and (link.verified or not settings.ignore_unverified_links)
     roles: frozenset[str] = frozenset()

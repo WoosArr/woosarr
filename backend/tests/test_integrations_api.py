@@ -45,7 +45,7 @@ class IntegrationApiTests(unittest.TestCase):
         st = self.c.put("/api/v1/plex/server", json={"machine_id": MACHINE}).json()
         self.assertTrue(st["configured"])
         check = self.c.post("/api/v1/plex/check/read").json()
-        self.assertEqual(check["users"], 3)
+        self.assertEqual(check["users"], 4)  # incl. the owner
         # the owner token never appears in any response or the audit trail
         for path in ("/api/v1/plex/status", "/api/v1/status", "/api/v1/audit", "/api/v1/logs?limit=5000"):
             self.assertNotIn(OWNER, self.c.get(path).text, path)

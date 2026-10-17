@@ -37,6 +37,13 @@ Performance: per-user reads cost ~0.5 s each (they re-fetch the friends list), s
 
 Setup → Plex → **Verify sharing on a test user…** rewrites the user's current set, adds one library, then restores the original, checking shares and per-friend settings after each step. Keep dry-run on until it passes.
 
+## Who counts as a Plex user (live finding 2026-10-17)
+
+- `plex.tv/api/users` (python-plexapi `users()`) lists **only users who currently have a share**. A friend whose last library is removed drops out of it, and friends who never had a share (e.g. *themunchkin*) never appear.
+- WooSarr therefore merges three sources: `/api/users` (share details), `GET https://plex.tv/api/v2/friends` (JSON, accepted friends; pending invites skipped) and `GET https://plex.tv/api/home/users` (Home members; the `admin` entry is the owner). If either extra source fails, it's logged (`plex friends_v2 list unavailable…`) and sync carries on with the shared list. Each full sync logs `plex users: {'with_share': n, 'friends_v2': n, 'home': n} merged=n`.
+- A friend without a share gets one with `POST shared_servers` (`invited_id`), exactly as `updateFriend` does.
+- The **owner** is listed (`is_owner`), can `/link`, and is never planned or written: the owner always has every library.
+
 ## Link token invalidation (P0-07, N9)
 
 - `/link` → "Sign in with Plex" uses a **throwaway** client identifier (`woosarr-link-<uuid4>`) so the user's sign-in is a separate device.

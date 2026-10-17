@@ -1593,6 +1593,10 @@
             "title": "Is Managed",
             "type": "boolean"
           },
+          "is_owner": {
+            "title": "Is Owner",
+            "type": "boolean"
+          },
           "libraries": {
             "items": {
               "$ref": "#/components/schemas/LibraryAccess"
@@ -1642,6 +1646,7 @@
           "username",
           "email",
           "is_managed",
+          "is_owner",
           "removed",
           "link",
           "roles",

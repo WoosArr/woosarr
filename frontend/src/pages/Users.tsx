@@ -48,7 +48,8 @@ export default function UsersPage() {
     else next.add(id);
     setSelected(next);
   };
-  const allSelected = shown.length > 0 && shown.every((u) => selected.has(u.plex_user_id));
+  const selectable = shown.filter((u) => !u.is_owner);
+  const allSelected = selectable.length > 0 && selectable.every((u) => selected.has(u.plex_user_id));
 
   const unlink = async (u: UserOut) => {
     const ok = await confirm({
@@ -113,7 +114,7 @@ export default function UsersPage() {
                     type="checkbox"
                     aria-label="Select all shown users"
                     checked={allSelected}
-                    onChange={() => setSelected(allSelected ? new Set() : new Set(shown.map((u) => u.plex_user_id)))}
+                    onChange={() => setSelected(allSelected ? new Set() : new Set(selectable.map((u) => u.plex_user_id)))}
                   />
                 </th>
                 <th>Plex user</th>
@@ -127,10 +128,13 @@ export default function UsersPage() {
               {shown.map((u) => (
                 <tr key={u.plex_user_id}>
                   <td>
-                    <input type="checkbox" aria-label={`Select ${u.username}`} checked={selected.has(u.plex_user_id)} onChange={() => toggle(u.plex_user_id)} />
+                    {u.is_owner ? null : (
+                      <input type="checkbox" aria-label={`Select ${u.username}`} checked={selected.has(u.plex_user_id)} onChange={() => toggle(u.plex_user_id)} />
+                    )}
                   </td>
                   <td data-label="Plex user">
                     <strong>{u.username}</strong>
+                    {u.is_owner ? <> <Badge tone="accent" icon="shieldCheck" title="Owns the Plex server">Owner</Badge></> : null}
                     <div className="small muted">{u.email ?? (u.is_managed ? "Managed (Home) user" : "")}</div>
                     {u.removed ? <Badge tone="neutral">No longer shared</Badge> : null}
                   </td>
@@ -155,7 +159,8 @@ export default function UsersPage() {
                   </td>
                   <td data-label="Libraries">
                     <div className="stack" style={{ gap: 4 }}>
-                      {u.libraries.length === 0 ? <span className="muted small">None</span> : null}
+                      {u.is_owner ? <span className="small">Every library (owner; never changed)</span> : null}
+                      {!u.is_owner && u.libraries.length === 0 ? <span className="muted small">None</span> : null}
                       {u.libraries.map((l) => (
                         <div key={l.library_id} className="row">
                           <span style={{ minWidth: 90 }}>{l.title}</span>

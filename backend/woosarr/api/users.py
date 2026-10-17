@@ -54,6 +54,7 @@ class UserOut(BaseModel):
     username: str
     email: str | None
     is_managed: bool
+    is_owner: bool
     removed: bool
     link: LinkOut | None
     roles: list[RoleRef]
@@ -82,6 +83,7 @@ def _users(db, only: str | None = None) -> list[UserOut]:
                 username=user.username,
                 email=user.email,
                 is_managed=user.is_managed,
+                is_owner=user.is_owner,
                 removed=user.removed,
                 link=LinkOut(
                     discord_user_id=link.discord_user_id,
@@ -153,6 +155,10 @@ def manual_grants(body: ManualGrantsIn, request: Request, db: DbDep, principal: 
     missing = (set(body.plex_user_ids) - known_users) | (set(body.library_ids) - known_libs)
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown ids: {sorted(missing)[:10]}")
+    owners = set(db.scalars(select(PlexUser.plex_user_id).where(
+        PlexUser.plex_user_id.in_(known_users), PlexUser.is_owner.is_(True))))
+    if owners:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "the server owner always has every library")
     existing = set(
         db.execute(
             select(ManualGrant.plex_user_id, ManualGrant.library_id).where(

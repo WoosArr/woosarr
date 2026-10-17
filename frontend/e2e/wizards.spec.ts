@@ -36,7 +36,7 @@ test("plex wizard: sign in, pick server, read and write checks", async ({ page, 
 
   await plex.getByRole("button", { name: "Run read check" }).click();
   await expect(plex.getByText("Read check passed")).toBeVisible();
-  await expect(plex.getByText(/4 libraries, 3 users, 1 with shares/)).toBeVisible();
+  await expect(plex.getByText(/4 libraries, 4 users, 1 with shares/)).toBeVisible();
 
   await plex.getByRole("button", { name: /Verify sharing/ }).click();
   const dialog = page.getByRole("dialog");

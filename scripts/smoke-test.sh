@@ -28,7 +28,10 @@ until curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; do
     i=$((i + 1)); [ "$i" -le 30 ] || fail "health endpoint never answered"; sleep 1
 done
 curl -fsS "http://127.0.0.1:$PORT/api/health"; echo
-curl -fsS "http://127.0.0.1:$PORT/api/v1/logs?limit=5" >/dev/null || fail "logs API"
+code=$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/api/v1/logs?limit=5")
+[ "$code" = "401" ] || fail "logs API should require auth, got HTTP $code"
+curl -fsS "http://127.0.0.1:$PORT/api/v1/auth/status" | grep -q '"setup_required":true' || fail "auth status"
+docker logs "$NAME" 2>&1 | grep -q "first-run setup code" || fail "setup code not printed to container log"
 curl -fsS "http://127.0.0.1:$PORT/" | grep -qi "<div id=\"root\">" || fail "UI not served"
 
 echo "waiting for docker health status"

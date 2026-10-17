@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -13,17 +14,24 @@ from fastapi.staticfiles import StaticFiles
 from woosarr import __version__
 from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
+from woosarr.api import audit_api
 from woosarr.api import auth as auth_api
+from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
+from woosarr.api import roles as roles_api
 from woosarr.api import setup as setup_api
+from woosarr.api import status as status_api
+from woosarr.api import users as users_api
 from woosarr.api.deps import require_admin
 from woosarr.api.middleware import SecurityHeadersMiddleware
-from woosarr.core import auth
+from woosarr.core import app_settings, auth
 from woosarr.core.config import Settings
 from woosarr.core.logs import configure_logging
 from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
+from woosarr.plex_gateway import PlexGateway
+from woosarr.services.sync import SyncService
 
 log = logging.getLogger("woosarr.app")
 
@@ -57,11 +65,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         secret_store.register_all(s)
         auth.prune_sessions(s)
         needs_setup = not auth.admin_exists(s)
+        stored_settings = app_settings.load(s)
 
-    app = FastAPI(title="WooSarr", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
+    plex: PlexGateway | None = None
+    if settings.demo:
+        from woosarr.dev import demo
+
+        plex = demo.make_gateway()
+        demo.seed_discord(db)
+        log.warning("DEMO MODE: fake Plex server and Discord data; nothing real is touched")
+    sync = SyncService(db, lambda: plex)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        sync.start()
+        if plex is not None:
+            sync.trigger(None, "startup", delay=1)
+        yield
+        sync.stop()
+        log.info("shutdown complete")
+
+    app = FastAPI(
+        title="WooSarr", version=__version__, docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
+    )
     app.state.settings = settings
     app.state.db = db
     app.state.secrets = secret_store
+    app.state.sync = sync
+    app.state.plex_gateway = lambda: plex
+    # Replaced by the Discord service in P4-01.
+    app.state.discord_status = lambda: {
+        "configured": settings.demo,
+        "connected": settings.demo,
+        "detail": "demo data" if settings.demo else "Discord bot not set up yet",
+    }
+    status_api.apply_runtime_settings(app, stored_settings)
     app.state.login_limiter = auth.RateLimiter(max_attempts=10, window_seconds=300)
     app.state.setup_limiter = auth.RateLimiter(max_attempts=10, window_seconds=300)
     app.state.setup_code = auth.SetupCode() if needs_setup else None
@@ -98,7 +136,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
-    for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api):
+    for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
+                   roles_api, libraries_api, audit_api):
         v1.include_router(module.router)
     app.include_router(v1)
 

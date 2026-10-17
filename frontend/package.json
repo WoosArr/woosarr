@@ -5,18 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "gen": "openapi-typescript openapi.json -o src/generated/api.ts",
+    "prebuild": "npm run gen",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run"
+    "pretest": "npm run gen",
+    "test": "vitest run",
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6"
   },
   "devDependencies": {
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.5.4",
     "vite": "^5.4.0",
     "vitest": "^2.1.9"

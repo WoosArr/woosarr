@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # First-run admin creation needs the one-time code printed to the container
     # log (P6-06). Disable only on a trusted network.
     setup_code_required: bool = True
+    # Fake Plex server + Discord cache for trying the UI (woosarr/dev/demo.py).
+    demo: bool = False
 
     @property
     def db_path(self) -> Path:

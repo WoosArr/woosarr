@@ -169,7 +169,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P1-04** Secrets manager — `core/secrets.py`. *Verify:* `pytest tests/test_secrets.py`.
 - [~] **P1-05** Logging. Done: redaction; `core/logs.py` (JSON to stderr, rotating `/config/logs/woosarr.log`, in-memory ring buffer; `RedactingFilter` on every handler; library loggers routed through them); logs API with cursor polling (`?since=`) and file download. *Remaining:* DB persistence of app logs (needs P1-03); push streaming (SSE/WebSocket) for the live tail (P8-01). *Verify:* `pytest tests/test_logs.py` (canary never reaches any sink).
 - [x] **P1-06** FastAPI app: `create_app()` factory, `python -m woosarr`, `/api/v1` router + `/api/health` alias, JSON 500 handler that logs the traceback with a request id and leaks no details, `X-Request-ID`, SPA serving with traversal guard. Ran for real on :31337 and in the container (CI smoke test, `d68c5e8`). Sessions moved to P6-01. *Verify:* `pytest tests/test_app.py`; `curl localhost:31337/api/health` → 200 in the container (`scripts/smoke-test.sh`).
-- [ ] **P1-07** OpenAPI → TypeScript type pipeline into `frontend/src/generated/` (git-ignored; generated in build/CI). *Verify:* changing a response model breaks the frontend build until types regenerate.
+- [x] **P1-07** OpenAPI → TypeScript: committed snapshot `frontend/openapi.json` (`make openapi` = `python -m woosarr.openapi` + `npm run gen`), types generated into git-ignored `src/generated/` before every build/test. *Verify:* `tests/test_openapi.py` fails on a stale snapshot; regenerated types break `tsc` where the UI no longer matches.
 
 ### Phase 2 — Container and CI/CD
 - [x] **P2-01** Dockerfile + entrypoint (PUID/PGID, gosu, healthcheck on `WOOSARR_PORT`, `CMD python -m woosarr`). `scripts/smoke-test.sh` green in CI (`d68c5e8`): health, healthy status, `/config` persistence across restart, graceful SIGTERM. *Verify:* smoke-test step in `docker-publish.yml`.
@@ -183,11 +183,11 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P3-00** `PlexGateway` interface + `FakePlexGateway` done; shared contract tests in `tests/test_plex_contract.py` (replace-not-merge, round trip, remove last library, idempotent) pass against the fake; real run is opt-in via `WOOSARR_PLEX_CONTRACT=1`. *Remaining:* python-plexapi implementation (`plex_gateway_plexapi.py`) — write only after P0-03 — and wire it into the contract test. *Verify:* contract tests pass against both.
 - [ ] **P3-01** Plex OAuth login endpoints (start/poll), token stored encrypted, expiry/revocation handling. *Depends:* P0-02, P1-04.
 - [ ] **P3-02** Server discovery/selection; store machine identifier.
-- [ ] **P3-03** Library sync (key, title, type; handle renames/removals).
-- [ ] **P3-04** User sync (incl. managed/home users).
+- [~] **P3-03** Library sync (key, title, type; renames; removals flagged, not deleted) in `services/inventory.py`, tested on the fake. *Remaining:* run against the real gateway (P3-00).
+- [~] **P3-04** User sync (incl. `is_managed`) in `services/inventory.py`, tested on the fake. *Remaining:* real gateway, confirm Home/managed users per P0-03(e).
 - [ ] **P3-05** Per-user read/write: read `MyPlexUser.servers[].sections()` filtered on `shared`; write via `updateFriend(sections=full_set)`; `removeSections=True` only when the target is empty; preserve sync/channel/filter settings per P0-03(d,e). *Verify:* add one library without losing others; remove one; remove the last; settings unchanged.
 - [ ] **P3-06** Retries, backoff, rate limits, connection-lost state surfaced to UI.
-- [ ] **P3-07** Run all Plex calls in a thread pool with per-user serialization. *Verify:* a slow Plex call doesn't stall API or Discord heartbeat.
+- [x] **P3-07** All Plex calls run on the sync worker thread (`services/sync.py`), never the event loop; global run lock + per-user locks. *Verify:* `test_triggers_are_debounced_on_the_worker`; API stays responsive during runs (HTTP handlers never call Plex).
 
 ### Phase 4 — Discord integration (needs a bot token at runtime)
 - [ ] **P4-01** Bot lifecycle (start/stop/restart without container restart; token from secrets).
@@ -195,14 +195,14 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P4-03** Event handlers (member role change, role update/delete, join/leave) → sync queue.
 - [~] **P4-04** `/link`. Done: `linking.py` rules + `capture_identity_once` (always invalidates), tested. *Remaining:* slash command, username modal, OAuth button/poll, persistence, cooldown, audit. *Verify:* both paths work; test proves no token is persisted anywhere (N9).
 - [ ] **P4-05** Reconnect/resume; permission and intent errors surfaced in UI.
-- [ ] **P4-06** Admin link/unlink API (unlink triggers reconcile; audited).
+- [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 
 ### Phase 5 — Sync engine
 - [x] **P5-01** Pure calculator — `sync/engine.py`. *Verify:* `pytest tests/test_engine.py` (19 tests).
-- [~] **P5-02** Apply layer with dry-run done (`sync/apply.py`, tested). *Remaining:* persisted audit log (who/what/why/dry_run).
-- [ ] **P5-03** Event-driven triggers with per-user debounce; mapping changes reconcile all holders.
-- [ ] **P5-04** Periodic full reconcile + "Sync now" (user/global).
-- [ ] **P5-05** Concurrency control and idempotency (running twice = no changes the second time).
+- [x] **P5-02** Apply layer with dry-run (`sync/apply.py`); every planned/applied/skipped change is written to `audit_log` (actor, add/remove, reasons, trigger, dry_run) and mirrored to the app log. *Verify:* `tests/test_sync_service.py`.
+- [~] **P5-03** `SyncService.trigger()` with per-user debounce (5 s); mapping/exemption/settings changes queue a full reconcile. *Remaining:* hook Discord gateway events (P4-03). *Verify:* `test_triggers_are_debounced_on_the_worker`.
+- [x] **P5-04** Periodic full reconcile (`reconcile_interval_minutes`, first run 15 s after start) + `POST /api/v1/sync` (all or listed users) + `GET /api/v1/sync/preview`. *Verify:* `test_sync_now_and_members`.
+- [x] **P5-05** Concurrency control (one run at a time, per-user locks, drift check before write) and idempotency. *Verify:* `test_second_run_is_a_no_op`.
 
 ### Phase 6 — Web UI shell, auth, theme
 - [x] **P6-01** Local admin login (argon2id), server-side sessions (sha256-stored id, 12 h idle / 7 d absolute, rotated on login), CSRF header on unsafe methods, logout, per-account lockout (5 → 15 min), per-IP limiter (10 / 5 min), HttpOnly + SameSite=Lax cookie (Secure on HTTPS or `WOOSARR_COOKIE_SECURE=always`). **API keys** (`wsk_…`, `read` = GET only, `admin`) for scripted access (D16). API docs/OpenAPI require auth. *Verify:* `pytest tests/test_auth.py tests/test_app.py`.
@@ -241,7 +241,7 @@ remove_all       = target empty and current non-empty                # use the r
 
 ### Phase 11 — Testing
 - [ ] **P11-01** Keep unit coverage on engine, secrets, redaction, linking (exists; extend as code grows).
-- [ ] **P11-02** Integration tests with the fake Plex and a mocked Discord.
+- [~] **P11-02** Integration tests over HTTP with demo data (`WOOSARR_DEMO=true`: fake Plex + seeded Discord cache) in `tests/test_domain_api.py`, `tests/test_sync_service.py`. *Remaining:* mocked Discord *events* once P4-03 exists.
 - [ ] **P11-03** Playwright UI tests (wizards, mappings, exemptions, manual grants, link/unlink).
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
 - [ ] **P11-05** Accessibility and theme review.

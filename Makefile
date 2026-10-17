@@ -6,11 +6,12 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke
+.PHONY: help install lint test check ui dev image smoke openapi
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
 	@echo "check    lint + tests, backend and frontend (what CI runs)"
+	@echo "openapi  refresh frontend/openapi.json after changing API models"
 	@echo "dev      run the backend on :$(PORT) with ./config and the built UI"
 	@echo "image    build the Docker image ($(IMAGE))"
 	@echo "smoke    run the image and check /api/health (needs Docker)"
@@ -31,6 +32,10 @@ test:
 
 ui:
 	cd frontend && npm run build
+
+openapi:
+	cd backend && ../$(PY) -m woosarr.openapi ../frontend/openapi.json
+	cd frontend && npm run gen
 
 check: lint test ui
 

@@ -103,3 +103,68 @@ class MigrationUpgradeTests(unittest.TestCase):
                 row = conn.execute(text("SELECT username, is_owner FROM plex_users")).one()
             self.assertEqual(tuple(row), ("existing", 0))
             engine.dispose()
+
+
+class CommunityFriendsTests(Base):
+    """plex.tv/api/v2/friends is 410 Gone; friends may only come from the community
+    GraphQL API, which has no numeric ids."""
+
+    def setUp(self):
+        super().setUp()
+        self.tv.friends_mode = "community"
+        self.tv.shares["11"] = {"id": 7, "sections": {101}}  # alice has a share; bob doesn't
+        self.plex.complete_owner_login(OWNER)
+        self.plex.select_server(MACHINE)
+        self.gw = self.plex.gateway()
+
+    def refresh(self):
+        with self.db.session() as s:
+            inventory.refresh_all(s, self.gw)
+
+    def test_friend_without_share_listed_by_uuid_and_linkable(self):
+        self.refresh()
+        with self.db.session() as s:
+            bob = s.scalar(select(PlexUser).where(PlexUser.username == "bob"))
+            self.assertEqual(bob.plex_user_id, "uuid:uu12")
+            r = link_service.link_by_username(s, "d-bob", "bob")
+        self.assertTrue(r.ok, r.message)
+
+    def test_verified_link_matches_by_username(self):
+        self.refresh()
+        with self.db.session() as s:
+            r = link_service.link_by_identity(s, "d-bob", PlexIdentity("12", "bob"))
+        self.assertTrue(r.ok, r.message)
+
+    def test_sharing_invites_by_username_then_rekeys_keeping_the_link(self):
+        self.refresh()
+        with self.db.session() as s:
+            app_settings.update(s, {"link_cooldown_seconds": 0})
+            link_service.link_by_username(s, "d-bob", "bob")
+        self.gw.set_user_libraries("uuid:uu12", ["2"])
+        post = [c for c in self.tv.calls if c[0] == "post" and "shared_servers" in c[1]][-1]
+        self.assertEqual(post[2]["shared_server"]["invited_email"], "bob")
+        self.assertEqual(self.tv.shares["12"]["sections"], {102})
+        self.refresh()  # plex.tv now reports bob with his numeric id
+        with self.db.session() as s:
+            self.assertIsNone(s.get(PlexUser, "uuid:uu12"))
+            self.assertEqual(s.get(PlexUser, "12").username, "bob")
+            link = s.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == "d-bob"))
+            self.assertEqual(link.plex_user_id, "12")
+
+    def test_uuid_user_reads_resolve_after_share(self):
+        self.refresh()
+        self.assertEqual(self.gw.get_user_library_ids("uuid:uu12"), frozenset())
+        self.tv.shares["12"] = {"id": 8, "sections": {103}}
+        self.assertEqual(self.gw.get_user_library_ids("uuid:uu12"), frozenset({"3"}))
+
+    def test_no_friends_source_is_quiet_after_first_warning(self):
+        self.tv.friends_mode = "none"
+        import logging
+
+        with self.assertLogs("woosarr.plex", level="WARNING") as cm:
+            self.gw.list_users()
+            self.gw.list_users()
+            logging.getLogger("woosarr.plex").warning("sentinel")
+        warnings = [m for m in cm.output if "no friends list available" in m]
+        self.assertEqual(len(warnings), 1)
+        self.assertTrue(self.gw.state.ok)  # an optional source failing isn't a Plex outage

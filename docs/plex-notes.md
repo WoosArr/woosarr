@@ -40,8 +40,10 @@ Setup → Plex → **Verify sharing on a test user…** rewrites the user's curr
 ## Who counts as a Plex user (live finding 2026-10-17)
 
 - `plex.tv/api/users` (python-plexapi `users()`) lists **only users who currently have a share**. A friend whose last library is removed drops out of it, and friends who never had a share (e.g. *themunchkin*) never appear.
-- WooSarr therefore merges three sources: `/api/users` (share details), `GET https://plex.tv/api/v2/friends` (JSON, accepted friends; pending invites skipped) and `GET https://plex.tv/api/home/users` (Home members; the `admin` entry is the owner). If either extra source fails, it's logged (`plex friends_v2 list unavailable…`) and sync carries on with the shared list. Each full sync logs `plex users: {'with_share': n, 'friends_v2': n, 'home': n} merged=n`.
-- A friend without a share gets one with `POST shared_servers` (`invited_id`), exactly as `updateFriend` does.
+- **`plex.tv/api/v2/friends` answers `410 Gone`** (live, 2026-10-17). Friend lists are tried in order: `https://clients.plex.tv/api/v2/friends` (numeric ids), then the community GraphQL API `POST https://community.plex.tv/api` with `allFriendsV2 { user { id username displayName } }` (as Ombi and Pulsarr do). The community API only returns a UUID-style id and username, so those friends are stored as `uuid:<id>`.
+- Plus `GET https://plex.tv/api/home/users` (Home members; the `admin` entry is the owner) and `/api/users` (share details, numeric ids). Each full sync logs `plex users: {'with_share': n, 'friends': 'n via <source> (+m without a share)', 'home': …}`. A failing optional source is logged once (warning) and again when it recovers; it never marks Plex as disconnected.
+- A friend without a share gets one with `POST shared_servers`: `invited_id` when the numeric id is known (as `updateFriend` does), otherwise `invited_email: <username>` (as `inviteFriend` does). Once plex.tv lists them in `/api/users`, the `uuid:` row is re-keyed to the numeric id, keeping link, manual grants and observed shares.
+- Verified `/link` sign-ins match by numeric id, falling back to username for `uuid:` friends.
 - The **owner** is listed (`is_owner`), can `/link`, and is never planned or written: the owner always has every library.
 
 ## Link token invalidation (P0-07, N9)

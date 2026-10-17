@@ -9,6 +9,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Playwright tests for the Plex and Discord setup wizards; simulated Discord event tests.
 
 ### Fixed
+- `plex.tv/api/v2/friends` is gone (410): friends now come from `clients.plex.tv` or Plex's community API; friends known only by username are shared with by username and re-keyed once Plex reports their id.
+- Discord interaction and webhook tokens are redacted from logs, and discord.py's own logging stays at INFO when the app log level is DEBUG.
+- An unavailable optional Plex source is a single warning, not an error on every sync.
 - Friends without any shared library (and users whose last library was removed) are now listed and can be managed: plex.tv's `/api/users` leaves them out, so WooSarr also reads `/api/v2/friends` and Home users.
 - The server owner can `/link`; the owner is shown with an Owner badge and is never synced.
 - "Verify sharing" works on a user with no libraries (adds one, then removes the share again).

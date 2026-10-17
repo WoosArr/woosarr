@@ -4,9 +4,11 @@ Mimics python-plexapi's object shapes (MyPlexUser, MyPlexServerShare, Section)
 and plex.tv's replace semantics for shared_servers, so gateway logic and the
 shared GatewayContract can run without a real account.
 
-Like the real plex.tv (live finding 2026-10-17), /api/users only lists users
-who currently have a share; /api/v2/friends lists every accepted friend and
-/api/home/users every Home member (the owner as admin).
+Like the real plex.tv (live findings 2026-10-17): /api/users only lists users
+who currently have a share; plex.tv/api/v2/friends answers 410 Gone; friends
+come from clients.plex.tv/api/v2/friends (numeric ids) or the community GraphQL
+API (uuid ids) depending on `friends_mode`; /api/home/users lists Home members
+(the owner as admin).
 """
 
 import itertools
@@ -15,7 +17,7 @@ import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
 import requests
-from plexapi.exceptions import NotFound, Unauthorized
+from plexapi.exceptions import BadRequest, NotFound, Unauthorized
 
 MACHINE = "machine-abc123"
 
@@ -29,7 +31,8 @@ class FakePlexTV:
         self.users = users or {"11": {"username": "alice", "email": "a@x"}, "12": {"username": "bob", "email": "b@x"},
                                "13": {"username": "kid", "email": None, "home": True}}
         self.owner = {"id": "1", "username": "owner", "email": "owner@x"}
-        self.friends_v2_fails = False
+        self.friends_v2_fails = False  # legacy name: True = no friends source works
+        self.friends_mode = "clients"  # "clients" | "community" | "none"
         self.shares = {}  # user id -> {"id": share id, "sections": set(plex.tv ids)}
         self._ids = itertools.count(500)
         self.calls = []
@@ -79,13 +82,24 @@ class FakePlexTV:
     def query(self, url, method="get", json=None, headers=None, **_):
         self._maybe_fail()
         self.calls.append((method, url, json))
+        mode = "none" if self.friends_v2_fails else self.friends_mode
         if method == "get" and url == "https://plex.tv/api/v2/friends":
-            if self.friends_v2_fails:
-                raise requests.ConnectionError("v2 friends down")
+            raise BadRequest("(410) gone; https://plex.tv/api/v2/friends")
+        if method == "get" and url == "https://clients.plex.tv/api/v2/friends":
+            if mode != "clients":
+                raise BadRequest("(404) not_found; https://clients.plex.tv/api/v2/friends")
             return [{"id": int(uid), "username": u["username"], "title": u["username"], "email": u.get("email"),
                      "home": u.get("home", False), "status": "accepted"}
                     for uid, u in self.users.items() if not u.get("home")] + [
                     {"id": 99, "username": "pending-pal", "status": "pending"}]
+        if method == "post" and url == "https://community.plex.tv/api":
+            if mode != "community":
+                raise requests.ConnectionError("community API down")
+            assert "allFriendsV2" in json["query"]
+            return {"data": {"allFriendsV2": [
+                {"user": {"id": f"uu{uid}", "username": u["username"], "displayName": u["username"]},
+                 "createdAt": "2024-01-01"}
+                for uid, u in self.users.items() if not u.get("home")]}}
         if method == "get" and url == "https://plex.tv/api/home/users":
             root = ET.Element("MediaContainer")
             ET.SubElement(root, "User", id=self.owner["id"], title=self.owner["username"], admin="1",
@@ -107,7 +121,11 @@ class FakePlexTV:
         share_id = int(m.group(1)) if m.group(1) else None
         owner = next((uid for uid, s in self.shares.items() if s["id"] == share_id), None)
         if method == "post":
-            uid = str(json["shared_server"]["invited_id"])
+            target = json["shared_server"]
+            if "invited_id" in target:
+                uid = str(target["invited_id"])
+            else:  # invited by username, like plexapi's inviteFriend
+                uid = next(k for k, u in self.users.items() if u["username"] == target["invited_email"])
             self.shares[uid] = {"id": next(self._ids), "sections": set(json["shared_server"]["library_section_ids"])}
         elif method == "put":
             # plex.tv replaces the whole list

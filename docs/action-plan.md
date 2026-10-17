@@ -134,6 +134,7 @@ remove_all       = target empty and current non-empty                # use the r
 - **Push protection:** a token-shaped string in source blocks the push to GitHub. Assemble fake tokens at runtime (see `tests/test_redaction.py`). `.gitleaks.toml` allowlists that test file.
 - **Ruff 0.17+ default rules are strict** (e.g. `BLE001` on bare `except Exception`). Run `ruff check .` before committing; use `# noqa: <rule>` with a reason only when intentional.
 - **Pushing to `main` publishes an image** and CI now gates it. Don't push half-done work.
+- **`plex.tv/api/v2/friends` is 410 Gone**; use `clients.plex.tv/api/v2/friends` or community GraphQL `allFriendsV2` (uuid ids, share by `invited_email`). Discord DEBUG dumps contain interaction tokens: redact and cap discord.* at INFO.
 - **`plex.tv/api/users` only lists users with a share.** Friends without libraries and users whose last library was removed are missing; merge `/api/v2/friends` and `/api/home/users` (see plex-notes). The owner isn't in any friends list; it's added from the account and never synced.
 - **DB commits must happen before the response** (`Depends(get_session, scope="function")` in `api/deps.py`). The default scope commits after the response is sent; Playwright caught login → immediate status check racing the commit.
 - Playwright: wait for list filtering/async content (`toHaveCount`) before clicking; the demo inventory loads ~1 s after boot.

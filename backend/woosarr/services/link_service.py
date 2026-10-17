@@ -121,6 +121,10 @@ def link_by_username(session: Session, discord_user_id: str, text: str) -> LinkR
 def link_by_identity(session: Session, discord_user_id: str, identity: PlexIdentity) -> LinkResult:
     """Verified: the member signed in to Plex; identity came from a token that is already invalidated."""
     plex = session.get(PlexUser, identity.plex_user_id)
+    if (plex is None or plex.removed) and identity.username:
+        # Friends without a share may only be known by username (uuid key) so far.
+        plex = session.scalar(select(PlexUser).where(
+            PlexUser.removed.is_(False), func.lower(PlexUser.username) == identity.username.lower()))
     if plex is None or plex.removed:
         return _fail(session, discord_user_id, "not_a_server_user",
                      f"You signed in as **{identity.username}**, but that account doesn't have access to this "

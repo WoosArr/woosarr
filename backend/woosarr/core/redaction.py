@@ -14,6 +14,10 @@ _PATTERNS = [
     re.compile(r"(?i)([?&]token=)([^&\s'\"]+)"),
     # Authorization headers
     re.compile(r"(?i)(authorization['\"]?\s*[:=]\s*['\"]?(?:bearer|bot)\s+)([A-Za-z0-9._\-]+)"),
+    # "token": "..." / 'token': '...' in JSON or dict reprs (e.g. Discord interaction payloads)
+    re.compile(r"""(?i)(['"](?:token|access_token|refresh_token|authToken|accessToken)['"]\s*:\s*['"])([^'"]+)"""),
+    # Discord interaction/webhook URLs carry the token in the path
+    re.compile(r"(/(?:interactions|webhooks)/\d+/)([A-Za-z0-9_\-.]+)"),
     # Generic key=value secrets
     re.compile(r"(?i)((?:password|passwd|secret|api[_-]?key|access[_-]?token)['\"]?\s*[:=]\s*['\"]?)([^\s'\",}]+)"),
 ]

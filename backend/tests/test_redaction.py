@@ -71,3 +71,25 @@ class RedactionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DiscordPayloadRedactionTests(unittest.TestCase):
+    """Live finding: discord.py DEBUG logs contained interaction tokens."""
+
+    def test_interaction_token_in_event_dict(self):
+        tok = "aW50ZXJh" + "Y3Rpb24" * 6
+        out = redaction.redact("{'t': 'INTERACTION_CREATE', 'd': {'version': 1, 'type': 2, 'token': '" + tok + "'}}")
+        self.assertNotIn(tok, out)
+        self.assertIn("'token': '[REDACTED]'", out)
+
+    def test_interaction_and_webhook_urls(self):
+        tok = "aW50ZXJh" + "Y3Rpb24" * 6
+        for url in (f"POST https://discord.com/api/v10/interactions/1561048885286412379/{tok}/callback",
+                    f"https://discord.com/api/v10/webhooks/1560164945125965834/{tok}/messages/@original"):
+            out = redaction.redact(url)
+            self.assertNotIn(tok, out, url)
+            self.assertIn("[REDACTED]", out)
+
+    def test_json_token_fields(self):
+        tok = "zz" + "Tok9" * 6
+        self.assertNotIn(tok, redaction.redact('{"authToken": "' + tok + '"}'))

@@ -85,3 +85,18 @@ class LoggingTests(unittest.TestCase):
         entries, latest = ring.query()
         self.assertEqual([e.message for e in entries], ["m7", "m8", "m9"])
         self.assertEqual(latest, 10)
+
+
+class LibraryLoggerCapTests(unittest.TestCase):
+    def test_discord_internals_stay_at_info_when_app_is_debug(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ring = logs.configure_logging(Settings(config_dir=Path(tmp), log_level="DEBUG"))
+            logging.getLogger("discord.gateway").debug("event dump")
+            logging.getLogger("woosarr.sync").debug("our debug")
+            messages = [e.message for e in ring.query()[0]]
+            for h in logs._state.handlers:
+                logging.getLogger().removeHandler(h)
+                h.close()
+            logs._state.handlers = []
+        self.assertIn("our debug", messages)
+        self.assertNotIn("event dump", messages)

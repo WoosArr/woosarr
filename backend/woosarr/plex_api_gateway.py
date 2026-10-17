@@ -37,9 +37,17 @@ PLEXSERVERS = "https://plex.tv/api/servers/{machineId}"
 FRIENDINVITE = "https://plex.tv/api/servers/{machineId}/shared_servers"
 FRIENDSERVERS = "https://plex.tv/api/servers/{machineId}/shared_servers/{serverId}"
 # plex.tv/api/users (python-plexapi's users()) only lists friends who currently
-# have a share; these two list everyone (live finding 2026-10-17).
-FRIENDS_V2 = "https://plex.tv/api/v2/friends"
+# have a share (live finding 2026-10-17). Friend lists, tried in order:
+#   * clients.plex.tv/api/v2/friends: numeric account ids (plex.tv/api/v2/friends
+#     itself answers 410 Gone since 2026)
+#   * community.plex.tv GraphQL allFriendsV2 (used by Ombi, Pulsarr): only a
+#     UUID-style id + username, so those friends are keyed "uuid:<id>" and shared
+#     with by username until plex.tv reports their numeric id.
+FRIENDS_SOURCES = ("https://clients.plex.tv/api/v2/friends",)
+COMMUNITY_API = "https://community.plex.tv/api"
+ALL_FRIENDS_QUERY = "query GetAllFriends { allFriendsV2 { user { id username displayName } createdAt } }"
 HOME_USERS = "https://plex.tv/api/home/users"
+UUID_PREFIX = "uuid:"
 
 T = TypeVar("T")
 
@@ -83,6 +91,7 @@ class PlexApiGateway:
         self._sleep = sleep
         self.parallel_reads = 6  # concurrent share reads against plex.tv
         self._roster: dict[str, PlexUser] = {}
+        self._source_problems: dict[str, str | None] = {}
         self.state = ConnectionState()
 
     # ---- plumbing -----------------------------------------------------------
@@ -93,8 +102,12 @@ class PlexApiGateway:
                 self._account = self._call(self._account_factory, idempotent=True)
             return self._account
 
-    def _call(self, fn: Callable[[], T], idempotent: bool) -> T:
-        """Run one Plex call with retries/backoff and connection-state tracking."""
+    def _call(self, fn: Callable[[], T], idempotent: bool, optional: bool = False) -> T:
+        """Run one Plex call with retries/backoff and connection-state tracking.
+
+        optional=True: a failure doesn't mark the connection as failing (used for
+        best-effort sources like the friends lists).
+        """
         attempt = 0
         while True:
             try:
@@ -113,7 +126,8 @@ class PlexApiGateway:
                                 type(exc).__name__, exc, attempt, self._retries, delay)
                     self._sleep(delay)
                     continue
-                self._record_error(f"{type(exc).__name__}: {exc}")
+                if not optional:
+                    self._record_error(f"{type(exc).__name__}: {exc}")
                 raise
             self.state.ok = True
             self.state.last_ok_at = time.time()
@@ -127,10 +141,11 @@ class PlexApiGateway:
         self.state.auth_failed = auth
         log.error("plex: %s", message)
 
-    def _query(self, url: str, method: str = "get", idempotent: bool = True, **kwargs: Any) -> Any:
+    def _query(self, url: str, method: str = "get", idempotent: bool = True, optional: bool = False,
+               **kwargs: Any) -> Any:
         acct = self.account()
         fn = getattr(acct._session, method)
-        return self._call(lambda: acct.query(url, fn, **kwargs), idempotent=idempotent)
+        return self._call(lambda: acct.query(url, fn, **kwargs), idempotent=idempotent, optional=optional)
 
     # ---- reads --------------------------------------------------------------
 
@@ -152,8 +167,8 @@ class PlexApiGateway:
         acct = self.account()
         return self._call(acct.users, idempotent=True)
 
-    def _friends_v2(self) -> list[PlexUser]:
-        data = self._query(FRIENDS_V2, headers={"Accept": "application/json"})
+    def _friends_rest(self, url: str) -> list[PlexUser]:
+        data = self._query(url, headers={"Accept": "application/json"}, optional=True)
         out = []
         for f in data if isinstance(data, list) else []:
             if not isinstance(f, dict) or not f.get("id"):
@@ -164,8 +179,44 @@ class PlexApiGateway:
             out.append(PlexUser(str(f["id"]), name, f.get("email") or None, is_managed=bool(f.get("home"))))
         return out
 
+    def _friends_community(self) -> list[PlexUser]:
+        data = self._query(COMMUNITY_API, "post", optional=True, json={"query": ALL_FRIENDS_QUERY},
+                           headers={"Content-Type": "application/json", "Accept": "application/json"})
+        if not isinstance(data, dict) or data.get("errors") or not isinstance(data.get("data"), dict):
+            raise ValueError(f"unexpected community API answer: {str(data)[:200]}")
+        out = []
+        for f in data["data"].get("allFriendsV2") or []:
+            user = (f or {}).get("user") or {}
+            if not user.get("id") or not user.get("username"):
+                continue
+            out.append(PlexUser(f"{UUID_PREFIX}{user['id']}", user["username"], None))
+        return out
+
+    def _friends(self) -> tuple[list[PlexUser], str]:
+        """All accepted friends from the first source that answers; (users, source label)."""
+        errors = []
+        for url in FRIENDS_SOURCES:
+            try:
+                return self._friends_rest(url), url.split("//")[1].split("/")[0] + " v2"
+            except Exception as exc:  # noqa: BLE001 - try the next source
+                errors.append(f"{url}: {type(exc).__name__}: {exc}")
+        try:
+            return self._friends_community(), "community"
+        except Exception as exc:  # noqa: BLE001 - reported below; the shared list still works
+            errors.append(f"community: {type(exc).__name__}: {exc}")
+        raise RuntimeError("; ".join(errors))
+
+    def _note_source(self, name: str, problem: str | None) -> None:
+        """Warn when an optional source starts failing, info when it recovers; quiet otherwise."""
+        previous = self._source_problems.get(name)
+        if problem and problem != previous:
+            log.warning("plex: %s", problem)
+        elif not problem and previous:
+            log.info("plex: %s source works again", name)
+        self._source_problems[name] = problem
+
     def _home_users(self) -> list[PlexUser]:
-        data = self._query(HOME_USERS)
+        data = self._query(HOME_USERS, optional=True)
         out = []
         for elem in data if data is not None else []:
             uid = elem.attrib.get("id")
@@ -191,17 +242,34 @@ class PlexApiGateway:
             name = u.username or u.title or str(u.id)
             roster[str(u.id)] = PlexUser(str(u.id), name, u.email or None, is_managed=bool(u.home and not u.email))
         counts["with_share"] = len(roster)
-        for label, source in (("friends_v2", self._friends_v2), ("home", self._home_users)):
-            try:
-                found = source()
-            except Exception as exc:  # noqa: BLE001 - optional source; the shared list still works
-                counts[label] = f"error {type(exc).__name__}"
-                log.warning("plex %s list unavailable (%s: %s); friends without a share may be missing",
-                            label, type(exc).__name__, exc)
-                continue
-            counts[label] = len(found)
+        by_name = {u.username.lower(): u.plex_user_id for u in roster.values()}
+
+        def add(found: list[PlexUser]) -> int:
+            added = 0
             for u in found:
-                roster.setdefault(u.plex_user_id, u)
+                if u.plex_user_id in roster or u.username.lower() in by_name:
+                    continue  # already known (numeric id wins over a uuid key)
+                roster[u.plex_user_id] = u
+                by_name[u.username.lower()] = u.plex_user_id
+                added += 1
+            return added
+
+        try:
+            friends, source = self._friends()
+        except Exception as exc:  # noqa: BLE001 - shared list still works; say so once per change
+            counts["friends"] = "unavailable"
+            self._note_source("friends", f"no friends list available ({exc}); friends without a share are missing")
+        else:
+            counts["friends"] = f"{len(friends)} via {source} (+{add(friends)} without a share)"
+            self._note_source("friends", None)
+        try:
+            home = self._home_users()
+        except Exception as exc:  # noqa: BLE001 - optional
+            counts["home"] = "unavailable"
+            self._note_source("home", f"Home users list unavailable ({type(exc).__name__}: {exc})")
+        else:
+            counts["home"] = f"{len(home)} (+{add(home)})"
+            self._note_source("home", None)
         owner = self.owner()
         roster.pop(owner.plex_user_id, None)
         users = [owner, *roster.values()]
@@ -211,9 +279,16 @@ class PlexApiGateway:
 
     def _shared_user(self, plex_user_id: str) -> Any | None:
         """The /api/users entry (with share details), or None for a known user without a share."""
-        for u in self._users():
+        users = self._users()
+        for u in users:
             if str(u.id) == str(plex_user_id):
                 return u
+        if plex_user_id.startswith(UUID_PREFIX):
+            known = self._roster.get(plex_user_id)
+            name = known.username.lower() if known else None
+            for u in users:
+                if name and (u.username or u.title or "").lower() == name:
+                    return u  # got a share since; plex.tv now reports the numeric id
         if plex_user_id not in self._roster:
             self.list_users()
         if plex_user_id not in self._roster:
@@ -329,9 +404,21 @@ class PlexApiGateway:
             )
         else:
             log.info("plex: share server with user=%s keys=%s", plex_user_id, sorted(wanted))
+            if plex_user_id.startswith(UUID_PREFIX):
+                # Only the username is known (community friends list): invite by it,
+                # as python-plexapi's inviteFriend does.
+                known = self._roster.get(plex_user_id)
+                if known is None:
+                    self.list_users()
+                    known = self._roster.get(plex_user_id)
+                if known is None:
+                    raise NotFound(f"Plex user {plex_user_id} is no longer a friend")
+                target: dict[str, Any] = {"invited_email": known.username}
+            else:
+                target = {"invited_id": int(plex_user_id)}
             self._query(
                 FRIENDINVITE.format(machineId=self.machine_id), "post", idempotent=False,
                 json={"server_id": self.machine_id,
-                      "shared_server": {"library_section_ids": section_ids, "invited_id": int(plex_user_id)}},
+                      "shared_server": {"library_section_ids": section_ids, **target}},
                 headers=headers,
             )

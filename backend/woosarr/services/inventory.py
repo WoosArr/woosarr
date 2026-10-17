@@ -11,10 +11,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from woosarr.db.models import Library, LibraryState, PlexUser, utcnow
+from woosarr.db.models import (
+    AuditLog,
+    DiscordLink,
+    Library,
+    LibraryState,
+    ManualGrant,
+    PlexUser,
+    utcnow,
+)
 from woosarr.plex_gateway import PlexGateway
 
 log = logging.getLogger("woosarr.inventory")
@@ -50,8 +58,38 @@ def refresh_libraries(session: Session, gateway: PlexGateway) -> tuple[int, int]
     return len(live), removed
 
 
+def rekey_user(session: Session, old_id: str, new_id: str) -> None:
+    """Move a Plex user (and its link, grants, observed shares) to a new id.
+
+    Friends known only from the community list are keyed "uuid:<id>"; once
+    plex.tv reports their numeric account id they're re-keyed so nothing that
+    points at them is lost.
+    """
+    old = session.get(PlexUser, old_id)
+    if old is None or session.get(PlexUser, new_id) is not None:
+        return
+    session.add(PlexUser(plex_user_id=new_id, username=old.username, email=old.email, is_managed=old.is_managed,
+                         is_owner=old.is_owner, thumb=old.thumb))
+    session.flush()
+    for model in (DiscordLink, ManualGrant, LibraryState):
+        session.execute(update(model).where(model.plex_user_id == old_id).values(plex_user_id=new_id))
+    session.execute(update(AuditLog).where(AuditLog.target_type == "plex_user", AuditLog.target_id == old_id)
+                    .values(target_id=new_id))
+    session.flush()
+    session.delete(old)
+    session.flush()
+    log.info("plex user re-keyed %s -> %s (%s)", old_id, new_id, old.username)
+
+
 def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
     live = {u.plex_user_id: u for u in gateway.list_users()}
+    # A friend first seen without a share (uuid key) now reported with a numeric id.
+    uuid_rows = {row.username.lower(): row.plex_user_id
+                 for row in session.scalars(select(PlexUser).where(PlexUser.plex_user_id.like("uuid:%")))}
+    for uid, user in live.items():
+        old_id = uuid_rows.get(user.username.lower())
+        if old_id and old_id != uid and not uid.startswith("uuid:") and old_id not in live:
+            rekey_user(session, old_id, uid)
     existing = {row.plex_user_id: row for row in session.scalars(select(PlexUser))}
     for uid, user in live.items():
         row = existing.get(uid)

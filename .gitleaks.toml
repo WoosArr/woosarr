@@ -1,0 +1,8 @@
+# Use the default rules, but ignore the fake canary values that the log
+# redaction tests deliberately contain.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake canary values used to test log redaction"
+paths = ['''backend/tests/test_redaction\.py''']

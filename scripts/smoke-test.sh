@@ -47,17 +47,19 @@ code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
 
 # The log file must have been written to the mounted volume (owned by PUID).
 sudo_cmd=""; [ "$(id -u)" = "0" ] || ! command -v sudo >/dev/null || sudo_cmd="sudo"
-$sudo_cmd test -s "$CONF/logs/woosarr.log" || fail "/config/logs/woosarr.log not persisted"
+LOG="$CONF/logs/woosarr.log"
+$sudo_cmd test -s "$LOG" || fail "/config/logs/woosarr.log not persisted"
 
 # Restart on the same volume: log file is appended, not replaced.
-before=$($sudo_cmd wc -l < "$CONF/logs/woosarr.log")
+# Read through sudo: the file belongs to PUID, and a shell redirect would not.
+before=$($sudo_cmd cat "$LOG" | wc -l)
 docker start "$NAME" >/dev/null
 i=0
 until curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; do
     i=$((i + 1)); [ "$i" -le 30 ] || fail "health endpoint never answered after restart"; sleep 1
 done
 docker stop "$NAME" >/dev/null
-after=$($sudo_cmd wc -l < "$CONF/logs/woosarr.log")
+after=$($sudo_cmd cat "$LOG" | wc -l)
 [ "$after" -gt "$before" ] || fail "log file not appended across restart"
 
 echo "smoke test passed"

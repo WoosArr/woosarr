@@ -29,7 +29,7 @@ cd frontend && npm install && npm run dev
 
 ## Releases
 
-Pushes to `main` and version tags (`v1.2.3`) build a multi-arch image and publish it to GitHub Container Registry via `.github/workflows/docker-publish.yml`.
+Pushes to `main` and version tags (`v1.2.3`) build a linux/amd64 image and publish it to GitHub Container Registry via `.github/workflows/docker-publish.yml`.
 
 ## License
 

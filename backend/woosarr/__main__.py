@@ -17,6 +17,7 @@ def main() -> None:
         # Our own handlers (with redaction) own logging; don't let uvicorn install its own.
         log_config=None,
         proxy_headers=True,
+        forwarded_allow_ips=settings.forwarded_allow_ips,
         server_header=False,
         # docker stop sends SIGTERM and waits 10 s before SIGKILL.
         timeout_graceful_shutdown=5,

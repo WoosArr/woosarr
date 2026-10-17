@@ -29,6 +29,20 @@ class Settings(BaseSettings):
     log_buffer_size: int = 5000
     log_file_max_bytes: int = 5 * 1024 * 1024
     log_file_backups: int = 5
+    # Sessions (P6-01)
+    session_idle_hours: int = 12
+    session_max_days: int = 7
+    # auto = Secure cookie when the request arrived over HTTPS (directly or via
+    # a trusted proxy in forwarded_allow_ips).
+    cookie_secure: Literal["auto", "always", "never"] = "auto"
+    forwarded_allow_ips: str = "127.0.0.1"
+    # First-run admin creation needs the one-time code printed to the container
+    # log (P6-06). Disable only on a trusted network.
+    setup_code_required: bool = True
+
+    @property
+    def db_path(self) -> Path:
+        return self.config_dir / "app.db"
 
     @property
     def log_dir(self) -> Path:

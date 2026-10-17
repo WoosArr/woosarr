@@ -4,12 +4,10 @@ import unittest
 from pathlib import Path
 
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
 
+from tests.helpers import AppHarness
 from woosarr.api.deps import PUBLIC_PATHS, require_admin
 from woosarr.core import logs
-from woosarr.core.config import Settings
-from woosarr.main import create_app
 
 
 class AppTests(unittest.TestCase):
@@ -21,8 +19,8 @@ class AppTests(unittest.TestCase):
         (static / "index.html").write_text("<html>spa</html>")
         (static / "assets" / "app.js").write_text("console.log(1)")
         (root / "outside.txt").write_text("nope")
-        self.settings = Settings(config_dir=root / "config", static_dir=static)
-        self.app = create_app(self.settings)
+        self.h = AppHarness(static_dir=static)
+        self.app = self.h.app
 
         @self.app.get("/api/v1/_boom", include_in_schema=False)
         def boom():
@@ -30,14 +28,10 @@ class AppTests(unittest.TestCase):
 
         # Ahead of the SPA catch-all, like real routes registered in create_app.
         self.app.router.routes.insert(0, self.app.router.routes.pop())
-
-        self.client = TestClient(self.app, raise_server_exceptions=False)
+        self.client = self.h.setup_admin()
 
     def tearDown(self):
-        for h in logs._state.handlers:
-            logging.getLogger().removeHandler(h)
-            h.close()
-        logs._state.handlers = []
+        self.h.close()
         self.tmp.cleanup()
 
     def test_health_versioned_and_alias(self):

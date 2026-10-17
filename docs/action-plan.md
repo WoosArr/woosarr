@@ -20,7 +20,7 @@
 - **Done and tested (71 backend tests + 6 opt-in real-Plex contract tests skipped, 2 vitest):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API** (`GET /api/v1/logs`, `GET /api/v1/logs/file`), `PlexGateway` contract tests.
 - **Ran for real locally:** `python -m woosarr` serves health, UI, logs on :31337 and stops cleanly on SIGTERM (~0.2 s).
 - **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs green through `d68c5e8`, including the image smoke test; that image is published as `latest`. No Docker on the dev Mac, so the image is only exercised in CI.
-- **Diagnostics:** nobody has shell access to the deployed server (D16). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`.
+- **Diagnostics:** nobody has shell access to the deployed server (D16, http://10.0.1.101:31337). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`, which need an admin session or a `read` API key (`Authorization: Bearer wsk_…`). Claude reads the key from `~/.config/woosarr/api-key` and never prints it.
 - **Not started:** every Plex-write implementation, Discord bot, DB layer, auth/wizard/SAML, the entire UI beyond a placeholder.
 - **First thing to do in a fresh session:** `make install && make check`, and `gh run list --workflow "Docker publish" --limit 3`; fix anything red before new work.
 
@@ -68,6 +68,8 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 | D13 | Source control | DECIDED | Git, branch `main`, GitHub. |
 | D14 | CI/CD | DECIDED | GitHub Actions. `docker-publish.yml` = CI (reusable `ci.yml`) → build → image smoke test → push to GHCR on `main` and `v*.*.*` tags, `GITHUB_TOKEN` only. PRs run CI only. `linux/amd64` only for now. Every commit is pushed (user rule). |
 | D15 | Port | DECIDED | **31337** (container and default host port). Overrides the 2000 in `docs/specsheet.md`, which is kept read-only as the original spec. Set by `WOOSARR_PORT`. |
+| D17 | App log storage | DECIDED | Rotating file + in-memory buffer only; no `app_logs` table (avoids SQLite write load from logging). Audit events go to `audit_log` *and* the app log. |
+| D18 | Safe defaults | DECIDED | Fresh installs start in **dry-run**; first admin needs the setup code from the container log. |
 | D16 | Diagnostics | DECIDED | No access to the deployed server. All diagnostics come from logs read through the API (`/api/v1/logs`, `/api/v1/logs/file`). New features must log enough (redacted) to be debugged that way; raise `WOOSARR_LOG_LEVEL=DEBUG` when needed. |
 
 ## 4. Non-negotiables
@@ -81,7 +83,7 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 - **N7** Secrets never appear in logs, API responses or UI (masked / "set" indicator only).
 - **N8** UI: sidebar nav, light + dark modes, colorblind option(s), purple as a featured colour; never rely on colour alone.
 - **N9** `/link` must never persist Plex credentials/tokens; any token is used once, then invalidated.
-- **N10** Every web route requires auth except health, login, SAML metadata/ACS, and the first-run wizard (only while no admin exists). Enforced by `api/deps.py` (`require_admin`, `PUBLIC_PATHS`) and `tests/test_app.py::test_every_non_public_route_requires_admin`. **Until P6-01, `require_admin` is a pass-through**, so the logs API is open to anyone who can reach the port.
+- **N10** Every web route requires auth except health, login, SAML metadata/ACS, and the first-run wizard (only while no admin exists). Enforced by `api/deps.py` (`require_admin`, `PUBLIC_PATHS`) and `tests/test_app.py::test_every_non_public_route_requires_admin`. The SPA shell (static files) is public; it holds no data.
 
 ## 5. Architecture
 
@@ -163,7 +165,7 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 1 — Foundation
 - [x] **P1-01** Tooling: `.gitignore`, `.gitattributes`, `.dockerignore`, `pyproject.toml`, CI, `.pre-commit-config.yaml` (ruff + gitleaks), vitest, `Makefile`. *Verify:* `make check` runs lint + tests for both halves.
 - [x] **P1-02** Config loader `core/config.py` (`WOOSARR_*` env, everything persistent under `config_dir`, no secret settings). *Verify:* `pytest tests/test_config.py`; app boots with only a `/config` volume (smoke test).
-- [ ] **P1-03** SQLAlchemy models + Alembic migrations for §5 data model. *Verify:* fresh DB migrates; migration test passes.
+- [x] **P1-03** SQLAlchemy models (`db/models.py`) + Alembic (`db/migrations`, run on every start) for the §5 data model; UTC-aware datetimes, SQLite WAL + foreign keys. App logs are *not* stored in the DB (D17). *Verify:* `pytest tests/test_db.py` (fresh DB migrates, models == migrations, one-to-one links, cascades, no token columns).
 - [x] **P1-04** Secrets manager — `core/secrets.py`. *Verify:* `pytest tests/test_secrets.py`.
 - [~] **P1-05** Logging. Done: redaction; `core/logs.py` (JSON to stderr, rotating `/config/logs/woosarr.log`, in-memory ring buffer; `RedactingFilter` on every handler; library loggers routed through them); logs API with cursor polling (`?since=`) and file download. *Remaining:* DB persistence of app logs (needs P1-03); push streaming (SSE/WebSocket) for the live tail (P8-01). *Verify:* `pytest tests/test_logs.py` (canary never reaches any sink).
 - [x] **P1-06** FastAPI app: `create_app()` factory, `python -m woosarr`, `/api/v1` router + `/api/health` alias, JSON 500 handler that logs the traceback with a request id and leaks no details, `X-Request-ID`, SPA serving with traversal guard. Ran for real on :31337 and in the container (CI smoke test, `d68c5e8`). Sessions moved to P6-01. *Verify:* `pytest tests/test_app.py`; `curl localhost:31337/api/health` → 200 in the container (`scripts/smoke-test.sh`).
@@ -203,13 +205,13 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P5-05** Concurrency control and idempotency (running twice = no changes the second time).
 
 ### Phase 6 — Web UI shell, auth, theme
-- [ ] **P6-01** Local admin login (argon2id), server-side sessions, CSRF, logout, lockout/rate limit. Replace the pass-through body of `api/deps.require_admin` (the logs API is open until then). *Verify:* unauthenticated requests rejected on all routes except those in N10.
+- [x] **P6-01** Local admin login (argon2id), server-side sessions (sha256-stored id, 12 h idle / 7 d absolute, rotated on login), CSRF header on unsafe methods, logout, per-account lockout (5 → 15 min), per-IP limiter (10 / 5 min), HttpOnly + SameSite=Lax cookie (Secure on HTTPS or `WOOSARR_COOKIE_SECURE=always`). **API keys** (`wsk_…`, `read` = GET only, `admin`) for scripted access (D16). API docs/OpenAPI require auth. *Verify:* `pytest tests/test_auth.py tests/test_app.py`.
 - [ ] **P6-02** App shell with sidebar (Dashboard, Users, Roles, Libraries, Logs, Settings, Setup); responsive, keyboard accessible.
 - [ ] **P6-03** Theme system: light/dark (OS + toggle), purple accent, colorblind palettes, WCAG AA contrast, state persisted.
 - [ ] **P6-04** Shared components: tables, modals, toasts, confirm dialogs, badges, empty states.
 - [ ] **P6-05** **HUMAN (needs IdP)** SAML SSO: SP metadata, SP-initiated login + ACS, signature/audience/skew validation, attribute and group mapping, SAML-only toggle with lockout guard. *Verify:* works with a test IdP; unsigned/replayed/expired assertions rejected.
-- [ ] **P6-06** First-run admin wizard: create first admin; disabled forever once an admin exists; race-safe; optional setup token printed to container logs. *Verify:* concurrent second claim fails.
-- [ ] **P6-07** Admin user management (create/disable/delete/reset; cannot remove the last active admin).
+- [~] **P6-06** First-run admin creation: `POST /api/v1/setup/admin`, disabled forever once an admin exists, race-safe (process lock + PK claim row), needs the one-time setup code printed to **stdout only** (never the log file/API; `WOOSARR_SETUP_CODE_REQUIRED=false` to skip). *Remaining:* wizard UI (P9-03). *Verify:* `test_concurrent_claims_create_exactly_one_admin`.
+- [~] **P6-07** Admin user management API (create/disable/delete/reset/unlock; last active admin protected; disable/reset ends sessions). *Remaining:* Settings UI. *Verify:* `AdminManagementTests`.
 
 ### Phase 7 — Feature pages
 - [ ] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked.

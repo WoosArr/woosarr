@@ -17,6 +17,8 @@ _PATTERNS = [
     # Generic key=value secrets
     re.compile(r"(?i)((?:password|passwd|secret|api[_-]?key|access[_-]?token)['\"]?\s*[:=]\s*['\"]?)([^\s'\",}]+)"),
 ]
+# WooSarr API keys (core/auth.py)
+_API_KEY = re.compile(r"\bwsk_[0-9a-f]{8}_[A-Za-z0-9_\-]{20,}")
 # Discord bot token shape: base64(id).timestamp.hmac
 _DISCORD_TOKEN = re.compile(r"\b[A-Za-z0-9_\-]{23,28}\.[A-Za-z0-9_\-]{6,7}\.[A-Za-z0-9_\-]{27,}\b")
 
@@ -54,6 +56,7 @@ def redact(text: str) -> str:
             text = text.replace(value, REDACTED)
     for pattern in _PATTERNS:
         text = pattern.sub(lambda m: m.group(1) + REDACTED, text)
+    text = _API_KEY.sub(REDACTED, text)
     return _DISCORD_TOKEN.sub(REDACTED, text)
 
 

@@ -288,6 +288,14 @@
             "title": "Ignore Unverified Links",
             "type": "boolean"
           },
+          "invite_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Invite Role Ids",
+            "type": "array"
+          },
           "leave_policy": {
             "default": "drop_role_access",
             "enum": [
@@ -332,6 +340,15 @@
             "minimum": 5.0,
             "title": "Reconcile Interval Minutes",
             "type": "integer"
+          },
+          "unlink_policy": {
+            "default": "drop_role_access",
+            "enum": [
+              "drop_role_access",
+              "keep_all"
+            ],
+            "title": "Unlink Policy",
+            "type": "string"
           }
         },
         "title": "AppSettings",
@@ -659,6 +676,95 @@
           "connected"
         ],
         "title": "IntegrationStatus",
+        "type": "object"
+      },
+      "InviteOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "discord_user_id": {
+            "title": "Discord User Id",
+            "type": "string"
+          },
+          "discord_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Username"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "identifier": {
+            "title": "Identifier",
+            "type": "string"
+          },
+          "invited_by": {
+            "title": "Invited By",
+            "type": "string"
+          },
+          "library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Library Ids",
+            "type": "array"
+          },
+          "plex_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plex User Id"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "identifier",
+          "discord_user_id",
+          "discord_username",
+          "invited_by",
+          "verified",
+          "library_ids",
+          "status",
+          "plex_user_id",
+          "created_at",
+          "resolved_at"
+        ],
+        "title": "InviteOut",
         "type": "object"
       },
       "LibraryAccess": {
@@ -2503,6 +2609,102 @@
         "summary": " Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/invites": {
+      "get": {
+        "operationId": "list_invites_api_v1_invites_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InviteOut"
+                  },
+                  "title": "Response List Invites Api V1 Invites Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Invites",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/invites/{invite_id}": {
+      "delete": {
+        "description": "Stop waiting for this invite (WooSarr won't auto-link it). The Plex invite itself stays on plex.tv.",
+        "operationId": "cancel_invite_api_v1_invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Invite",
+        "tags": [
+          "users"
         ]
       }
     },

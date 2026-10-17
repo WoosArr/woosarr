@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings } from "../api";
+import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings, type RoleOut } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { useTheme, type Mode, type Palette } from "../theme";
@@ -36,6 +36,7 @@ export default function SettingsPage() {
 
 function General() {
   const s = useLoad(() => api.get<AppSettings>("/api/v1/settings"));
+  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
   const [draft, setDraft] = useState<Partial<AppSettings>>({});
   const toast = useToast();
   const confirm = useConfirm();
@@ -77,6 +78,32 @@ function General() {
           <option value="keep_all">Leave their access as it is</option>
         </select>
       </label>
+      <label className="field">
+        When a member unlinks themselves (<code>/unlink</code>)
+        <select value={v.unlink_policy} onChange={(e) => set({ unlink_policy: e.target.value as AppSettings["unlink_policy"] })} style={{ maxWidth: 420 }}>
+          <option value="drop_role_access">Remove role-granted libraries (keep manual and exempt)</option>
+          <option value="keep_all">Leave their access as it is</option>
+        </select>
+      </label>
+      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="small" style={{ fontWeight: 600 }}>Roles allowed to <code>/invite</code> themselves</legend>
+        <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
+          Members with one of these roles can invite their own Plex account; their roles decide the libraries.
+          Discord admins (Manage Server) can always invite for any member. None selected = admins only.
+        </span>
+        <div className="chooser">
+          {(roles.data ?? []).filter((r) => !r.managed && !r.deleted).map((r) => {
+            const current = v.invite_role_ids ?? [];
+            const on = current.includes(r.role_id);
+            return (
+              <label key={r.role_id} className="check">
+                <input type="checkbox" checked={on} onChange={() => set({ invite_role_ids: on ? current.filter((x) => x !== r.role_id) : [...current, r.role_id] })} />
+                <span>{r.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
       <Switch checked={v.ignore_unverified_links} onChange={(x) => set({ ignore_unverified_links: x })} label={<><strong>Ignore unverified links</strong> <span className="muted small">— only manage users who proved their Plex account</span></>} />
       <label className="field">
         <code>/link</code> cooldown (seconds)

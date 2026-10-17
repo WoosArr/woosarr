@@ -17,7 +17,9 @@ from woosarr.db.models import (
     DiscordRole,
     Library,
     ManualGrant,
+    PlexInvite,
     PlexUser,
+    utcnow,
 )
 from woosarr.services import audit
 from woosarr.services.access import library_sources, load_snapshot, user_state
@@ -220,6 +222,45 @@ def admin_unlink(plex_user_id: str, request: Request, db: DbDep, principal: Admi
     # Unlinked users are no longer managed (N5); the reconcile refreshes their observed state.
     request.app.state.sync.trigger([plex_user_id], f"unlinked by {principal.actor}")
     return _users(db, plex_user_id)[0]
+
+
+class InviteOut(BaseModel):
+    id: int
+    identifier: str
+    discord_user_id: str
+    discord_username: str | None
+    invited_by: str
+    verified: bool
+    library_ids: list[str]
+    status: str
+    plex_user_id: str | None
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+@router.get("/invites", response_model=list[InviteOut])
+def list_invites(db: DbDep, status_filter: Annotated[str | None, Query(alias="status")] = None) -> list[InviteOut]:
+    names = dict(db.execute(select(DiscordMember.discord_user_id, DiscordMember.username)).all())
+    stmt = select(PlexInvite).order_by(PlexInvite.created_at.desc()).limit(200)
+    if status_filter:
+        stmt = stmt.where(PlexInvite.status == status_filter)
+    return [InviteOut(id=i.id, identifier=i.identifier, discord_user_id=i.discord_user_id,
+                      discord_username=names.get(i.discord_user_id), invited_by=i.invited_by, verified=i.verified,
+                      library_ids=i.library_ids, status=i.status, plex_user_id=i.plex_user_id,
+                      created_at=i.created_at, resolved_at=i.resolved_at) for i in db.scalars(stmt)]
+
+
+@router.delete("/invites/{invite_id}", response_model=InviteOut)
+def cancel_invite(invite_id: int, db: DbDep, principal: AdminDep) -> InviteOut:
+    """Stop waiting for this invite (WooSarr won't auto-link it). The Plex invite itself stays on plex.tv."""
+    inv = db.get(PlexInvite, invite_id)
+    if inv is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "invite not found")
+    if inv.status == "pending":
+        inv.status, inv.resolved_at = "cancelled", utcnow()
+        audit.record(db, principal.actor, "invite_cancelled", "discord_user", inv.discord_user_id, invite_id=inv.id)
+    db.flush()
+    return next(i for i in list_invites(db) if i.id == invite_id)
 
 
 class MemberOut(BaseModel):

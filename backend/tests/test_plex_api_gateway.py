@@ -126,6 +126,17 @@ class PlexApiGatewayTests(unittest.TestCase):
         self.assertEqual(fake.calls[-1][0], "post")
         self.assertEqual(gw.get_user_library_ids("12"), frozenset({"2"}))
 
+    def test_invite_posts_like_plexapi_invitefriend(self):
+        fake, gw = make()
+        fake.users["30"] = {"username": "newbie", "email": "newbie@x.com"}
+        gw.invite("newbie@x.com", ["1", "2"])
+        method, url, body = fake.calls[-1]
+        self.assertEqual((method, url), ("post", f"https://plex.tv/api/servers/{MACHINE}/shared_servers"))
+        self.assertEqual(body["shared_server"]["invited_email"], "newbie@x.com")
+        self.assertEqual(sorted(body["shared_server"]["library_section_ids"]), [101, 102])
+        with self.assertRaises(ValueError):
+            gw.invite("x@x.com", [])
+
     def test_owner_is_never_written(self):
         _fake, gw = make()
         with self.assertRaises(ValueError):

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { api, qs, type LibraryOut, type MemberOut, type UserOut } from "../api";
+import { api, qs, type InviteOut, type LibraryOut, type MemberOut, type UserOut } from "../api";
 import { Icon } from "../icons";
 import {
   Badge,
@@ -190,6 +190,8 @@ export default function UsersPage() {
         </div>
       ) : null}
 
+      <PendingInvites libraries={libraries.data ?? []} />
+
       {bulk && libraries.data ? (
         <BulkModal
           action={bulk}
@@ -299,5 +301,44 @@ function LinkModal({ user, onClose, onDone }: { user: UserOut; onClose: () => vo
         ))}
       </div>
     </Modal>
+  );
+}
+
+function PendingInvites({ libraries }: { libraries: LibraryOut[] }) {
+  const inv = useLoad(() => api.get<InviteOut[]>("/api/v1/invites?status=pending"));
+  const confirm = useConfirm();
+  const toast = useToast();
+  const titles = new Map(libraries.map((l) => [l.library_id, l.title]));
+  if (!inv.data?.length) return null;
+  return (
+    <section className="card" style={{ marginTop: 16 }} aria-labelledby="invites-h">
+      <h2 id="invites-h">Pending invites</h2>
+      <p className="small muted">Sent with <code>/invite</code>. WooSarr links each one when the person accepts on Plex.</p>
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Pending invites">
+        <table className="responsive">
+          <thead><tr><th>Invited</th><th>Discord member</th><th>Libraries</th><th>Sent</th><th aria-label="Actions" /></tr></thead>
+          <tbody>
+            {inv.data.map((i) => (
+              <tr key={i.id}>
+                <td data-label="Invited"><strong>{i.identifier}</strong></td>
+                <td data-label="Discord member">
+                  {i.discord_username ?? i.discord_user_id} {i.verified ? <VerifiedBadge verified /> : null}
+                  <div className="small muted">{i.invited_by.startsWith("discord-admin") ? "by an admin" : "self-invite"}</div>
+                </td>
+                <td data-label="Libraries"><div className="row">{i.library_ids.map((id) => <Badge key={id} tone="accent" icon="library">{titles.get(id) ?? id}</Badge>)}</div></td>
+                <td data-label="Sent" className="small">{ago(i.created_at)}</td>
+                <td style={{ textAlign: "right" }}>
+                  <button className="btn sm" onClick={async () => {
+                    if (await confirm({ title: `Stop tracking the invite for ${i.identifier}?`, body: <p>WooSarr won't link it automatically. The invite itself stays on plex.tv; cancel it there if needed.</p>, confirmLabel: "Stop tracking" })) {
+                      try { await api.del(`/api/v1/invites/${i.id}`); void inv.reload(); } catch (e) { toast.error(e); }
+                    }
+                  }}>Cancel</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

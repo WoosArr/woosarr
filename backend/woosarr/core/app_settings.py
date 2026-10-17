@@ -25,6 +25,10 @@ class AppSettings(BaseModel):
     # Members who leave the Discord server: drop role-derived access (keep manual
     # + exempt), or leave their access untouched.
     leave_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
+    # Members who run /unlink: same choices as leave_policy.
+    unlink_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
+    # Discord roles whose members may /invite themselves (admins can always invite).
+    invite_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # R4: optionally treat username-only (unverified) links as not linked.
     ignore_unverified_links: bool = False
     link_cooldown_seconds: int = Field(300, ge=0, le=86400)

@@ -17,14 +17,14 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 
 from woosarr.core import app_settings
 from woosarr.db.models import utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import audit, inventory
+from woosarr.services import audit, inventory, invites
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.apply import apply_plan
 from woosarr.sync.engine import Plan, plan_for_user
@@ -189,7 +189,26 @@ class SyncService:
             self.last_report = report
             return report
 
-    def _run(self, only: list[str] | None, reason: str) -> SyncReport:
+    def drop_role_access(self, plex_user_id: str, reason: str,
+                         then: Callable[[], object] | None = None) -> SyncReport:
+        """Remove role-granted libraries for one user right now (manual + exempt stay).
+
+        Used before a self-unlink when unlink_policy is drop_role_access; respects
+        dry-run. `then` runs inside the same lock (e.g. delete the link), so no
+        queued sync can re-grant role access in between.
+        """
+        with self._run_lock:
+            self.running = True
+            try:
+                report = self._run([plex_user_id], reason, drop_roles=True)
+                if then is not None:
+                    then()
+            finally:
+                self.running = False
+            self.last_report = report
+            return report
+
+    def _run(self, only: list[str] | None, reason: str, drop_roles: bool = False) -> SyncReport:
         with self._db.session() as s:
             settings = app_settings.load(s)
         report = SyncReport(reason=reason, full=only is None, dry_run=settings.dry_run, started_at=utcnow())
@@ -208,6 +227,7 @@ class SyncService:
                     inv = inventory.refresh_all(s, gateway)
                     log.info("inventory libraries=%s users=%s (removed libs=%s users=%s)",
                              inv.libraries, inv.users, inv.libraries_removed, inv.users_removed)
+                    invites.match_pending(s)
                     audit.prune(s, settings.audit_retention_days)
                 snap = load_snapshot(s)
         except Exception as exc:  # surface any Plex/DB failure in status, keep worker alive
@@ -234,7 +254,7 @@ class SyncService:
         for uid in targets:
             with self._user_lock(uid):
                 try:
-                    self._sync_user(gateway, snap, settings, uid, report, prefetched.get(uid))
+                    self._sync_user(gateway, snap, settings, uid, report, prefetched.get(uid), drop_roles)
                 except Exception as exc:  # one bad user must not stop the others
                     log.exception("sync failed for user=%s", uid)
                     report.errors += 1
@@ -246,7 +266,7 @@ class SyncService:
         return report
 
     def _sync_user(self, gateway, snap, settings, uid: str, report: SyncReport,
-                   current: frozenset[str] | None = None) -> None:
+                   current: frozenset[str] | None = None, drop_roles: bool = False) -> None:
         if current is None:
             current = gateway.get_user_library_ids(uid)
             with self._db.session() as s:
@@ -256,6 +276,8 @@ class SyncService:
             reason = "server owner" if uid in snap.owner_ids else "leave-server policy"
             log.debug("user=%s skipped (%s)", uid, reason)
             return
+        if drop_roles:
+            state = replace(state, role_ids=frozenset())
         plan = plan_for_user(state, snap.role_map, snap.exempt)
         if plan is None:  # not linked (N5)
             return

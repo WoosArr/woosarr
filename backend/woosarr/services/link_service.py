@@ -21,7 +21,7 @@ from woosarr.services import audit
 
 log = logging.getLogger("woosarr.link")
 
-ATTEMPT_ACTIONS = ("link_self", "link_failed")
+ATTEMPT_ACTIONS = ("link_self", "link_failed", "invite_sent", "invite_failed")
 
 
 @dataclass(frozen=True)
@@ -130,3 +130,21 @@ def link_by_identity(session: Session, discord_user_id: str, identity: PlexIdent
                      f"You signed in as **{identity.username}**, but that account doesn't have access to this "
                      "Plex server.", plex_user_id=identity.plex_user_id)
     return _apply(session, discord_user_id, plex, Method.OAUTH)
+
+
+def current_link(session: Session, discord_user_id: str) -> tuple[DiscordLink, PlexUser] | None:
+    link = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
+    if link is None:
+        return None
+    return link, session.get(PlexUser, link.plex_user_id)
+
+
+def unlink_self(session: Session, discord_user_id: str, policy: str) -> str | None:
+    """Remove the member's own link (/unlink). Returns the Plex user id, or None."""
+    link = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
+    if link is None:
+        return None
+    plex_user_id = link.plex_user_id
+    session.delete(link)
+    audit.record(session, f"discord:{discord_user_id}", "unlink_self", "plex_user", plex_user_id, policy=policy)
+    return plex_user_id

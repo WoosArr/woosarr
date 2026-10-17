@@ -27,6 +27,12 @@ The rules:
 - A full reconcile when you change a role mapping, an exemption, or certain settings, and on a schedule (default every 15 minutes).
 - **Sync now** on the dashboard.
 
+### Discord commands
+
+- `/link`: link your Plex account (Plex sign-in = verified, or typed username).
+- `/unlink`: remove your own link. What happens to access is set under *Settings → When a member unlinks themselves*.
+- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Roles allowed to /invite*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
+
 ### Members who leave the Discord server
 
 Default: their role-granted libraries are removed; manual grants and exempt libraries stay. Change this under *Settings → General*.

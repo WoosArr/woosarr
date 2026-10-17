@@ -5,6 +5,8 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- `/unlink` Discord command with a confirmation; new setting *When a member unlinks themselves* (remove role-granted libraries, or leave access as it is).
+- `/invite email [member]` Discord command: invites a Plex account with the libraries the member's roles grant; members with an allowed role can invite themselves, Discord admins can invite for anyone; accepted invites are linked automatically; pending invites shown on the Users page.
 - Libraries page shows the Plex server's name, version, platform and online state.
 - Playwright tests for the Plex and Discord setup wizards; simulated Discord event tests.
 

@@ -20,11 +20,11 @@ import aiohttp
 import discord
 from discord import app_commands
 
-from woosarr.core import kv
+from woosarr.core import app_settings, kv
 from woosarr.core import secret_store as names
 from woosarr.db.session import Database
 from woosarr.services import discord_cache as cache
-from woosarr.services import link_service
+from woosarr.services import invites, link_service
 
 log = logging.getLogger("woosarr.discord")
 
@@ -115,6 +115,17 @@ class WooSarrBot(discord.Client):
         async def link(interaction: discord.Interaction) -> None:
             await self.service.handle_link_command(interaction)
 
+        @self.tree.command(name="unlink", description="Unlink your Discord account from your Plex account",
+                           guild=guild)
+        async def unlink(interaction: discord.Interaction) -> None:
+            await self.service.handle_unlink_command(interaction)
+
+        @self.tree.command(name="invite", description="Invite a Plex account to this server", guild=guild)
+        @app_commands.describe(email="Email or Plex username to invite",
+                               member="Admins only: the Discord member this invite is for (default: you)")
+        async def invite(interaction: discord.Interaction, email: str, member: discord.Member | None = None) -> None:
+            await self.service.handle_invite_command(interaction, email, member)
+
     async def setup_hook(self) -> None:
         await self.tree.sync(guild=discord.Object(id=self.guild_id))
         log.info("discord /link registered in guild %s", self.guild_id)
@@ -204,12 +215,36 @@ class _LinkView(discord.ui.View):
         await self.service.start_oauth_link(interaction)
 
 
+class _UnlinkView(discord.ui.View):
+    def __init__(self, service: DiscordService, discord_id: str) -> None:
+        super().__init__(timeout=120)
+        self.service = service
+        self.discord_id = discord_id
+
+    @discord.ui.button(label="Unlink", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        if str(interaction.user.id) != self.discord_id:
+            await interaction.response.send_message("This isn't your /unlink.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        message = await asyncio.to_thread(self.service.unlink_member, self.discord_id)
+        await interaction.followup.send(message, ephemeral=True)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_message("Nothing changed.", ephemeral=True)
+        self.stop()
+
+
 class DiscordService:
-    def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any) -> None:
+    def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
+                 sync: Any = None) -> None:
         self._db = db
         self._secrets = secrets
         self.trigger = trigger
         self._plex = plex
+        self._sync = sync
         self._client: WooSarrBot | None = None
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -351,6 +386,66 @@ class DiscordService:
     async def restart(self) -> None:
         await self.stop()
         await self.start()
+
+    # ---- /unlink ---------------------------------------------------------------
+
+    async def handle_unlink_command(self, interaction: discord.Interaction) -> None:
+        found = await self.run_db(link_service.current_link, str(interaction.user.id))
+        if found is None:
+            await interaction.response.send_message("Your Discord account isn't linked to a Plex account.",
+                                                    ephemeral=True)
+            return
+        _link, plex = found
+        policy = (await self.run_db(app_settings.load)).unlink_policy
+        effect = ("Libraries your Discord roles gave you will be removed; manual grants and exempt libraries stay."
+                  if policy == "drop_role_access" else "Your Plex access stays as it is, but roles stop updating it.")
+        await interaction.response.send_message(
+            f"Unlink from Plex account **{plex.username if plex else '?'}**? {effect}",
+            view=_UnlinkView(self, str(interaction.user.id)), ephemeral=True)
+
+    def unlink_member(self, discord_id: str) -> str:
+        """Self-unlink with the configured policy (runs in a worker thread)."""
+        with self._db.session() as s:
+            policy = app_settings.load(s).unlink_policy
+            found = link_service.current_link(s, discord_id)
+        if found is None:
+            return "Your Discord account isn't linked anymore."
+        link, _plex = found
+        plex_id = link.plex_user_id
+
+        def unlink() -> None:
+            with self._db.session() as s:
+                link_service.unlink_self(s, discord_id, policy)
+
+        if policy == "drop_role_access" and self._sync is not None:
+            report = self._sync.drop_role_access(plex_id, f"self-unlink by discord {discord_id}", then=unlink)
+            if report.errors:
+                return "Unlinked, but removing role access hit an error; an admin will see it in the logs."
+            note = " (dry-run: nothing changed in Plex)" if report.dry_run and report.users_changed else ""
+            return f"Unlinked. Role-granted libraries were removed{note}."
+        unlink()
+        return "Unlinked. Your Plex access stays as it is; Discord roles no longer change it."
+
+    # ---- /invite -----------------------------------------------------------------
+
+    async def handle_invite_command(self, interaction: discord.Interaction, email: str,
+                                    member: discord.Member | None) -> None:
+        actor = interaction.user
+        perms = getattr(actor, "guild_permissions", None)
+        is_admin = bool(perms and (perms.manage_guild or perms.administrator))
+        target = member or actor
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        gateway = self._sync._gateway() if self._sync is not None else None
+
+        def work() -> invites.InviteResult:
+            with self._db.session() as s:
+                if isinstance(target, discord.Member):  # make sure the cache knows the target's roles
+                    cache.member_changed(s, _member(target))
+                return invites.create(s, gateway, actor_discord_id=str(actor.id), actor_is_admin=is_admin,
+                                      target_discord_id=str(target.id), identifier=email)
+
+        result = await asyncio.to_thread(work)
+        await interaction.followup.send(result.message, ephemeral=True)
 
     # ---- /link (P4-04) -----------------------------------------------------------
 

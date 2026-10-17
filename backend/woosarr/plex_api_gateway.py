@@ -383,6 +383,21 @@ class PlexApiGateway:
             raise ValueError(f"libraries not on the Plex server: {missing}")
         return [self._section_ids[k] for k in wanted]
 
+    def invite(self, identifier: str, library_ids: Iterable[str]) -> None:
+        """Send a Plex friend invite (email or username) sharing these libraries,
+        exactly like python-plexapi's inviteFriend. Pending until accepted."""
+        wanted = frozenset(library_ids)
+        if not wanted:
+            raise ValueError("an invite needs at least one library")
+        section_ids = self._plex_section_ids(wanted)
+        log.info("plex: inviting %s with keys=%s", identifier, sorted(wanted))
+        self._query(
+            FRIENDINVITE.format(machineId=self.machine_id), "post", idempotent=False,
+            json={"server_id": self.machine_id,
+                  "shared_server": {"library_section_ids": section_ids, "invited_email": identifier}},
+            headers={"Content-Type": "application/json"},
+        )
+
     def set_user_libraries(self, plex_user_id: str, library_ids: Iterable[str]) -> None:
         """Write the COMPLETE set (N6). Empty removes the share entirely."""
         wanted = frozenset(library_ids)

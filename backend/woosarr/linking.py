@@ -15,6 +15,7 @@ class Method(str, Enum):
     USERNAME = "username"  # typed in, unverified
     OAUTH = "oauth"  # authenticated to Plex, verified
     ADMIN = "admin"  # created by an admin, treated as verified
+    INVITE = "invite"  # accepted a /invite; verified when an admin sent it
 
 
 @dataclass(frozen=True)

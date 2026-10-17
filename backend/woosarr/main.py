@@ -86,7 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         gateway = plex_service.gateway
     sync = SyncService(db, gateway)
     if not settings.demo:
-        discord_service = DiscordService(db, secret_store, sync.trigger, plex_service)
+        discord_service = DiscordService(db, secret_store, sync.trigger, plex_service, sync)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):

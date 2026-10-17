@@ -202,6 +202,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P4-03** Event handlers → per-user sync triggers: role changes, join, leave (raw), role create/update/delete. *Verify:* `DiscordCacheTests`. **LIVE** behaviour with a real guild is part of P11-04.
 - [x] **P4-04** `/link` guild slash command: verified Plex sign-in or username modal, cooldown, audit, one-to-one rules, no token persisted. **Live:** both paths used successfully (username → access granted by roles; Plex sign-in → verified link).
 - [x] **P4-05** discord.py reconnect/resume; `PrivilegedIntentsRequired`, `LoginFailure`, bot-not-in-guild and crashes surface as status details in the UI.
+- [~] **P4-07** `/unlink` (self): confirmation, `unlink_policy` setting (same options as the leave-server policy), drop + unlink under one lock, audit. *Verify:* `tests/test_invite_unlink.py::UnlinkTests`. *Remaining:* **LIVE** try both policies.
+- [~] **P4-08** `/invite email [member]`: self-invite for allowed roles, admins for anyone, libraries from roles (no exempt), refusals (dry-run, linked, pending, already on server, cooldown), `plex_invites` table (migration 0003), auto-link on acceptance, Users page list/cancel. *Verify:* `tests/test_invite_unlink.py::InviteTests`, gateway invite test. *Remaining:* **LIVE** send and accept a real invite.
 - [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 
 ### Phase 5 — Sync engine

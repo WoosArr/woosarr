@@ -27,6 +27,7 @@ export type PlexLoginStart = Schemas["PlexLoginStart"];
 export type PlexLoginPoll = Schemas["PlexLoginPoll"];
 export type DiscordStatus = Schemas["DiscordStatus"];
 export type GuildOut = Schemas["GuildOut"];
+export type InviteOut = Schemas["InviteOut"];
 
 export interface Health {
   status: string;

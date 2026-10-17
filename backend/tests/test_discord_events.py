@@ -99,4 +99,4 @@ class DiscordEventTests(unittest.TestCase):
 
     def test_link_command_is_registered_for_the_guild(self):
         cmds = self.bot.tree.get_commands(guild=SimpleNamespace(id=GUILD))
-        self.assertEqual([c.name for c in cmds], ["link"])
+        self.assertEqual(sorted(c.name for c in cmds), ["invite", "link", "unlink"])

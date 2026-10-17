@@ -66,6 +66,11 @@ class FakePlexGateway:
     def get_all_user_library_ids(self) -> tuple[dict[str, frozenset[str]], dict[str, str]]:
         return {u.plex_user_id: self.get_user_library_ids(u.plex_user_id) for u in self.users}, {}
 
+    invites: list[tuple[str, frozenset[str]]] = field(default_factory=list)
+
+    def invite(self, identifier: str, library_ids: Iterable[str]) -> None:
+        self.invites.append((identifier, frozenset(library_ids)))
+
     def set_user_libraries(self, plex_user_id: str, library_ids: Iterable[str]) -> None:
         full = frozenset(library_ids)
         self.writes.append((plex_user_id, full))

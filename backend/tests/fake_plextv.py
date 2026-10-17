@@ -125,7 +125,8 @@ class FakePlexTV:
             if "invited_id" in target:
                 uid = str(target["invited_id"])
             else:  # invited by username, like plexapi's inviteFriend
-                uid = next(k for k, u in self.users.items() if u["username"] == target["invited_email"])
+                uid = next(k for k, u in self.users.items()
+                           if target["invited_email"] in (u["username"], u.get("email")))
             self.shares[uid] = {"id": next(self._ids), "sections": set(json["shared_server"]["library_section_ids"])}
         elif method == "put":
             # plex.tv replaces the whole list

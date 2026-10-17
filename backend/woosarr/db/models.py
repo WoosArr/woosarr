@@ -186,6 +186,23 @@ class LibraryState(Base):
     observed_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class PlexInvite(Base):
+    """A Plex friend invite sent via /invite, linked to a Discord member once accepted."""
+
+    __tablename__ = "plex_invites"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Email or Plex username the invite was sent to.
+    identifier: Mapped[str] = mapped_column(String(255), index=True)
+    discord_user_id: Mapped[str] = mapped_column(String(32), index=True)
+    invited_by: Mapped[str] = mapped_column(String(100))  # discord:<id> (self) or discord-admin:<id>
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)  # admin invites link as verified
+    library_ids: Mapped[list[str]] = mapped_column(default=list)
+    status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | accepted | cancelled
+    plex_user_id: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    resolved_at: Mapped[datetime | None]
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

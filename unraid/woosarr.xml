@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>WooSarr</Name>
+  <Repository>ghcr.io/woosarr/woosarr:latest</Repository>
+  <Registry>https://github.com/OWNER/woosarr/pkgs/container/woosarr</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/OWNER/woosarr/issues</Support>
+  <Project>https://github.com/OWNER/woosarr</Project>
+  <Overview>Automatically grants and removes Plex library access based on Discord roles. Additive role grants, per-library exemptions, manual overrides, and a web UI on port 2000.</Overview>
+  <Category>MediaApp:Other Tools:</Category>
+  <WebUI>http://[IP]:[PORT:2000]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/OWNER/woosarr/main/unraid/icon.png</Icon>
+  <ExtraParams>--health-start-period=20s</ExtraParams>
+  <Config Name="WebUI Port" Target="2000" Default="2000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">2000</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/woosarr" Mode="rw" Description="Database, logs and encrypted secrets. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/woosarr</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+</Container>

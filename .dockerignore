@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+**/__pycache__
+**/*.pyc
+.venv
+venv
+node_modules
+frontend/node_modules
+frontend/dist
+config
+*.db
+*.key
+docs
+unraid

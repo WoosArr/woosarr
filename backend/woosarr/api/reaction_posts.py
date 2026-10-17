@@ -15,15 +15,17 @@ from sqlalchemy import func, select
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.db.models import DiscordRole, Reaction, ReactionPost
 from woosarr.services import audit
-from woosarr.services.discord_bot import DiscordConfigError, normalize_emoji
+from woosarr.services.discord_bot import DiscordConfigError, normalize_emoji, option_role_ids
 
 router = APIRouter(prefix="/reaction-posts", tags=["reaction-posts"], dependencies=[Depends(require_admin)])
 
 
 class ReactionOption(BaseModel):
     emoji: Annotated[str, Field(min_length=1, max_length=100)]
+    # One Discord role per reaction.
+    role_id: Annotated[str, Field(pattern=r"^\d{1,25}$")]
+    # Always the role's name; set by WooSarr on save (anything sent is ignored).
     label: Annotated[str, Field(max_length=100)] = ""
-    role_ids: Annotated[list[Annotated[str, Field(pattern=r"^\d{1,25}$")]], Field(min_length=1, max_length=10)]
 
     @field_validator("emoji")
     @classmethod
@@ -65,17 +67,23 @@ def _out(db, post: ReactionPost) -> ReactionPostOut:
                              .group_by(Reaction.emoji)).all())
     return ReactionPostOut(id=post.id, title=post.title, content=post.content, channel_id=post.channel_id,
                            pin=post.pin, enabled=post.enabled,
-                           options=[ReactionOption.model_construct(emoji=o.get("emoji", ""), label=o.get("label", ""),
-                                                                   role_ids=o.get("role_ids") or [])
-                                    for o in post.options],
+                           options=[_option_out(db, o) for o in post.options],
                            message_id=post.message_id, published_at=post.published_at, reactions=counts)
+
+
+def _option_out(db, o: dict) -> ReactionOption:
+    role_ids = sorted(option_role_ids(o))
+    role_id = role_ids[0] if role_ids else ""
+    role = db.get(DiscordRole, role_id) if role_id else None
+    return ReactionOption.model_construct(emoji=o.get("emoji", ""), role_id=role_id,
+                                          label=role.name if role else o.get("label", ""))
 
 
 def _validate(db, body: ReactionPostIn) -> list[dict]:
     emojis = [o.emoji for o in body.options]
     if len(set(emojis)) != len(emojis):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "each emoji can only be used once")
-    wanted = {r for o in body.options for r in o.role_ids}
+    wanted = {o.role_id for o in body.options}
     roles = {r.role_id: r for r in db.scalars(select(DiscordRole).where(DiscordRole.role_id.in_(wanted)))}
     unknown = sorted(wanted - set(roles))
     if unknown:
@@ -84,7 +92,8 @@ def _validate(db, body: ReactionPostIn) -> list[dict]:
     if unusable:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             f"these roles can't be given by a bot: {unusable}")
-    return [o.model_dump() for o in body.options]
+    # The label is the role's name.
+    return [{"emoji": o.emoji, "role_id": o.role_id, "label": roles[o.role_id].name} for o in body.options]
 
 
 def _get(db, post_id: int) -> ReactionPost:

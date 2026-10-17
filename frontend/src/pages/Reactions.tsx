@@ -6,13 +6,14 @@ import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, ago, useConfirm, useLoad, useToast } from "../ui";
 
 type Option = ReactionPostIn["options"] extends (infer O)[] | undefined ? O : never;
+const NEW_ROLE = "__new__";
 
 const BLANK: ReactionPostIn = {
   title: "Plex libraries",
   content: "React below to get these roles (and the Plex libraries they unlock). Remove your reaction to drop the role.\nNot linked yet? Run /link so your roles can update your Plex access.",
   pin: true,
   enabled: true,
-  options: [{ emoji: "🎬", label: "Movies", role_ids: [] }],
+  options: [{ emoji: "🎬", role_id: "", label: "" }],
 };
 
 export default function ReactionsPage() {
@@ -56,11 +57,11 @@ export default function ReactionsPage() {
             </div>
             <div className="row">
               {(p.options ?? []).map((o) => {
-                const libs = libsOf(o.role_ids);
+                const libs = libsOf(o.role_id ? [o.role_id] : []);
                 return (
                   <span key={o.emoji} className="badge accent" title={libs.length ? `Libraries: ${libs.join(", ")}` : "These roles grant no libraries yet"}>
                     <EmojiDisplay value={o.emoji} size={16} />
-                    {o.label || o.role_ids.map((id) => roleById.get(id)?.name ?? id).join(", ")}{" "}
+                    {roleById.get(o.role_id)?.name ?? o.label ?? o.role_id}{" "}
                     <span className="muted">· {p.reactions[o.emoji] ?? 0}</span>
                   </span>
                 );
@@ -98,11 +99,13 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
     setDraft((d) => ({ ...d, options: (d.options ?? []).map((o, j) => (j === i ? { ...o, ...patch } : o)) }));
   const assignable = roles.filter((r) => !r.managed && !r.deleted);
 
+  const [newRoleFor, setNewRoleFor] = useState<number | null>(null);
+  const [newRoleName, setNewRoleName] = useState("");
   const createRole = async (i: number) => {
-    const name = options[i].label?.trim() || `Reaction ${options[i].emoji}`;
     try {
-      const r = await api.post<RoleCreated>("/api/v1/discord/roles", { name, purpose: "reaction" });
-      setOpt(i, { role_ids: [...options[i].role_ids, r.role_id] });
+      const r = await api.post<RoleCreated>("/api/v1/discord/roles", { name: newRoleName.trim(), purpose: "reaction" });
+      setOpt(i, { role_id: r.role_id });
+      setNewRoleFor(null);
       toast.ok(`Created role ${r.name}. Map it to libraries on the Roles page.`);
       onRolesChanged();
     } catch (e) {
@@ -183,33 +186,49 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
                   <span style={{ display: "block", fontWeight: 600, fontSize: "0.88rem" }}>Emoji</span>
                   <EmojiPicker value={o.emoji} label={`Emoji ${i + 1}`} onChange={(v) => setOpt(i, { emoji: v })} />
                 </div>
-                <Field label="Label">
-                  <input type="text" value={o.label ?? ""} onChange={(e) => setOpt(i, { label: e.target.value })} style={{ width: 200 }} />
+                <Field label="Gives role">
+                  <select
+                    value={newRoleFor === i ? NEW_ROLE : o.role_id}
+                    onChange={(e) => {
+                      if (e.target.value === NEW_ROLE) {
+                        setNewRoleFor(i);
+                        setNewRoleName("");
+                      } else {
+                        setNewRoleFor(null);
+                        setOpt(i, { role_id: e.target.value });
+                      }
+                    }}
+                    style={{ minWidth: 260 }}
+                  >
+                    <option value="">Choose a role…</option>
+                    {assignable.map((r) => {
+                      const libs = r.library_ids.map((id) => libraryTitles.get(id) ?? id);
+                      return (
+                        <option key={r.role_id} value={r.role_id}>
+                          {r.name}{libs.length ? ` — ${libs.join(", ")}` : " — no libraries yet"}
+                        </option>
+                      );
+                    })}
+                    {available("create_roles") ? <option value={NEW_ROLE}>＋ Create new role…</option> : null}
+                  </select>
                 </Field>
                 <button className="btn sm danger" onClick={() => setDraft({ ...draft, options: options.filter((_, j) => j !== i) })} aria-label={`Remove reaction ${i + 1}`}>
                   <Icon name="trash" size={14} />
                 </button>
               </div>
-              <div className="chooser" style={{ marginTop: 8 }} role="group" aria-label={`Roles for reaction ${i + 1}`}>
-                {assignable.map((r) => {
-                  const on = o.role_ids.includes(r.role_id);
-                  const libs = r.library_ids.map((id) => libraryTitles.get(id) ?? id);
-                  return (
-                    <label key={r.role_id} className="check" title={libs.length ? `Grants: ${libs.join(", ")}` : "Grants no libraries yet"}>
-                      <input type="checkbox" checked={on} onChange={() => setOpt(i, { role_ids: on ? o.role_ids.filter((x) => x !== r.role_id) : [...o.role_ids, r.role_id] })} />
-                      <span>{r.name}{libs.length ? <span className="small muted"> · {libs.join(", ")}</span> : null}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <button className="btn sm" disabled={!available("create_roles")} title={why("create_roles") ?? "Create a new Discord role for this reaction"} onClick={() => void createRole(i)}>
-                  <Icon name="plus" size={14} /> Create role{o.label ? ` "${o.label}"` : ""}
-                </button>
-              </div>
+              {newRoleFor === i ? (
+                <div className="row" style={{ marginTop: 8, alignItems: "flex-end" }}>
+                  <Field label="New role name">
+                    <input type="text" value={newRoleName} maxLength={100} autoFocus onChange={(e) => setNewRoleName(e.target.value)} placeholder="e.g. Movie Night" style={{ width: 240 }} />
+                  </Field>
+                  <button className="btn sm primary" disabled={!newRoleName.trim()} onClick={() => void createRole(i)}>Create</button>
+                  <button className="btn sm" onClick={() => setNewRoleFor(null)}>Cancel</button>
+                </div>
+              ) : null}
+              {!available("create_roles") ? <p className="small muted" style={{ margin: "6px 0 0" }}>{why("create_roles")}</p> : null}
             </div>
           ))}
-          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", label: "", role_ids: [] }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
+          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", role_id: "", label: "" }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
         </fieldset>
       </div>
     </Modal>

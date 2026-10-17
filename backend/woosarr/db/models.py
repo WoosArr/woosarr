@@ -214,7 +214,7 @@ class ReactionPost(Base):
     channel_id: Mapped[str | None] = mapped_column(String(32))
     message_id: Mapped[str | None] = mapped_column(String(32), unique=True)
     pin: Mapped[bool] = mapped_column(Boolean, default=True)
-    # [{"emoji": "🎬", "label": "Movies", "role_ids": ["1234…"]}, ...]
+    # [{"emoji": "🎬", "role_id": "1234…", "label": "<role name>"}, ...]; one role per reaction
     options: Mapped[list[Any]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

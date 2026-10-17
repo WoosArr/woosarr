@@ -231,6 +231,13 @@ class _LinkView(discord.ui.View):
         await self.service.start_oauth_link(interaction)
 
 
+def option_role_ids(option: dict) -> set[str]:
+    """The role a reaction option gives (one per option; older options stored a list)."""
+    if option.get("role_id"):
+        return {str(option["role_id"])}
+    return {str(r) for r in option.get("role_ids") or []}
+
+
 def normalize_emoji(text: str) -> str:
     """Canonical form used for storage and comparison (unicode or <:name:id>)."""
     return str(discord.PartialEmoji.from_str(text.strip()))
@@ -260,7 +267,7 @@ class _GuildFeatures:
         with self._db.session() as s:
             st = app_settings.load(s)
             reaction_roles = {r for p in s.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True)))
-                              for o in p.options or [] for r in o.get("role_ids") or []}
+                              for o in p.options or [] for r in option_role_ids(o)}
         top = me.top_role.position
 
         def above(role_ids) -> bool | None:
@@ -395,7 +402,7 @@ class _GuildFeatures:
                                                                ReactionPost.message_id.is_not(None))):
             by_post[post.id] = post.message_id
             for o in post.options or []:
-                options.setdefault((post.message_id, normalize_emoji(o["emoji"])), set()).update(o.get("role_ids") or [])
+                options.setdefault((post.message_id, normalize_emoji(o["emoji"])), set()).update(option_role_ids(o))
         wanted: dict[str, set[str]] = {}
         for r in session.scalars(select(Reaction)):
             roles = options.get((by_post.get(r.post_id, ""), r.emoji))

@@ -1665,20 +1665,15 @@
             "title": "Label",
             "type": "string"
           },
-          "role_ids": {
-            "items": {
-              "pattern": "^\\d{1,25}$",
-              "type": "string"
-            },
-            "maxItems": 10,
-            "minItems": 1,
-            "title": "Role Ids",
-            "type": "array"
+          "role_id": {
+            "pattern": "^\\d{1,25}$",
+            "title": "Role Id",
+            "type": "string"
           }
         },
         "required": [
           "emoji",
-          "role_ids"
+          "role_id"
         ],
         "title": "ReactionOption",
         "type": "object"

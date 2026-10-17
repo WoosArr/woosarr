@@ -103,13 +103,18 @@ test("reaction post draft with emoji and roles", async ({ page }) => {
   await page.goto("/reactions");
   await page.getByRole("button", { name: "New post" }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("group", { name: "Roles for reaction 1" }).getByLabel(/Movie Night/).check();
+  const pickRole = async (n: number, name: string) => {
+    const select = dialog.getByLabel("Gives role").nth(n);
+    const value = await select.locator("option", { hasText: name }).getAttribute("value");
+    await select.selectOption(value!);
+  };
+  await pickRole(0, "Movie Night");
   await dialog.getByRole("button", { name: "Add reaction" }).click();
   await dialog.getByRole("button", { name: "Emoji 2: choose emoji" }).click();
   await dialog.getByLabel("Search emoji").fill("popcorn");
   await dialog.getByRole("button", { name: /🍿/ }).click();
   await expect(dialog.getByLabel("Emoji 2", { exact: true })).toHaveValue("🍿");
-  await dialog.getByRole("group", { name: "Roles for reaction 2" }).getByLabel(/Series Fans/).check();
+  await pickRole(1, "Series Fans");
   await dialog.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
   await expect(page.getByText("Draft")).toBeVisible();

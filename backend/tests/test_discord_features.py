@@ -79,9 +79,10 @@ class Base(unittest.TestCase):
             s.add(DiscordLink(plex_user_id="11", discord_user_id="501", method="oauth", verified=True,
                               linked_by="self"))
             s.add(ReactionPost(id=1, title="Pick", content="React!", channel_id="900", message_id="7001",
-                               options=[{"emoji": "🎬", "label": "Movies", "role_ids": ["8001"]},
+                               options=[{"emoji": "🎬", "label": "Movies", "role_id": "8001"},
+                                        # stored before one-role-per-reaction: still honoured
                                         {"emoji": "📺", "label": "TV", "role_ids": ["8002", "8003"]},
-                                        {"emoji": "🍿", "label": "Snacks", "role_ids": ["8002"]}]))
+                                        {"emoji": "🍿", "label": "Snacks", "role_id": "8002"}]))
         self.triggers = []
         self.svc = DiscordService(self.db, SecretStore(SecretBox(Fernet.generate_key())),
                                   lambda ids, reason, **kw: self.triggers.append((ids, reason)), plex=None)
@@ -395,21 +396,28 @@ class ReactionPostApiTests(unittest.TestCase):
 
     def test_crud_and_validation(self):
         body = {"title": "Pick", "content": "React for access", "options": [
-            {"emoji": "🎬", "label": "Movies", "role_ids": ["9001"]}, {"emoji": "📺", "role_ids": ["9002"]}]}
+            {"emoji": "🎬", "label": "ignored", "role_id": "9001"}, {"emoji": "📺", "role_id": "9002"}]}
         r = self.c.post("/api/v1/reaction-posts", json=body)
         self.assertEqual(r.status_code, 201, r.text)
         pid = r.json()["id"]
+        # The label is always the role's name.
+        self.assertEqual([o["label"] for o in r.json()["options"]], ["Movie Night", "Series Fans"])
+        with self.h.app.state.db.session() as s:
+            s.get(DiscordRole, "9001").name = "Film Club"  # renamed in Discord
+        self.assertEqual(self.c.get("/api/v1/reaction-posts").json()[0]["options"][0]["label"], "Film Club")
+        two_roles = dict(body, options=[{"emoji": "🎬", "role_ids": ["9001", "9002"]}])
+        self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=two_roles).status_code, 422)
         dup = dict(body, options=[body["options"][0], body["options"][0]])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=dup).status_code, 422)
-        bad = dict(body, options=[{"emoji": "🎬", "role_ids": ["99999"]}])
+        bad = dict(body, options=[{"emoji": "🎬", "role_id": "99999"}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=bad).status_code, 404)
         with self.h.app.state.db.session() as s:
             s.get(DiscordRole, "9005").managed = True
-        bot_role = dict(body, options=[{"emoji": "🎬", "role_ids": ["9005"]}])
+        bot_role = dict(body, options=[{"emoji": "🎬", "role_id": "9005"}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=bot_role).status_code, 422)
-        no_roles = dict(body, options=[{"emoji": "🎬", "role_ids": []}])
+        no_roles = dict(body, options=[{"emoji": "🎬"}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=no_roles).status_code, 422)
-        many = dict(body, options=[{"emoji": f"<:e{i}:1000{i}>", "role_ids": ["9001"]} for i in range(21)])
+        many = dict(body, options=[{"emoji": f"<:e{i}:1000{i}>", "role_id": "9001"} for i in range(21)])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=many).status_code, 422)
         self.assertEqual(self.c.post(f"/api/v1/reaction-posts/{pid}/publish", json={}).status_code, 409)  # demo
         self.assertEqual(len(self.c.get("/api/v1/reaction-posts").json()), 1)

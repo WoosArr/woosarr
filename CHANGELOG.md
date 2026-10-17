@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Changed
+- Reaction post options: one role per reaction, picked from a dropdown (with inline *Create new role*); the label is always the role's name.
+
 ### Added
 - Reaction post editor: emoji picker with search (this server's custom emoji + common emoji); typing/pasting still works.
 - Roles page: create a Discord role (name, colour, optional libraries).

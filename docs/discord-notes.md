@@ -78,7 +78,7 @@ Libraries page → **Create role** creates `Plex · <library>` and maps it to th
 
 Reactions page:
 
-1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit), each giving one or more **Discord roles** (pick existing roles or **Create role** inline). Unicode emoji (🎬) or server emoji (`<:plex:123…>`). Bot/integration roles can't be chosen.
+1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit). Each reaction gives exactly **one Discord role**, chosen from a dropdown (or *＋ Create new role…*); its label in WooSarr is always the role's name. Pick the emoji with the searchable picker (server emoji + common emoji) or paste any emoji / `<:name:id>`. Bot/integration roles can't be chosen.
 2. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
 3. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 4. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.

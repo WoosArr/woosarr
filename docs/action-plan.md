@@ -60,7 +60,8 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 | D5 | Secrets at rest | DECIDED | Fernet-encrypted in DB; master key from `WOOSARR_MASTER_KEY` / `WOOSARR_MASTER_KEY_FILE` / auto-generated `/config/secrets/master.key` (0600). Implemented in `core/secrets.py`. |
 | D6 | Discord token | DECIDED | Entered once in the setup wizard, stored encrypted. |
 | D7 | UI auth | DECIDED | First-run wizard creates the initial local admin (argon2id). **SAML 2.0** SSO for an external IdP; local login stays as break-glass unless disabled. |
-| D7a | SAML | DEFERRED | Not needed for v1 (user, 2026-10-17). P0-08 and P6-05 are out of scope until asked for; local login only. |
+| D7a | SAML | DEFERRED | Not needed (user, 2026-10-17); replaced by OIDC (D21). |
+| D21 | Admin SSO | DECIDED | **OpenID Connect**, multiple providers, presets for Okta, Entra ID, Google, ADFS + Custom; code flow + PKCE; access only via per-provider rules; admins linked by (provider, sub); local login is break-glass with a lockout guard (user, 2026-10-17). |
 | D8 | Triggers | DECIDED | Discord gateway events + periodic full reconcile (default 15 min, configurable). |
 | D9 | Library id | DECIDED | Plex section key + server machine identifier. |
 | D10 | Name | DECIDED | **WooSarr** (image `ghcr.io/woosarr/woosarr`, package `woosarr`, appdata `/mnt/user/appdata/woosarr`). |
@@ -225,6 +226,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [-] **P6-05** SAML SSO — deferred (D7a).
 - [x] **P6-06** First-run admin creation: `POST /api/v1/setup/admin`, disabled forever once an admin exists, race-safe (process lock + PK claim row), needs the one-time setup code printed to **stdout only** (never the log file/API; `WOOSARR_SETUP_CODE_REQUIRED=false` to skip). Setup screen in the UI. *Verify:* `test_concurrent_claims_create_exactly_one_admin`; Playwright `first-run setup`.
 - [x] **P6-07** Admin user management API + Settings → Admins UI (create/disable/delete/reset/unlock; last active admin protected; disable/reset ends sessions). *Verify:* `AdminManagementTests`.
+- [x] **P6-08** OIDC SSO (D21): `services/oidc.py` (discovery, PKCE, state cookie, nonce, JWKS signature + iss/aud/azp/exp/iat checks, userinfo merge, access rules), presets `services/oidc_presets.py`, API `api/oidc.py`, migration 0006, login buttons, Settings → Single sign-on with a 5-step wizard per provider, test sign-in, lockout guards; docs `docs/sso.md` generated from the presets. *Verify:* `tests/test_oidc.py` (fake IdP with real RS256 keys: replay, nonce, audience, issuer, alg none/HS256, unknown key, expired, PKCE, rules, Entra issuer, Google hd), Playwright `sso wizard`. *Remaining:* **LIVE** against a real Okta/Entra/Google/ADFS tenant.
 
 ### Phase 7 — Feature pages
 - [x] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked. *Verify:* Playwright `admin links a user…`, `manual grant…`.

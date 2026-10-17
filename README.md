@@ -9,6 +9,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - Users link themselves with `/link` (Plex username, or Plex sign-in for a verified link; no Plex tokens are stored)
 - Starts in **dry-run**: see exactly what would change before anything does
 - Web UI on port **31337**: light/dark themes, colour-blind palettes, live logs and an audit trail
+- Admin single sign-on with OpenID Connect: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md))
 - One Docker container, with an Unraid template in `unraid/`
 
 > **Status:** the web UI, auth, sync engine and audit are done. Plex and Discord connections are being finished against real servers. See [docs/action-plan.md](docs/action-plan.md).

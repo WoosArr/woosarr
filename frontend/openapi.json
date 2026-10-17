@@ -351,6 +351,13 @@
             ],
             "title": "Log Level"
           },
+          "public_url": {
+            "default": "",
+            "maxLength": 300,
+            "pattern": "^(|https?://[^\\s/]+(/[^\\s]*)?)$",
+            "title": "Public Url",
+            "type": "string"
+          },
           "reconcile_interval_minutes": {
             "default": 15,
             "maximum": 1440.0,
@@ -667,6 +674,82 @@
           "token"
         ],
         "title": "DiscordTokenIn",
+        "type": "object"
+      },
+      "DiscoveryOut": {
+        "properties": {
+          "algorithms": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Algorithms",
+            "type": "array"
+          },
+          "authorization_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Endpoint"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issuer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "token_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Endpoint"
+          },
+          "userinfo_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userinfo Endpoint"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "DiscoveryOut",
         "type": "object"
       },
       "EmojiOut": {
@@ -1599,6 +1682,150 @@
         "title": "PlexStatus",
         "type": "object"
       },
+      "PresetFieldOut": {
+        "properties": {
+          "hint": {
+            "title": "Hint",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "pattern": {
+            "title": "Pattern",
+            "type": "string"
+          },
+          "placeholder": {
+            "title": "Placeholder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "hint",
+          "placeholder",
+          "pattern"
+        ],
+        "title": "PresetFieldOut",
+        "type": "object"
+      },
+      "PresetOut": {
+        "properties": {
+          "email_claim": {
+            "title": "Email Claim",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/PresetFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "groups_claim": {
+            "title": "Groups Claim",
+            "type": "string"
+          },
+          "groups_supported": {
+            "title": "Groups Supported",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "require_email_verified": {
+            "title": "Require Email Verified",
+            "type": "boolean"
+          },
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "rule_hint": {
+            "title": "Rule Hint",
+            "type": "string"
+          },
+          "scopes": {
+            "title": "Scopes",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "username_claim": {
+            "title": "Username Claim",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "fields",
+          "scopes",
+          "username_claim",
+          "email_claim",
+          "groups_claim",
+          "require_email_verified",
+          "groups_supported",
+          "rule_hint",
+          "requirements",
+          "steps",
+          "notes"
+        ],
+        "title": "PresetOut",
+        "type": "object"
+      },
+      "PresetsOut": {
+        "properties": {
+          "https": {
+            "title": "Https",
+            "type": "boolean"
+          },
+          "presets": {
+            "items": {
+              "$ref": "#/components/schemas/PresetOut"
+            },
+            "title": "Presets",
+            "type": "array"
+          },
+          "redirect_uri": {
+            "title": "Redirect Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirect_uri",
+          "https",
+          "presets"
+        ],
+        "title": "PresetsOut",
+        "type": "object"
+      },
       "PreviewOut": {
         "properties": {
           "length": {
@@ -1620,6 +1847,346 @@
           "length"
         ],
         "title": "PreviewOut",
+        "type": "object"
+      },
+      "ProviderIn": {
+        "properties": {
+          "allowed_domains": {
+            "default": [],
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Allowed Domains",
+            "type": "array"
+          },
+          "allowed_emails": {
+            "default": [],
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Allowed Emails",
+            "type": "array"
+          },
+          "allowed_groups": {
+            "default": [],
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Allowed Groups",
+            "type": "array"
+          },
+          "client_id": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Client Id",
+            "type": "string"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          },
+          "email_claim": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Claim"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "extra_params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Extra Params",
+            "type": "object"
+          },
+          "groups_claim": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groups Claim"
+          },
+          "kind": {
+            "enum": [
+              "okta",
+              "entra",
+              "google",
+              "adfs",
+              "custom"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "require_email_verified": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Require Email Verified"
+          },
+          "scopes": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scopes"
+          },
+          "settings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Settings",
+            "type": "object"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug"
+          },
+          "username_claim": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username Claim"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "client_id"
+        ],
+        "title": "ProviderIn",
+        "type": "object"
+      },
+      "ProviderOut": {
+        "properties": {
+          "admins": {
+            "title": "Admins",
+            "type": "integer"
+          },
+          "allowed_domains": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Domains",
+            "type": "array"
+          },
+          "allowed_emails": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Emails",
+            "type": "array"
+          },
+          "allowed_groups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Groups",
+            "type": "array"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "client_secret_set": {
+            "title": "Client Secret Set",
+            "type": "boolean"
+          },
+          "discovered_issuer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovered Issuer"
+          },
+          "email_claim": {
+            "title": "Email Claim",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "extra_params": {
+            "additionalProperties": true,
+            "title": "Extra Params",
+            "type": "object"
+          },
+          "groups_claim": {
+            "title": "Groups Claim",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_login_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Login At"
+          },
+          "login_url": {
+            "title": "Login Url",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "require_email_verified": {
+            "title": "Require Email Verified",
+            "type": "boolean"
+          },
+          "scopes": {
+            "title": "Scopes",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "title": "Settings",
+            "type": "object"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "username_claim": {
+            "title": "Username Claim",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "kind",
+          "settings",
+          "issuer",
+          "discovered_issuer",
+          "client_id",
+          "client_secret_set",
+          "scopes",
+          "username_claim",
+          "email_claim",
+          "groups_claim",
+          "allowed_groups",
+          "allowed_emails",
+          "allowed_domains",
+          "require_email_verified",
+          "extra_params",
+          "enabled",
+          "admins",
+          "last_login_at",
+          "login_url"
+        ],
+        "title": "ProviderOut",
+        "type": "object"
+      },
+      "PublicProvider": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "kind"
+        ],
+        "title": "PublicProvider",
         "type": "object"
       },
       "PublishIn": {
@@ -2471,6 +3038,106 @@
         "title": "SyncQueued",
         "type": "object"
       },
+      "TestResult": {
+        "properties": {
+          "claims": {
+            "additionalProperties": true,
+            "default": {},
+            "title": "Claims",
+            "type": "object"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "groups": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "provider_id": {
+            "title": "Provider Id",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "ok",
+          "provider_id"
+        ],
+        "title": "TestResult",
+        "type": "object"
+      },
+      "TestStart": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "TestStart",
+        "type": "object"
+      },
       "UserImpact": {
         "properties": {
           "gain": {
@@ -3111,6 +3778,31 @@
         "summary": "Logout",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/oidc/providers": {
+      "get": {
+        "operationId": "enabled_providers_api_v1_auth_oidc_providers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PublicProvider"
+                  },
+                  "title": "Response Enabled Providers Api V1 Auth Oidc Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Enabled Providers",
+        "tags": [
+          "sso"
         ]
       }
     },
@@ -3859,6 +4551,304 @@
         "summary": "Download Log File",
         "tags": [
           "logs"
+        ]
+      }
+    },
+    "/api/v1/oidc/presets": {
+      "get": {
+        "operationId": "presets_api_v1_oidc_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Presets",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/oidc/providers": {
+      "get": {
+        "operationId": "list_providers_api_v1_oidc_providers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderOut"
+                  },
+                  "title": "Response List Providers Api V1 Oidc Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Providers",
+        "tags": [
+          "sso"
+        ]
+      },
+      "post": {
+        "operationId": "create_provider_api_v1_oidc_providers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Provider",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/oidc/providers/{provider_id}": {
+      "delete": {
+        "operationId": "delete_provider_api_v1_oidc_providers__provider_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Provider",
+        "tags": [
+          "sso"
+        ]
+      },
+      "put": {
+        "operationId": "update_provider_api_v1_oidc_providers__provider_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Provider",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/oidc/providers/{provider_id}/discover": {
+      "post": {
+        "description": "Check the provider's discovery document (issuer, endpoints, signing algorithms).",
+        "operationId": "discover_api_v1_oidc_providers__provider_id__discover_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/oidc/providers/{provider_id}/test": {
+      "post": {
+        "description": "Start a test sign-in: shows the claims and the access decision, doesn't sign anyone in.",
+        "operationId": "start_test_api_v1_oidc_providers__provider_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "title": "Provider Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestStart"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Test",
+        "tags": [
+          "sso"
+        ]
+      }
+    },
+    "/api/v1/oidc/test-results/{test_id}": {
+      "get": {
+        "operationId": "test_result_api_v1_oidc_test_results__test_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "test_id",
+            "required": true,
+            "schema": {
+              "title": "Test Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Result",
+        "tags": [
+          "sso"
         ]
       }
     },

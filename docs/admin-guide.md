@@ -76,6 +76,8 @@ New installs start in **dry-run**: WooSarr computes, logs and audits every chang
 
 ## Admin accounts
 
+- Single sign-on (Okta, Entra ID, Google, ADFS, Custom OIDC): *Settings → Single sign-on*; setup steps per provider in `docs/sso.md`.
+
 - *Settings → Admins*: add, disable, delete, reset passwords, unlock locked accounts. The last active admin can't be disabled or deleted.
 - Locked out or forgot the password? Open the container console (Unraid: Docker tab → WooSarr icon → *Console*) and run:
 

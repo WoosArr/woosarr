@@ -34,6 +34,13 @@ export type ReactionPostOut = Schemas["ReactionPostOut"];
 export type ReactionPostIn = Schemas["ReactionPostIn"];
 export type PublishOut = Schemas["PublishOut"];
 export type RoleCreated = Schemas["RoleCreated"];
+export type ProviderOut = Schemas["ProviderOut"];
+export type ProviderIn = Schemas["ProviderIn"];
+export type PresetOut = Schemas["PresetOut"];
+export type PresetsOut = Schemas["PresetsOut"];
+export type DiscoveryOut = Schemas["DiscoveryOut"];
+export type TestResult = Schemas["TestResult"];
+export type PublicProvider = Schemas["PublicProvider"];
 
 export interface Health {
   status: string;

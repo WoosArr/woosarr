@@ -22,7 +22,7 @@ from woosarr.core import auth
 from woosarr.db.models import AdminUser
 
 # Routes reachable without auth (N10). The setup route checks for itself that
-# no admin exists yet. SAML metadata/ACS join in P6-05.
+# no admin exists yet.
 PUBLIC_PATHS = frozenset(
     {
         "/api/health",
@@ -30,6 +30,10 @@ PUBLIC_PATHS = frozenset(
         "/api/v1/auth/status",
         "/api/v1/auth/login",
         "/api/v1/setup/admin",
+        # SSO: the login page's provider list and the redirect-based flow (D21)
+        "/api/v1/auth/oidc/providers",
+        "/api/v1/auth/oidc/{slug}/login",
+        "/api/v1/auth/oidc/callback",
     }
 )
 

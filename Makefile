@@ -6,7 +6,7 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit
+.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
@@ -34,6 +34,9 @@ test:
 
 ui:
 	cd frontend && npm run build
+
+sso-docs:
+	cd backend && ../$(PY) -m woosarr.services.oidc_presets ../docs/sso.md
 
 openapi:
 	cd backend && ../$(PY) -m woosarr.openapi ../frontend/openapi.json

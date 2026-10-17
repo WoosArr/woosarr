@@ -22,6 +22,11 @@ log = logging.getLogger("woosarr.secrets")
 PLEX_TOKEN = "plex.token"
 DISCORD_BOT_TOKEN = "discord.bot_token"
 KNOWN = frozenset({PLEX_TOKEN, DISCORD_BOT_TOKEN})
+OIDC_SECRET_PREFIX = "oidc.client_secret."
+
+
+def oidc_client_secret(provider_id: int) -> str:
+    return f"{OIDC_SECRET_PREFIX}{provider_id}"
 
 
 class SecretStore:
@@ -30,7 +35,7 @@ class SecretStore:
 
     @staticmethod
     def _check(name: str) -> None:
-        if name not in KNOWN:
+        if name not in KNOWN and not (name.startswith(OIDC_SECRET_PREFIX) and name[len(OIDC_SECRET_PREFIX):].isdigit()):
             raise KeyError(f"unknown secret {name!r}")
 
     def set(self, session: Session, name: str, value: str) -> None:

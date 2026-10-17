@@ -6,6 +6,7 @@ import { Icon } from "../icons";
 import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
 import { useDiscordFeatures } from "../features";
+import SsoSettings from "./Sso";
 import { ImpactList, type UserChange } from "../Impact";
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   ["appearance", "Appearance"],
   ["account", "My account"],
   ["admins", "Admins"],
+  ["sso", "Single sign-on"],
   ["keys", "API keys"],
 ] as const;
 
@@ -31,6 +33,7 @@ export default function SettingsPage() {
       {tab === "appearance" ? <Appearance /> : null}
       {tab === "account" ? <Account /> : null}
       {tab === "admins" ? <Admins /> : null}
+      {tab === "sso" ? <SsoSettings /> : null}
       {tab === "keys" ? <ApiKeys /> : null}
     </>
   );

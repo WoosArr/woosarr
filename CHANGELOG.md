@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Added
+- Admin single sign-on with OpenID Connect: multiple providers, presets for Okta, Microsoft Entra ID, Google and ADFS plus Custom; setup wizard with requirements and step-by-step instructions; test sign-in showing the claims and decision; access rules by group/role, email or domain; admins created on first sign-in and linked by subject; password login can be turned off once SSO works (lockout guard). See docs/sso.md.
+
 ### Changed
 - Reaction posts list each emoji's role and libraries under the message (editable line template, heading and per-reaction lines, live preview with length check); posts are edited automatically when a role's libraries, a library name or a role name changes.
 - Remove libraries: each library shows ✓ / – / empty for whether all, some or none of the selected users have it; untick to remove; live impact preview, Reset, and Undo after removing.

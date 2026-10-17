@@ -63,8 +63,8 @@ Keys are shown once, stored as sha256, revocable, and scoped: `read` keys can on
 ### Secrets in logs
 `RedactingFilter` on every handler (stderr, file, in-memory buffer) scrubs registered secret values plus token patterns (Plex `X-Plex-Token`, `?token=`, `Authorization: Bearer/Bot`, Discord token shape, `wsk_` keys) in messages and tracebacks. Library loggers (`uvicorn`, `plexapi`, `discord`, `urllib3`, `aiohttp`, `httpx`) go through the same handlers. Covered by `tests/test_redaction_audit.py`.
 
-### SAML forgery / replay (P6-05, not built yet)
-Will require signed assertions, audience and recipient checks, clock-skew limits, one-time assertion ids, and a lockout guard before SAML-only mode is enabled.
+### SSO token forgery / replay (OIDC, D21)
+Authorization code flow with PKCE; `state` is single-use, expires in 10 minutes and must match a cookie set when the sign-in started (login CSRF); `nonce` must match the ID token. ID tokens are verified against the provider's JWKS with asymmetric algorithms only (`none`/HS* refused), and `iss` (the discovered issuer; Entra multi-tenant issuers refused), `aud`/`azp`, `exp`, `iat` (120 s leeway) are checked. Access requires a configured rule (group/role, email, domain); email-based rules require `email_verified` unless the provider is a managed directory. Admins are linked by provider + `sub`, never by email, so changing an email at the provider can't take over another admin. Client secrets are stored encrypted and never returned. Turning off password login needs a working SSO admin (lockout guard).
 
 ### Plex share mistakes (integrity)
 Plex replaces a user's whole share list on update. WooSarr always computes and writes the **complete** set, re-reads live state right before writing and skips on drift, never touches exempt or unmanaged libraries, and starts in **dry-run**.

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -59,10 +59,52 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True)
     # NULL for SAML-only accounts.
     password_hash: Mapped[str | None] = mapped_column(String(255))
-    auth_source: Mapped[str] = mapped_column(String(10), default="local")  # local | saml
+    auth_source: Mapped[str] = mapped_column(String(10), default="local")  # local | oidc
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_logins: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_login_at: Mapped[datetime | None]
+
+
+class OidcProvider(Base):
+    """An OpenID Connect identity provider admins can sign in with (D21)."""
+
+    __tablename__ = "oidc_providers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(40), unique=True)  # used in the login URL
+    name: Mapped[str] = mapped_column(String(100))  # button text: "Sign in with <name>"
+    kind: Mapped[str] = mapped_column(String(10))  # okta | entra | google | adfs | custom
+    issuer: Mapped[str] = mapped_column(String(300))  # as configured / built from the preset
+    discovered_issuer: Mapped[str | None] = mapped_column(String(300))  # from .well-known (validated)
+    client_id: Mapped[str] = mapped_column(String(300))
+    # Client secret lives in `secrets` as oidc.client_secret.<id> (encrypted).
+    scopes: Mapped[str] = mapped_column(String(300), default="openid email profile")
+    username_claim: Mapped[str] = mapped_column(String(100), default="preferred_username")
+    email_claim: Mapped[str] = mapped_column(String(100), default="email")
+    groups_claim: Mapped[str] = mapped_column(String(200), default="groups")
+    allowed_groups: Mapped[list[str]] = mapped_column(default=list)
+    allowed_emails: Mapped[list[str]] = mapped_column(default=list)
+    allowed_domains: Mapped[list[str]] = mapped_column(default=list)
+    require_email_verified: Mapped[bool] = mapped_column(Boolean, default=True)
+    extra_params: Mapped[dict[str, Any]] = mapped_column(default=dict)  # e.g. {"prompt": "select_account"}
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)  # preset inputs (tenant, domain...)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    last_login_at: Mapped[datetime | None]
+
+
+class OidcIdentity(Base):
+    """Links an admin to a provider account by its stable subject (never by email)."""
+
+    __tablename__ = "oidc_identities"
+    __table_args__ = (UniqueConstraint("provider_id", "subject"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider_id: Mapped[int] = mapped_column(ForeignKey("oidc_providers.id", ondelete="CASCADE"), index=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    admin_user_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     last_login_at: Mapped[datetime | None]
 

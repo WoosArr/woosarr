@@ -112,6 +112,12 @@ def preview_settings(changes: dict[str, Any], db: DbDep) -> SettingsImpact:
 @router.patch("/settings", response_model=AppSettings)
 def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, principal: AdminDep) -> AppSettings:
     before = app_settings.load(db)
+    if changes.get("local_login_enabled") is False and before.local_login_enabled:
+        from woosarr.api.oidc import usable_sso_admins
+
+        if usable_sso_admins(db) == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                "sign in once with single sign-on (as an admin) before turning password login off")
     try:
         after = app_settings.update(db, changes)
     except ValidationError as exc:

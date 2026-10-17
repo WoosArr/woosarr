@@ -41,8 +41,11 @@ class AppSettings(BaseModel):
     # None = use WOOSARR_LOG_LEVEL.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None
     audit_retention_days: int = Field(365, ge=7, le=3650)
-    # Disable local password login once SAML works (guarded in P6-05).
+    # Local password login; can only be turned off once an SSO admin has signed in.
     local_login_enabled: bool = True
+    # Public address of WooSarr (e.g. https://woosarr.example.com) for SSO redirect
+    # URIs; empty = the address the browser used.
+    public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
 
 
 def load(session: Session) -> AppSettings:

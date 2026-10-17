@@ -77,3 +77,51 @@ test("discord wizard: bad token, good token, invite, pick server", async ({ page
   await page.goto("/");
   await expect(page.getByText("Discord bot not set up yet")).toHaveCount(0);
 });
+
+test("sso wizard: add a provider, test it, sign in with it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Username").fill("admin");
+  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  await page.goto("/settings?tab=sso");
+  await expect(page.getByText(/Okta only accept|only accept/)).toBeVisible(); // http warning
+  await page.getByRole("button", { name: "Add provider" }).click();
+  const dialog = page.getByRole("dialog");
+  for (const kind of ["Okta", "Microsoft Entra ID", "Google", "ADFS", "Custom OIDC provider"]) {
+    await expect(dialog.getByRole("radio", { name: new RegExp(kind) })).toBeVisible();
+  }
+  await dialog.getByRole("radio", { name: /Custom OIDC provider/ }).check();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await expect(dialog.getByRole("heading", { name: "Requirements" })).toBeVisible();
+  await expect(dialog.getByText("/api/v1/auth/oidc/callback").first()).toBeVisible();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByLabel("Name").fill("Test IdP");
+  await dialog.getByLabel("Issuer URL").fill("https://idp.test");
+  await dialog.getByLabel("Client ID").fill("woosarr-client");
+  await dialog.getByLabel("Client secret").fill("s3cret-xxxxxxxx");
+  await dialog.getByRole("button", { name: /Save & check connection/ }).click();
+  await expect(dialog.getByText("Found https://idp.test")).toBeVisible();
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByLabel("Allowed groups").fill("WooSarr Admins");
+  await dialog.getByRole("button", { name: "Next" }).click();
+  await dialog.getByRole("button", { name: "Enable" }).click();
+  await expect(page.getByText("Enabled: the login page offers it now.")).toBeVisible();
+
+  // Test sign-in: claims + decision, no login
+  await page.getByRole("button", { name: "Test sign-in" }).click();
+  await expect(page.getByText(/would be allowed in/)).toBeVisible();
+  await expect(page.getByText("WooSarr Admins", { exact: true })).toBeVisible(); // the Groups row
+
+  // Real sign-in from the login page
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByRole("link", { name: "Sign in with Test IdP" }).click();
+  // Back where the admin was (next=...), now signed in as the SSO admin.
+  await expect(page.getByRole("navigation", { name: "Main" }).getByText("alice")).toBeVisible();
+  await expect(page).toHaveURL(/\/settings/);
+
+  await page.goto("/settings?tab=sso");
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(results.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
+});

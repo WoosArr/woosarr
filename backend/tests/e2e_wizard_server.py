@@ -70,6 +70,27 @@ def main() -> None:
     app.state.plex_status = plex.status
     app.state.sync._gateway = plex.gateway
     app.state.discord._plex = plex
+    # SSO: an in-process fake OIDC provider; the browser "signs in" at /fake-idp/authorize.
+    from urllib.parse import urlencode
+
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
+
+    from tests.fake_idp import FakeIdP, query
+    from woosarr.services.oidc import OidcService
+
+    port = int(os.environ.get("WOOSARR_PORT", "31340"))
+    idp = FakeIdP(issuer="https://idp.test", authorize_url=f"http://127.0.0.1:{port}/fake-idp/authorize")
+    app.state.oidc = OidcService(http=idp)
+
+    @app.get("/fake-idp/authorize", include_in_schema=False)
+    def fake_authorize(request: Request) -> RedirectResponse:
+        url = str(request.url)
+        code = idp.authorize(url)
+        q = query(url)
+        return RedirectResponse(f"{q['redirect_uri']}?{urlencode({'code': code, 'state': q['state']})}", status_code=303)
+
+    app.router.routes.insert(0, app.router.routes.pop())  # ahead of the SPA catch-all
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("WOOSARR_PORT", "31340")), log_config=None)
 
 

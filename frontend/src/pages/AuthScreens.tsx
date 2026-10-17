@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { api, type PublicProvider } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { ErrorBanner, Field } from "../ui";
@@ -17,7 +18,17 @@ export function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useState<unknown>(() => {
+    const sso = new URLSearchParams(window.location.search).get("sso_error");
+    return sso ? new Error(sso) : null;
+  });
+  const [providers, setProviders] = useState<PublicProvider[]>([]);
+  useEffect(() => {
+    api.get<PublicProvider[]>("/api/v1/auth/oidc/providers").then(setProviders, () => setProviders([]));
+    if (window.location.search.includes("sso_error")) window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+  const localEnabled = status?.local_login_enabled ?? true;
+  const next = encodeURIComponent(window.location.pathname === "/" ? "/" : window.location.pathname);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -38,21 +49,30 @@ export function LoginScreen() {
       <form className="card auth-card stack" onSubmit={submit} aria-labelledby="login-title">
         <Brand />
         <h1 id="login-title" className="visually-hidden">Sign in</h1>
-        {status && !status.local_login_enabled ? (
-          <div className="banner info"><Icon name="info" /><div>Password login is disabled. Use single sign-on.</div></div>
-        ) : null}
         <ErrorBanner error={error} />
-        <label className="field">
-          Username
-          <input type="text" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-        </label>
-        <label className="field">
-          Password
-          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </label>
-        <button className="btn primary" type="submit" disabled={busy} style={{ width: "100%" }}>
-          <Icon name="lock" /> {busy ? "Signing in…" : "Sign in"}
-        </button>
+        {providers.map((p) => (
+          <a key={p.slug} className="btn" style={{ width: "100%" }} href={`/api/v1/auth/oidc/${p.slug}/login?next=${next}`}>
+            <Icon name="shieldCheck" /> Sign in with {p.name}
+          </a>
+        ))}
+        {localEnabled ? (
+          <>
+            {providers.length ? <div className="row small muted" style={{ justifyContent: "center" }}>or</div> : null}
+            <label className="field">
+              Username
+              <input type="text" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+            </label>
+            <label className="field">
+              Password
+              <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            </label>
+            <button className="btn primary" type="submit" disabled={busy} style={{ width: "100%" }}>
+              <Icon name="lock" /> {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </>
+        ) : !providers.length ? (
+          <div className="banner warn small"><Icon name="alert" /><div>Password login is off and no sign-in provider is available. Use the recovery command in the container console.</div></div>
+        ) : null}
       </form>
     </main>
   );

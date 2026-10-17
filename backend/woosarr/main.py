@@ -19,6 +19,7 @@ from woosarr.api import auth as auth_api
 from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
+from woosarr.api import oidc as oidc_api
 from woosarr.api import reaction_posts as reaction_posts_api
 from woosarr.api import roles as roles_api
 from woosarr.api import setup as setup_api
@@ -34,6 +35,7 @@ from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
 from woosarr.services.discord_bot import DiscordService
+from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
 from woosarr.services.sync import SyncService
 
@@ -109,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.db = db
     app.state.secrets = secret_store
     app.state.sync = sync
+    app.state.oidc = OidcService()
     app.state.plex_gateway = gateway
     app.state.plex = plex_service
     app.state.discord = discord_service
@@ -159,6 +162,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
                    roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api):
         v1.include_router(module.router)
+    v1.include_router(oidc_api.public)
+    v1.include_router(oidc_api.admin)
     app.include_router(v1)
 
     _mount_spa(app, settings)

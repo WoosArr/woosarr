@@ -26,7 +26,7 @@ A single Docker container, installable on Unraid, that:
 
 | ID | Decision | Status | Default / Answer |
 |----|----------|--------|------------------|
-| D1 | Backend language/framework | **DECIDED** | Python 3.12 + FastAPI + `discord.py` + **`python-plexapi`** (docs reviewed: has PIN/OAuth + JWT login, user listing, per-user shared-library read via `MyPlexUser.servers[].sections()`, and `MyPlexAccount.updateFriend()` for share updates). The plexapi.dev TypeScript SDK (`@lukehagar/plexjs`) was rejected: it is auto-generated, beta, and no library-sharing methods were found in its documented method list. |
+| D1 | Backend language/framework | **DECIDED** | Python 3.12 + FastAPI + `discord.py` + **`python-plexapi`** (installed from PyPI as **`PlexAPI`**, imported as `plexapi`; docs reviewed: has PIN/OAuth + JWT login, user listing, per-user shared-library read via `MyPlexUser.servers[].sections()`, and `MyPlexAccount.updateFriend()` for share updates). The plexapi.dev TypeScript SDK (`@lukehagar/plexjs`) was rejected: it is auto-generated, beta, and no library-sharing methods were found in its documented method list. |
 | D1a | Frontend/backend type sharing | DEFAULT | Generate TypeScript types from FastAPI's OpenAPI schema (e.g., `openapi-typescript`) so the React UI gets typed API calls without a shared language |
 | D1b | Plex adapter boundary | DEFAULT | All Plex access goes through a `PlexGateway` interface (our own code), so the library can be swapped or mocked without touching the sync engine |
 | D2 | Frontend | DEFAULT | React + TypeScript + Vite, built to static files served by FastAPI (single container, single port) |

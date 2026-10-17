@@ -55,6 +55,21 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
+      # Build for the runner first and smoke-test it; only a passing image is pushed.
+      - name: Build for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: woosarr:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (health, healthy status, /config persistence, graceful stop)
+        run: scripts/smoke-test.sh woosarr:smoke 31337
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:

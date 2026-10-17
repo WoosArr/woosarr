@@ -2,19 +2,21 @@
 <Container version="2">
   <Name>WooSarr</Name>
   <Repository>ghcr.io/woosarr/woosarr:latest</Repository>
-  <Registry>https://github.com/OWNER/woosarr/pkgs/container/woosarr</Registry>
+  <Registry>https://github.com/WoosArr/woosarr/pkgs/container/woosarr</Registry>
   <Network>bridge</Network>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/OWNER/woosarr/issues</Support>
-  <Project>https://github.com/OWNER/woosarr</Project>
-  <Overview>Automatically grants and removes Plex library access based on Discord roles. Additive role grants, per-library exemptions, manual overrides, and a web UI on port 2000.</Overview>
+  <Support>https://github.com/WoosArr/woosarr/issues</Support>
+  <Project>https://github.com/WoosArr/woosarr</Project>
+  <TemplateURL>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/woosarr.xml</TemplateURL>
+  <Overview>Automatically grants and removes Plex library access based on Discord roles. Additive role grants, per-library exemptions, manual overrides, and a web UI on port 31337.</Overview>
   <Category>MediaApp:Other Tools:</Category>
-  <WebUI>http://[IP]:[PORT:2000]/</WebUI>
-  <Icon>https://raw.githubusercontent.com/OWNER/woosarr/main/unraid/icon.png</Icon>
+  <WebUI>http://[IP]:[PORT:31337]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png</Icon>
   <ExtraParams>--health-start-period=20s</ExtraParams>
-  <Config Name="WebUI Port" Target="2000" Default="2000" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">2000</Config>
+  <Config Name="WebUI Port" Target="31337" Default="31337" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">31337</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/woosarr" Mode="rw" Description="Database, logs and encrypted secrets. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/woosarr</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group id for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Log level" Target="WOOSARR_LOG_LEVEL" Default="INFO|DEBUG|WARNING|ERROR" Mode="" Description="Verbosity of the logs shown in the UI and at /api/v1/logs. DEBUG for troubleshooting." Type="Variable" Display="advanced" Required="false" Mask="false">INFO</Config>
 </Container>

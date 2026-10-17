@@ -1,9 +1,10 @@
-import { api, type LibraryOut } from "../api";
+import { api, type LibraryOut, type PlexServerOut } from "../api";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, PageHead, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
 
 export default function LibrariesPage() {
   const libs = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
+  const server = useLoad(() => api.get<PlexServerOut | null>("/api/v1/plex/server"));
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -30,6 +31,15 @@ export default function LibrariesPage() {
   return (
     <>
       <PageHead title="Libraries" sub="Libraries on your Plex server, which roles grant them, and which ones are exempt." />
+      {server.data ? (
+        <div className="card row spread" style={{ marginBottom: 16 }}>
+          <span className="row">
+            <Icon name="plex" /> <strong>{server.data.name}</strong>
+            <span className="small muted">Plex Media Server {server.data.version ?? "?"} · {server.data.platform ?? "?"}</span>
+          </span>
+          {server.data.online ? <Badge tone="ok">Online</Badge> : <Badge tone="danger">Offline</Badge>}
+        </div>
+      ) : null}
       <div className="banner info">
         <Icon name="lock" />
         <div className="small">

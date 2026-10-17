@@ -133,6 +133,23 @@ def plex_servers(request: Request) -> list[PlexServerOut]:
         return [PlexServerOut(**s) for s in _plex(request).list_servers()]
 
 
+@router.get("/plex/server", response_model=PlexServerOut | None)
+def plex_server_info(request: Request) -> PlexServerOut | None:
+    """The selected server, read live from plex.tv (name, version, online)."""
+    svc = request.app.state.plex
+    if svc is None:
+        return PlexServerOut(machine_id="demo", name="Demo server", online=True, version="demo", platform="demo")
+    current = svc.server()
+    if not current:
+        return None
+    with plex_errors():
+        live = next((s for s in svc.list_servers() if s["machine_id"] == current["machine_id"]), None)
+    if live is None:
+        return PlexServerOut(machine_id=current["machine_id"], name=current["name"], online=False,
+                             version=None, platform=None)
+    return PlexServerOut(**live)
+
+
 @router.put("/plex/server", response_model=PlexStatus)
 def plex_select_server(body: PlexServerIn, request: Request, db: DbDep, principal: AdminDep) -> PlexStatus:
     svc = _plex(request)

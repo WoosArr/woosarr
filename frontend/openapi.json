@@ -2848,6 +2848,34 @@
       }
     },
     "/api/v1/plex/server": {
+      "get": {
+        "description": "The selected server, read live from plex.tv (name, version, online).",
+        "operationId": "plex_server_info_api_v1_plex_server_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PlexServerOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Plex Server Info Api V1 Plex Server Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Plex Server Info",
+        "tags": [
+          "integrations"
+        ]
+      },
       "put": {
         "operationId": "plex_select_server_api_v1_plex_server_put",
         "requestBody": {

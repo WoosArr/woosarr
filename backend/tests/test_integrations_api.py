@@ -50,6 +50,13 @@ class IntegrationApiTests(unittest.TestCase):
         for path in ("/api/v1/plex/status", "/api/v1/status", "/api/v1/audit", "/api/v1/logs?limit=5000"):
             self.assertNotIn(OWNER, self.c.get(path).text, path)
 
+    def test_server_info(self):
+        self.assertIsNone(self.c.get("/api/v1/plex/server").json())
+        self.h.app.state.plex.complete_owner_login(OWNER)
+        self.h.app.state.plex.select_server(MACHINE)
+        info = self.c.get("/api/v1/plex/server").json()
+        self.assertEqual((info["name"], info["version"], info["online"]), ("Home", "1.41", True))
+
     def test_write_check_requires_confirmation(self):
         r = self.c.post("/api/v1/plex/check/write", json={"plex_user_id": "11"})
         self.assertEqual(r.status_code, 422)
@@ -75,3 +82,4 @@ class DemoModeIntegrationTests(unittest.TestCase):
             self.assertIn("Demo mode", c.get("/api/v1/plex/status").json()["detail"])
         finally:
             h.close()
+

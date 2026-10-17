@@ -245,6 +245,13 @@ function PlexChecks() {
 function WriteCheckModal({ onClose }: { onClose: () => void }) {
   const users = useLoad(() => api.get<UserOut[]>("/api/v1/users"));
   const [uid, setUid] = useState("");
+  const noUsersYet = users.data !== null && users.data.length === 0;
+  // Right after choosing a server the first sync is still reading users: keep checking.
+  useEffect(() => {
+    if (!noUsersYet) return;
+    const t = setInterval(() => void users.reload(), 2000);
+    return () => clearInterval(t);
+  }, [noUsersYet, users]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WriteCheck | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -274,6 +281,7 @@ function WriteCheckModal({ onClose }: { onClose: () => void }) {
         a library appearing for a few seconds.
       </p>
       <ErrorBanner error={error} />
+      {!result && noUsersYet ? <Spinner label="WooSarr is still reading your Plex users" /> : null}
       {!result ? (
         <Field label="Test user">
           <select value={uid} onChange={(e) => setUid(e.target.value)}>

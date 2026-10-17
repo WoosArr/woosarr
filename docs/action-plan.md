@@ -17,7 +17,7 @@
 
 - **Repo:** https://github.com/WoosArr/woosarr, branch `main`. Local clone: `~/Documents/GitHub/git-WoosArr/woosarr`.
 - **Port:** **31337** (D15; was 2000).
-- **Done and tested (137 backend tests + 6 opt-in real-Plex contract tests skipped, 2 vitest, 9 Playwright incl. axe):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API**, SQLite + migrations, admin auth (sessions, CSRF, lockout, API keys, first-run setup code), sync service (worker, debounce, periodic reconcile, audit), full domain API, the **web UI** (all pages, themes, colour-vision palettes), recovery CLI, multi-arch image with smoke test and secret scan.
+- **Done and tested (192 backend tests + 6 opt-in skipped, 2 vitest, 11 Playwright incl. axe):** sync engine, apply layer with dry-run, secrets manager, log redaction, link rules + one-shot token capture, config loader, logging (stderr JSON + rotating file + in-memory buffer, all redacted), FastAPI app factory (`/api/v1`, error handler with request ids, SPA serving), **logs API**, SQLite + migrations, admin auth (sessions, CSRF, lockout, API keys, first-run setup code), sync service (worker, debounce, periodic reconcile, audit), full domain API, the **web UI** (all pages, themes, colour-vision palettes), recovery CLI, multi-arch image with smoke test and secret scan.
 - **Ran for real locally:** `python -m woosarr` serves health, UI, logs on :31337 and stops cleanly on SIGTERM (~0.2 s).
 - **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs green through `d68c5e8`, including the image smoke test; that image is published as `latest`. No Docker on the dev Mac, so the image is only exercised in CI.
 - **Diagnostics:** nobody has shell access to the deployed server (D16, http://10.0.1.101:31337). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`, which need an admin session or a `read` API key (`Authorization: Bearer wsk_…`). Claude reads the key from `~/.config/woosarr/api-key` and never prints it.
@@ -180,7 +180,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-01** Dockerfile + entrypoint (PUID/PGID, gosu, healthcheck on `WOOSARR_PORT`, `CMD python -m woosarr`). `scripts/smoke-test.sh` green in CI (`d68c5e8`): health, healthy status, `/config` persistence across restart, graceful SIGTERM. *Verify:* smoke-test step in `docker-publish.yml`.
 - [x] **P2-02** Healthcheck + graceful shutdown (uvicorn `timeout_graceful_shutdown=5`; `docker stop` ~1 s in CI). *Verify:* Docker healthy; `docker stop` exits < 10 s.
 - [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. Done: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. *Remaining:* test install on an Unraid box.
-- [~] **P2-04** Workflows. Done: CI + gated publish + image smoke test; green end-to-end (`d68c5e8`). *Remaining:* push a `v0.1.0` tag (ask first, it publishes a release image) and confirm semver tags. *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
+- [x] **P2-04** Workflows: CI + gated publish + image smoke test + secret scan; `v0.1.0` tag published `0.1.0`, `0.1` and `latest` (2026-10-17). *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
 - [x] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. First multi-arch publish green (`e09ed1c`). *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
 - [x] **P2-06** GHCR package is public (anonymous manifest fetch → 200); README documents `docker run` and Unraid install.
 
@@ -221,9 +221,9 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 7 — Feature pages
 - [x] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked. *Verify:* Playwright `admin links a user…`, `manual grant…`.
 - [x] **P7-02** Roles page: assign libraries to roles with live impact preview ("N users gain/lose X"). *Verify:* Playwright + `test_role_mapping_preview_and_audit`.
-- [~] **P7-03** Libraries page: per-library **exempt** toggle with confirmation and explanation, referencing roles, share counts. *Remaining:* server name/version once the real gateway exists.
+- [x] **P7-03** Libraries page: live server card (name, PMS version, platform, online via `GET /api/v1/plex/server`), per-library exempt toggle with confirmation, referencing roles, share counts.
 - [x] **P7-04** Dashboard: Plex/Discord status, last sync report, pending changes (preview), 24 h error count, dry-run banner, Sync now.
-- [~] **P7-05** Settings: general (dry-run with go-live confirmation, interval, leave policy, ignore-unverified, cooldown, log level, audit retention), appearance, my account, admins, API keys. *Remaining:* secret replace UI (with P9 wizards), SAML (P6-05).
+- [x] **P7-05** Settings: general (dry-run with go-live confirmation, interval, leave policy, ignore-unverified, cooldown, log level, audit retention), appearance, my account, admins, API keys. Secret replacement is replace-only on the Setup page (re-sign-in to Plex, *Replace token* for Discord). SAML deferred (D7a).
 
 ### Phase 8 — Logs
 - [x] **P8-01** Logs page: live tail (2 s cursor polling), level filter, search, export shown lines (JSONL) and full file; keeps up to 20k lines with `content-visibility` rows. Push streaming dropped: polling with `since` is enough for one admin UI.
@@ -246,8 +246,8 @@ remove_all       = target empty and current non-empty                # use the r
 
 ### Phase 11 — Testing
 - [x] **P11-01** Unit tests cover engine, apply, secrets, redaction, linking, config, logs, DB, auth, sync service, recovery (137 backend tests). Keep extending as code grows.
-- [~] **P11-02** Integration tests over HTTP with demo data (`WOOSARR_DEMO=true`: fake Plex + seeded Discord cache) in `tests/test_domain_api.py`, `tests/test_sync_service.py`. *Remaining:* mocked Discord *events* once P4-03 exists.
-- [~] **P11-03** Playwright UI tests (`frontend/e2e`, `make e2e`, CI job `e2e`) against a demo backend: first-run setup, navigation, link/unlink, role mapping + impact, manual grants, exemptions, logs/audit, theme/palette, API key, go-live, mobile drawer; fails on any console error/CSP violation. *Remaining:* Plex/Discord wizards when they exist.
+- [x] **P11-02** Integration tests over HTTP with demo data, the sync service against a fake plex.tv, and simulated Discord gateway events through the real bot handlers (`tests/test_discord_events.py`).
+- [x] **P11-03** Playwright: `app` project (demo backend; every page, flows, axe, mobile) and `wizards` project (real app + fake plex.tv/Discord via `backend/tests/e2e_wizard_server.py`: Plex sign-in popup, server pick, read/write checks; Discord bad/good token, invite, server pick, axe). 11 tests, stable over repeated runs.
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
 - [~] **P11-05** Contrast checked for every theme combination; axe (WCAG 2.1 AA, serious/critical) runs on 10 pages × light/dark in Playwright and passes (fixed: tab ARIA, keyboard-focusable scroll regions, field hints). *Remaining:* **HUMAN** screen-reader pass.
 - [~] **P11-06** **Live evidence:** the container was updated several times on the Unraid host with admin, sessions, secrets and settings kept (`/config` persistence). *Remaining:* **HUMAN** fresh install from the template.
@@ -256,7 +256,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P12-01** README: install (Unraid, Docker), first-run walkthrough with setup code, HTTPS, troubleshooting, backups, FAQ.
 - [x] **P12-02** `docs/admin-guide.md`: sync rules, triggers, leave policy, verified links, dry-run, troubleshooting, admins, env vars.
 - [x] **P12-03** Backup/restore and master key in `docs/admin-guide.md`; startup survives an unreadable secret (logs an error, admin re-enters it). *Verify:* `tests/test_recovery.py`.
-- [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` tagged (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (HUMAN, forum).
+- [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` released (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (HUMAN, forum).
 
 ## 10. Risks and open questions
 

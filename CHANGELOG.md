@@ -2,6 +2,15 @@
 
 All notable changes. Versions follow [semver](https://semver.org); images are published as `ghcr.io/woosarr/woosarr:<version>`.
 
+## [Unreleased]
+
+### Added
+- Libraries page shows the Plex server's name, version, platform and online state.
+- Playwright tests for the Plex and Discord setup wizards; simulated Discord event tests.
+
+### Fixed
+- "Verify sharing" dialog waits for the first user sync instead of showing an empty list.
+
 ## [0.1.0] - 2026-10-17
 
 First usable release. WooSarr starts in **dry-run**.

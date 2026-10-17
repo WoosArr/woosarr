@@ -28,6 +28,10 @@ from woosarr.services import link_service
 
 log = logging.getLogger("woosarr.discord")
 
+# WooSarr never uses voice; don't warn about missing voice libraries on every start.
+discord.VoiceClient.warn_nacl = False
+discord.VoiceClient.warn_dave = False
+
 API = "https://discord.com/api/v10"
 K_GUILD = "discord.guild"  # {"id", "name"}
 K_BOT = "discord.bot"  # {"id", "username", "application_id"}

@@ -171,3 +171,47 @@ class SyncServiceTests(unittest.TestCase):
         with self.db.session() as s:
             self.assertTrue(s.get(Library, "6").removed)
             self.assertEqual(s.get(Library, "1").title, "Films")
+
+
+class SyncWithPlexApiGatewayTests(unittest.TestCase):
+    """Full reconcile against the plex.tv-backed gateway uses one batch read."""
+
+    def setUp(self):
+        from tests.fake_plextv import MACHINE, FakePlexTV
+        from woosarr.plex_api_gateway import PlexApiGateway
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.engine = make_engine(Path(self.tmp.name) / "app.db")
+        migrate(self.engine)
+        self.db = Database(self.engine)
+        self.tv = FakePlexTV()
+        self.tv.shares["11"] = {"id": 9, "sections": {101}}
+        self.tv.shares["12"] = {"id": 10, "sections": {102}}
+        self.gw = PlexApiGateway(self.tv.account, MACHINE, sleep=lambda _s: None)
+        self.svc = SyncService(self.db, lambda: self.gw)
+        with self.db.session() as s:
+            inventory.refresh_all(s, self.gw)
+            s.add(DiscordMember(discord_user_id="d1", username="alice", role_ids=["r1"]))
+            s.add(DiscordLink(plex_user_id="11", discord_user_id="d1", method="oauth", verified=True, linked_by="self"))
+            s.add(RoleLibrary(role_id="r1", library_id="3"))
+            app_settings.update(s, {"dry_run": False})
+
+    def tearDown(self):
+        self.engine.dispose()
+        self.tmp.cleanup()
+
+    def test_full_run_reads_friends_list_once_plus_writes(self):
+        self.tv.users_calls = 0
+        report = self.svc.run_now(None, "test")
+        self.assertEqual(report.errors, 0, report.error_messages)
+        self.assertEqual(report.writes, 1)
+        # inventory (1) + batch read (1) + drift re-read and write lookup for the one changed user (2)
+        self.assertLessEqual(self.tv.users_calls, 4)
+        self.assertEqual(self.tv.shares["11"]["sections"], {101, 103})
+
+    def test_user_whose_batch_read_failed_is_retried_alone(self):
+        self.gw._retries = 0
+        self.tv.broken_users = {"12"}
+        report = self.svc.run_now(None, "test")
+        self.assertEqual(report.errors, 1)  # 12 still fails on its own retry, and is reported
+        self.assertEqual(report.writes, 1)  # 11 was synced regardless

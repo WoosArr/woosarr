@@ -22,6 +22,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -76,6 +77,7 @@ class PlexApiGateway:
         self._retries = retries
         self._backoff = backoff
         self._sleep = sleep
+        self.parallel_reads = 6  # concurrent share reads against plex.tv
         self.state = ConnectionState()
 
     # ---- plumbing -----------------------------------------------------------
@@ -173,6 +175,42 @@ class PlexApiGateway:
         log.debug("plex shares user=%s share=%s all=%s shared=%s",
                   plex_user_id, share.id, getattr(share, "allLibraries", None), sorted(shared))
         return shared
+
+    def get_all_user_library_ids(self) -> tuple[dict[str, frozenset[str]], dict[str, str]]:
+        """Every user's shares with ONE friends-list fetch plus parallel share reads.
+
+        Per-user reads re-fetch the whole friends list each time (O(n^2) on big
+        servers: ~0.5 s/user live). Full reconciles use this instead; writes still
+        re-read the one user live right before writing (drift check).
+        """
+        users = self._users()
+        shares: dict[str, frozenset[str]] = {}
+        errors: dict[str, str] = {}
+        todo = []
+        for u in users:
+            share = self._share(u)
+            if share is None:
+                shares[str(u.id)] = frozenset()
+            else:
+                todo.append((str(u.id), share))
+
+        def read(item: tuple[str, Any]) -> tuple[str, frozenset[str] | None, str | None]:
+            uid, share = item
+            try:
+                sections = self._call(share.sections, idempotent=True)
+                return uid, frozenset(str(s.key) for s in sections if s.shared), None
+            except Exception as exc:  # noqa: BLE001 - reported per user; that user is retried alone
+                log.warning("plex share read failed user=%s: %s: %s", uid, type(exc).__name__, exc)
+                return uid, None, f"{type(exc).__name__}: {exc}"
+
+        with ThreadPoolExecutor(max_workers=self.parallel_reads, thread_name_prefix="plex-read") as pool:
+            for uid, ids, err in pool.map(read, todo):
+                if ids is None:
+                    errors[uid] = err or "unknown error"
+                else:
+                    shares[uid] = ids
+        log.debug("plex batch read users=%s shared=%s errors=%s", len(users), len(todo), len(errors))
+        return shares, errors
 
     def user_settings(self, plex_user_id: str) -> dict[str, Any]:
         """Per-friend settings that a share update must not change (P0-03 d)."""

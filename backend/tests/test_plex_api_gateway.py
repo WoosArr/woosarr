@@ -97,3 +97,26 @@ class PlexApiGatewayTests(unittest.TestCase):
     def test_user_settings_snapshot(self):
         _fake, gw = make()
         self.assertEqual(gw.user_settings("11")["allowSync"], True)
+
+
+class BatchReadTests(unittest.TestCase):
+    def test_one_friends_fetch_for_all_users(self):
+        fake, gw = make()
+        fake.shares["11"] = {"id": 9, "sections": {101}}
+        fake.shares["12"] = {"id": 10, "sections": {102, 103}}
+        fake.users_calls = 0
+        shares, errors = gw.get_all_user_library_ids()
+        self.assertEqual(fake.users_calls, 1)
+        self.assertEqual(shares, {"11": frozenset({"1"}), "12": frozenset({"2", "3"}), "13": frozenset()})
+        self.assertEqual(errors, {})
+
+    def test_failed_user_is_reported_not_fatal(self):
+        fake, gw = make()
+        gw._retries = 0
+        fake.shares["11"] = {"id": 9, "sections": {101}}
+        fake.shares["12"] = {"id": 10, "sections": {102}}
+        fake.broken_users = {"12"}
+        shares, errors = gw.get_all_user_library_ids()
+        self.assertEqual(shares["11"], frozenset({"1"}))
+        self.assertNotIn("12", shares)
+        self.assertIn("ConnectionError", errors["12"])

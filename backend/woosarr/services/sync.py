@@ -218,10 +218,23 @@ class SyncService:
             return report
 
         targets = snap.plex_user_ids if only is None else [u for u in only if u in snap.plex_user_ids]
+        prefetched: dict[str, frozenset[str]] = {}
+        if only is None and hasattr(gateway, "get_all_user_library_ids"):
+            try:
+                prefetched, read_errors = gateway.get_all_user_library_ids()
+            except Exception:  # fall back to per-user reads
+                log.exception("batch share read failed; reading users one by one")
+                prefetched = {}
+            else:
+                with self._db.session() as s:
+                    for uid, ids in prefetched.items():
+                        inventory.store_shares(s, uid, ids)
+                for uid, err in read_errors.items():
+                    log.warning("share read failed for user=%s, retrying alone: %s", uid, err)
         for uid in targets:
             with self._user_lock(uid):
                 try:
-                    self._sync_user(gateway, snap, settings, uid, report)
+                    self._sync_user(gateway, snap, settings, uid, report, prefetched.get(uid))
                 except Exception as exc:  # one bad user must not stop the others
                     log.exception("sync failed for user=%s", uid)
                     report.errors += 1
@@ -232,10 +245,12 @@ class SyncService:
                  report.skipped_drift, report.errors, report.dry_run)
         return report
 
-    def _sync_user(self, gateway, snap, settings, uid: str, report: SyncReport) -> None:
-        current = gateway.get_user_library_ids(uid)
-        with self._db.session() as s:
-            inventory.store_shares(s, uid, current)
+    def _sync_user(self, gateway, snap, settings, uid: str, report: SyncReport,
+                   current: frozenset[str] | None = None) -> None:
+        if current is None:
+            current = gateway.get_user_library_ids(uid)
+            with self._db.session() as s:
+                inventory.store_shares(s, uid, current)
         state = user_state(snap, uid, settings, current)
         if state is None:
             log.debug("user=%s skipped by leave-server policy", uid)

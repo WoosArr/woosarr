@@ -42,6 +42,7 @@ class FakePlexTV:
             raise self.fail_next.pop(0)
 
     def users_list(self):
+        self.users_calls = getattr(self, "users_calls", 0) + 1
         self._maybe_fail()
         out = []
         for uid, u in self.users.items():
@@ -58,6 +59,8 @@ class FakePlexTV:
         return out
 
     def sections(self, uid):
+        if uid in getattr(self, "broken_users", set()):
+            raise requests.ConnectionError(f"share read failed for {uid}")
         self._maybe_fail()
         shared = self.shares.get(uid, {}).get("sections", set())
         return [SimpleNamespace(id=sid, key=int(key), title=t, type=ty, shared=sid in shared)

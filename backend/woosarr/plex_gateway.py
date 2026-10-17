@@ -39,6 +39,9 @@ class PlexGateway(Protocol):
     def set_user_libraries(self, plex_user_id: str, library_ids: Iterable[str]) -> None:
         """Write the COMPLETE set. An empty set means remove all shares."""
 
+    def get_all_user_library_ids(self) -> tuple[dict[str, frozenset[str]], dict[str, str]]:
+        """Every user's shares in one go (full reconciles): (shares, errors by user id)."""
+
 
 @dataclass
 class FakePlexGateway:
@@ -57,6 +60,9 @@ class FakePlexGateway:
 
     def get_user_library_ids(self, plex_user_id: str) -> frozenset[str]:
         return frozenset(self.shares.get(plex_user_id, set()))
+
+    def get_all_user_library_ids(self) -> tuple[dict[str, frozenset[str]], dict[str, str]]:
+        return {u.plex_user_id: self.get_user_library_ids(u.plex_user_id) for u in self.users}, {}
 
     def set_user_libraries(self, plex_user_id: str, library_ids: Iterable[str]) -> None:
         full = frozenset(library_ids)

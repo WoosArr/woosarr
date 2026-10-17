@@ -231,7 +231,7 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 10 — Security
 - [ ] **P10-01** Secret scan of repo, image and history (gitleaks, already in CI) — zero findings.
 - [ ] **P10-02** Redaction audit across exception traces and HTTP client debug logs (canary tests).
-- [ ] **P10-03** Cookies, headers, CORS, input validation, auth rate limits.
+- [~] **P10-03** Cookies, headers, CORS, input validation, auth rate limits. Done (live API audit 2026-10-17): CSP/nosniff/frame/referrer/COOP headers, cache policy (`no-store` API, immutable assets, `no-cache` HTML), validated `X-Request-ID`, no `Server` header, real 404 for missing static files, no CORS (same origin only). *Remaining:* cookie flags and auth rate limits (P6-01). *Verify:* `pytest tests/test_app.py`; `curl -I` on the live server.
 - [ ] **P10-04** README guidance: reverse proxy/HTTPS (port 31337 is plain HTTP).
 - [ ] **P10-05** Non-root container, dependency audit (`pip-audit`, `npm audit`), pin versions. Known: `npm audit` flags esbuild/vite ≤ 6.4.2 (dev-server only, not in the built image); fixing it means a vite major upgrade.
 - [ ] **P10-06** Threat model `docs/threat-model.md`: unverified `/link` claims (accepted, mitigated by badge/one-to-one/cooldown/audit/unlink), role escalation, `/config` theft, SAML forgery/replay, first-run takeover.

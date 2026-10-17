@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -11,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from woosarr import __version__
 from woosarr.api import logs as logs_api
+from woosarr.api.middleware import SecurityHeadersMiddleware
 from woosarr.core.config import Settings
 from woosarr.core.logs import configure_logging
 
@@ -35,12 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
 
-    @app.middleware("http")
-    async def request_id(request: Request, call_next):
-        request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request.state.request_id
-        return response
+    app.add_middleware(SecurityHeadersMiddleware)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -90,4 +85,8 @@ def _mount_spa(app: FastAPI, settings: Settings) -> None:
         candidate = (root / path).resolve()
         if path and candidate.is_file() and root in candidate.parents:
             return FileResponse(candidate)
+        # A missing file (anything with an extension) is a real 404; only
+        # extension-less paths are client-side routes that get the SPA shell.
+        if "." in path.rsplit("/", 1)[-1]:
+            raise HTTPException(status_code=404)
         return FileResponse(root / "index.html")

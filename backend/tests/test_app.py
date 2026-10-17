@@ -89,6 +89,29 @@ class AppTests(unittest.TestCase):
         self.assertNotIn("nope", self.client.get("/../outside.txt").text)
         self.assertNotIn("nope", self.client.get("/%2e%2e/outside.txt").text)
 
+    def test_missing_files_404_instead_of_spa(self):
+        self.assertEqual(self.client.get("/favicon.ico").status_code, 404)
+        self.assertEqual(self.client.get("/assets/missing.js").status_code, 404)
+        self.assertEqual(self.client.get("/settings/theme").status_code, 200)
+
+    def test_security_and_cache_headers(self):
+        r = self.client.get("/")
+        self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(r.headers["X-Frame-Options"], "DENY")
+        self.assertIn("frame-ancestors 'none'", r.headers["Content-Security-Policy"])
+        self.assertEqual(r.headers["Cache-Control"], "no-cache")
+        self.assertIn("immutable", self.client.get("/assets/app.js").headers["Cache-Control"])
+        self.assertEqual(self.client.get("/api/health").headers["Cache-Control"], "no-store")
+        self.assertNotIn("Content-Security-Policy", self.client.get("/api/docs").headers)
+
+    def test_request_id_is_validated(self):
+        ok = self.client.get("/api/health", headers={"X-Request-ID": "abc-123.x_y"})
+        self.assertEqual(ok.headers["X-Request-ID"], "abc-123.x_y")
+        for bad in ("<script>", "a" * 65, "id with spaces"):
+            r = self.client.get("/api/health", headers={"X-Request-ID": bad})
+            self.assertNotEqual(r.headers["X-Request-ID"], bad)
+            self.assertRegex(r.headers["X-Request-ID"], r"^[0-9a-f]{12}$")
+
     def test_every_non_public_route_requires_admin(self):
         # N10: adding a route without the auth dependency must fail this test.
         for route in self.app.routes:

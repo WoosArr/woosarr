@@ -166,7 +166,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P0-04** SDK chosen: python-plexapi (PyPI `PlexAPI`).
 - [x] **P0-05** Discord facts: `docs/discord-notes.md` (intents + flag check, invite scopes/permissions, guild command registration, ephemeral replies, buttons + modal).
 - [x] **P0-06** Unraid template requirements (appdata, port, icon, WebUI). *Verify:* `docs/unraid-notes.md`.
-- [~] **P0-07** `/link` token invalidation: throwaway client id, `signout()`, then a fresh request must 401, else the link fails (`PlexService.capture_link_identity`, tested). *Remaining:* **LIVE** confirm `link token invalidated and verified dead` in the logs after a real `/link`.
+- [x] **P0-07** `/link` token invalidation: throwaway client id, `signout()`, then a fresh request must 401, else the link fails. **Live** 2026-10-17 17:17: `link token invalidated and verified dead`, verified link created.
 - [-] **P0-08** SAML — deferred (D7a).
 
 ### Phase 1 — Foundation
@@ -200,7 +200,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P4-01** Bot lifecycle in the API event loop: start on boot, restart/stop from the UI (`POST /api/v1/discord/restart`, `DELETE /api/v1/discord`), token from encrypted secrets.
 - [x] **P4-02** Guild selection (`GET /api/v1/discord/guilds`, `PUT /api/v1/discord/guild`); full role/member cache sync on connect (`services/discord_cache.py`).
 - [x] **P4-03** Event handlers → per-user sync triggers: role changes, join, leave (raw), role create/update/delete. *Verify:* `DiscordCacheTests`. **LIVE** behaviour with a real guild is part of P11-04.
-- [~] **P4-04** `/link` guild slash command: buttons for verified Plex sign-in or username modal, cooldown, audit, one-to-one rules (`services/link_service.py`), no token persisted. *Verify:* `LinkServiceTests`, `PlexServiceTests`. *Remaining:* **LIVE** try both paths in the real guild.
+- [x] **P4-04** `/link` guild slash command: verified Plex sign-in or username modal, cooldown, audit, one-to-one rules, no token persisted. **Live:** both paths used successfully (username → access granted by roles; Plex sign-in → verified link).
 - [x] **P4-05** discord.py reconnect/resume; `PrivilegedIntentsRequired`, `LoginFailure`, bot-not-in-guild and crashes surface as status details in the UI.
 - [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 

@@ -122,8 +122,11 @@ class PlexApiGateway:
                 if retryable and attempt < self._retries:
                     delay = self._backoff * (2**attempt)
                     attempt += 1
-                    log.warning("plex call failed (%s: %s); retry %s/%s in %.0fs",
-                                type(exc).__name__, exc, attempt, self._retries, delay)
+                    # A first retry is routine (plex.tv drops idle keep-alive connections);
+                    # only repeated failures are worth a warning.
+                    log.log(logging.INFO if attempt == 1 else logging.WARNING,
+                            "plex call failed (%s: %s); retry %s/%s in %.0fs",
+                            type(exc).__name__, exc, attempt, self._retries, delay)
                     self._sleep(delay)
                     continue
                 if not optional:

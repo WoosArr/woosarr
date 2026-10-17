@@ -74,6 +74,15 @@ class PlexApiGatewayTests(unittest.TestCase):
         self.assertEqual(len(gw.list_libraries()), 4)
         self.assertTrue(gw.state.ok)
 
+    def test_first_retry_is_info_later_ones_warn(self):
+        fake, gw = make()
+        fake.fail_next = [requests.ConnectionError("reset"), requests.ConnectionError("reset again")]
+        with self.assertLogs("woosarr.plex", level="INFO") as cm:
+            gw.list_libraries()
+        retries = [line for line in cm.output if "retry" in line]
+        self.assertTrue(retries[0].startswith("INFO"))
+        self.assertTrue(retries[1].startswith("WARNING"))
+
     def test_writes_do_not_retry_after_the_request_may_have_landed(self):
         fake, gw = make()
         gw.list_libraries()

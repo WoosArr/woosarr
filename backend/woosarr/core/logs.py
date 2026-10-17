@@ -127,7 +127,8 @@ def buffer() -> RingBufferHandler:
 # discord.py at DEBUG dumps every gateway event and HTTP body (member lists,
 # interaction payloads). WooSarr's own DEBUG logs say what matters, so these stay
 # at INFO even when the app log level is DEBUG.
-CAPPED_LOGGERS = ("discord", "discord.http", "discord.gateway", "discord.client", "discord.webhook")
+CAPPED_LOGGERS = ("discord", "discord.http", "discord.gateway", "discord.client", "discord.webhook",
+                  "charset_normalizer")
 
 
 def cap_library_loggers() -> None:

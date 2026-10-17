@@ -9,6 +9,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Playwright tests for the Plex and Discord setup wizards; simulated Discord event tests.
 
 ### Fixed
+- A first retry after plex.tv drops an idle connection is logged as INFO, not WARNING; `charset_normalizer` debug noise is capped.
 - Re-keying a friend from `uuid:` to their numeric id now merges into an existing (e.g. previously removed) row, keeping link and manual grants; leftover duplicates clean themselves up on the next full sync.
 - `plex.tv/api/v2/friends` is gone (410): friends now come from `clients.plex.tv` or Plex's community API; friends known only by username are shared with by username and re-keyed once Plex reports their id.
 - Discord interaction and webhook tokens are redacted from logs, and discord.py's own logging stays at INFO when the app log level is DEBUG.

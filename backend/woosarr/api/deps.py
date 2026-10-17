@@ -41,7 +41,11 @@ def get_session(request: Request) -> Iterator[Session]:
         yield session
 
 
-DbDep = Annotated[Session, Depends(get_session)]
+# scope="function": commit *before* the response is sent. With the default
+# ("request") the commit runs after the client already has its answer, so a
+# fast follow-up request (e.g. the auth status check right after login) can
+# read the database before the new session row exists.
+DbDep = Annotated[Session, Depends(get_session, scope="function")]
 
 
 @dataclass(frozen=True)

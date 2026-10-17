@@ -131,6 +131,8 @@ remove_all       = target empty and current non-empty                # use the r
 - **Push protection:** a token-shaped string in source blocks the push to GitHub. Assemble fake tokens at runtime (see `tests/test_redaction.py`). `.gitleaks.toml` allowlists that test file.
 - **Ruff 0.17+ default rules are strict** (e.g. `BLE001` on bare `except Exception`). Run `ruff check .` before committing; use `# noqa: <rule>` with a reason only when intentional.
 - **Pushing to `main` publishes an image** and CI now gates it. Don't push half-done work.
+- **DB commits must happen before the response** (`Depends(get_session, scope="function")` in `api/deps.py`). The default scope commits after the response is sent; Playwright caught login → immediate status check racing the commit.
+- Playwright: wait for list filtering/async content (`toHaveCount`) before clicking; the demo inventory loads ~1 s after boot.
 - **gitleaks action needs a licence on org repos**; CI runs the `zricethezav/gitleaks` container instead.
 - `frontend/package-lock.json` is committed; CI and the Dockerfile use `npm ci`. Add packages with `npm install -D pkg@x.y.z`.
 - **Don't serve the live log file with `FileResponse`**: it grows while streaming and breaks Content-Length ("Response content longer than Content-Length"). `/api/v1/logs/file` returns a snapshot.
@@ -167,7 +169,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P1-02** Config loader `core/config.py` (`WOOSARR_*` env, everything persistent under `config_dir`, no secret settings). *Verify:* `pytest tests/test_config.py`; app boots with only a `/config` volume (smoke test).
 - [x] **P1-03** SQLAlchemy models (`db/models.py`) + Alembic (`db/migrations`, run on every start) for the §5 data model; UTC-aware datetimes, SQLite WAL + foreign keys. App logs are *not* stored in the DB (D17). *Verify:* `pytest tests/test_db.py` (fresh DB migrates, models == migrations, one-to-one links, cascades, no token columns).
 - [x] **P1-04** Secrets manager — `core/secrets.py`. *Verify:* `pytest tests/test_secrets.py`.
-- [~] **P1-05** Logging. Done: redaction; `core/logs.py` (JSON to stderr, rotating `/config/logs/woosarr.log`, in-memory ring buffer; `RedactingFilter` on every handler; library loggers routed through them); logs API with cursor polling (`?since=`) and file download. *Remaining:* DB persistence of app logs (needs P1-03); push streaming (SSE/WebSocket) for the live tail (P8-01). *Verify:* `pytest tests/test_logs.py` (canary never reaches any sink).
+- [x] **P1-05** Logging. Done: redaction; `core/logs.py` (JSON to stderr, rotating `/config/logs/woosarr.log`, in-memory ring buffer; `RedactingFilter` on every handler; library loggers routed through them); logs API with cursor polling (`?since=`) and file download. DB persistence dropped (D17); live tail polls with `since` (P8-01). *Verify:* `pytest tests/test_logs.py` (canary never reaches any sink).
 - [x] **P1-06** FastAPI app: `create_app()` factory, `python -m woosarr`, `/api/v1` router + `/api/health` alias, JSON 500 handler that logs the traceback with a request id and leaks no details, `X-Request-ID`, SPA serving with traversal guard. Ran for real on :31337 and in the container (CI smoke test, `d68c5e8`). Sessions moved to P6-01. *Verify:* `pytest tests/test_app.py`; `curl localhost:31337/api/health` → 200 in the container (`scripts/smoke-test.sh`).
 - [x] **P1-07** OpenAPI → TypeScript: committed snapshot `frontend/openapi.json` (`make openapi` = `python -m woosarr.openapi` + `npm run gen`), types generated into git-ignored `src/generated/` before every build/test. *Verify:* `tests/test_openapi.py` fails on a stale snapshot; regenerated types break `tsc` where the UI no longer matches.
 
@@ -206,29 +208,29 @@ remove_all       = target empty and current non-empty                # use the r
 
 ### Phase 6 — Web UI shell, auth, theme
 - [x] **P6-01** Local admin login (argon2id), server-side sessions (sha256-stored id, 12 h idle / 7 d absolute, rotated on login), CSRF header on unsafe methods, logout, per-account lockout (5 → 15 min), per-IP limiter (10 / 5 min), HttpOnly + SameSite=Lax cookie (Secure on HTTPS or `WOOSARR_COOKIE_SECURE=always`). **API keys** (`wsk_…`, `read` = GET only, `admin`) for scripted access (D16). API docs/OpenAPI require auth. *Verify:* `pytest tests/test_auth.py tests/test_app.py`.
-- [ ] **P6-02** App shell with sidebar (Dashboard, Users, Roles, Libraries, Logs, Settings, Setup); responsive, keyboard accessible.
-- [ ] **P6-03** Theme system: light/dark (OS + toggle), purple accent, colorblind palettes, WCAG AA contrast, state persisted.
-- [ ] **P6-04** Shared components: tables, modals, toasts, confirm dialogs, badges, empty states.
+- [x] **P6-02** App shell with sidebar (Dashboard, Users, Roles, Libraries, Logs, Settings, Setup); drawer below 860 px, skip link, focus-visible, focus-trapped modals. *Verify:* Playwright `sidebar navigation`, `mobile layout`.
+- [x] **P6-03** Theme: light/dark (OS default + toggle), purple accent, red-green and blue-yellow palettes, extra-contrast option, stored per browser; statuses always icon + text (N8). *Verify:* `python3 scripts/check_contrast.py` (all 12 combinations ≥ 4.5:1, in CI); Playwright `theme` test.
+- [x] **P6-04** Shared components in `src/ui.tsx`: badges, accessible `Field` (hint via aria-describedby), modal, confirm dialog, toasts, empty/loading/error states (with request id), responsive tables.
 - [ ] **P6-05** **HUMAN (needs IdP)** SAML SSO: SP metadata, SP-initiated login + ACS, signature/audience/skew validation, attribute and group mapping, SAML-only toggle with lockout guard. *Verify:* works with a test IdP; unsigned/replayed/expired assertions rejected.
 - [~] **P6-06** First-run admin creation: `POST /api/v1/setup/admin`, disabled forever once an admin exists, race-safe (process lock + PK claim row), needs the one-time setup code printed to **stdout only** (never the log file/API; `WOOSARR_SETUP_CODE_REQUIRED=false` to skip). *Remaining:* wizard UI (P9-03). *Verify:* `test_concurrent_claims_create_exactly_one_admin`.
 - [~] **P6-07** Admin user management API (create/disable/delete/reset/unlock; last active admin protected; disable/reset ends sessions). *Remaining:* Settings UI. *Verify:* `AdminManagementTests`.
 
 ### Phase 7 — Feature pages
-- [ ] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked.
-- [ ] **P7-02** Roles page: assign libraries to roles with impact preview ("N users gain/lose X").
-- [ ] **P7-03** Libraries page: server info, per-library **exempt** toggle with explanation, referencing roles.
-- [ ] **P7-04** Dashboard: Plex/Discord status, last sync, errors, dry-run indicator.
-- [ ] **P7-05** Settings: theme, reconcile interval, dry-run, leave-server policy, secret rotation (replace-only), log retention, admin users, SAML.
+- [x] **P7-01** Users page: Plex users, linked Discord, roles, libraries, access source (role/manual/exempt/external); **Verified badge** (icon + text); admin link/**unlink** with confirmation; bulk manual add/remove; filter verified/unverified/unlinked. *Verify:* Playwright `admin links a user…`, `manual grant…`.
+- [x] **P7-02** Roles page: assign libraries to roles with live impact preview ("N users gain/lose X"). *Verify:* Playwright + `test_role_mapping_preview_and_audit`.
+- [~] **P7-03** Libraries page: per-library **exempt** toggle with confirmation and explanation, referencing roles, share counts. *Remaining:* server name/version once the real gateway exists.
+- [x] **P7-04** Dashboard: Plex/Discord status, last sync report, pending changes (preview), 24 h error count, dry-run banner, Sync now.
+- [~] **P7-05** Settings: general (dry-run with go-live confirmation, interval, leave policy, ignore-unverified, cooldown, log level, audit retention), appearance, my account, admins, API keys. *Remaining:* secret replace UI (with P9 wizards), SAML (P6-05).
 
 ### Phase 8 — Logs
-- [ ] **P8-01** Logs page: live tail, filters, search, export; handles 10k+ lines.
-- [ ] **P8-02** Audit view of permission changes.
-- [ ] **P8-03** Log level control and retention.
+- [x] **P8-01** Logs page: live tail (2 s cursor polling), level filter, search, export shown lines (JSONL) and full file; keeps up to 20k lines with `content-visibility` rows. Push streaming dropped: polling with `since` is enough for one admin UI.
+- [x] **P8-02** Audit trail tab (`GET /api/v1/audit`, action filter, paging).
+- [x] **P8-03** Log level setting applies live; file logs rotate by size (`WOOSARR_LOG_FILE_MAX_BYTES` × backups); audit retention in days, pruned on full reconcile.
 
 ### Phase 9 — Setup assistants
 - [ ] **P9-01** **HUMAN** Discord bot creation wizard (app, bot, Members intent, token, invite URL, guild); validates live.
 - [ ] **P9-02** **HUMAN** Plex wizard (OAuth, server pick, library fetch, share-read test).
-- [ ] **P9-03** First-run onboarding: admin (P6-06) → Plex → Discord, gating the rest of the UI. *Verify:* fresh container → working system via UI only.
+- [~] **P9-03** First-run onboarding: admin step done (setup screen gates the whole UI; Setup page explains Plex/Discord steps). *Remaining:* Plex and Discord steps (P9-01/02). *Verify:* fresh container → working system via UI only.
 
 ### Phase 10 — Security
 - [ ] **P10-01** Secret scan of repo, image and history (gitleaks, already in CI) — zero findings.
@@ -242,9 +244,9 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 11 — Testing
 - [ ] **P11-01** Keep unit coverage on engine, secrets, redaction, linking (exists; extend as code grows).
 - [~] **P11-02** Integration tests over HTTP with demo data (`WOOSARR_DEMO=true`: fake Plex + seeded Discord cache) in `tests/test_domain_api.py`, `tests/test_sync_service.py`. *Remaining:* mocked Discord *events* once P4-03 exists.
-- [ ] **P11-03** Playwright UI tests (wizards, mappings, exemptions, manual grants, link/unlink).
+- [~] **P11-03** Playwright UI tests (`frontend/e2e`, `make e2e`, CI job `e2e`) against a demo backend: first-run setup, navigation, link/unlink, role mapping + impact, manual grants, exemptions, logs/audit, theme/palette, API key, go-live, mobile drawer; fails on any console error/CSP violation. *Remaining:* Plex/Discord wizards when they exist.
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
-- [ ] **P11-05** Accessibility and theme review.
+- [~] **P11-05** Contrast checked for every theme combination; labels/hints/ARIA reviewed while fixing Playwright findings. *Remaining:* screen-reader pass (HUMAN) and an axe run.
 - [ ] **P11-06** **HUMAN** Unraid install/upgrade/restart/persistence test.
 
 ### Phase 12 — Docs and release

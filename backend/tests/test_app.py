@@ -106,6 +106,16 @@ class AppTests(unittest.TestCase):
             self.assertNotEqual(r.headers["X-Request-ID"], bad)
             self.assertRegex(r.headers["X-Request-ID"], r"^[0-9a-f]{12}$")
 
+    def test_db_session_commits_before_response(self):
+        # Regression: login returned 200 before its session row was committed,
+        # so the browser's next request was sometimes unauthenticated.
+        from typing import get_args
+
+        from woosarr.api.deps import DbDep
+
+        depends = get_args(DbDep)[1]
+        self.assertEqual(depends.scope, "function")
+
     def test_every_non_public_route_requires_admin(self):
         # N10: adding a route without the auth dependency must fail this test.
         for route in self.app.routes:

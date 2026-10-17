@@ -14,3 +14,5 @@ config
 *.key
 docs
 unraid
+frontend/test-results
+frontend/playwright-report

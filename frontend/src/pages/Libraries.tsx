@@ -1,0 +1,74 @@
+import { api, type LibraryOut } from "../api";
+import { Icon } from "../icons";
+import { Badge, Empty, ErrorBanner, PageHead, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
+
+export default function LibrariesPage() {
+  const libs = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
+  const confirm = useConfirm();
+  const toast = useToast();
+
+  const setExempt = async (lib: LibraryOut, exempt: boolean) => {
+    const ok = await confirm({
+      title: exempt ? `Exempt ${lib.title}?` : `Manage ${lib.title} again?`,
+      body: exempt ? (
+        <p>Role changes will never add or remove <strong>{lib.title}</strong>. Everyone keeps exactly the access they have now; you can still grant it manually.</p>
+      ) : (
+        <p>Roles mapped to <strong>{lib.title}</strong> will add and remove it again on the next sync.</p>
+      ),
+      confirmLabel: exempt ? "Exempt" : "Manage",
+    });
+    if (!ok) return;
+    try {
+      const updated = await api.patch<LibraryOut>(`/api/v1/libraries/${lib.library_id}`, { is_exempt: exempt });
+      libs.setData((libs.data ?? []).map((l) => (l.library_id === updated.library_id ? updated : l)));
+      toast.ok(`${lib.title} ${exempt ? "is now exempt" : "is managed by roles again"}.`);
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+
+  return (
+    <>
+      <PageHead title="Libraries" sub="Libraries on your Plex server, which roles grant them, and which ones are exempt." />
+      <div className="banner info">
+        <Icon name="lock" />
+        <div className="small">
+          <strong>Exempt</strong> libraries are never added or removed by role logic; each user's current access is kept as it is.
+          Libraries that no role maps to are also left alone.
+        </div>
+      </div>
+      <ErrorBanner error={libs.error} />
+      {libs.loading && !libs.data ? <Spinner /> : null}
+      {libs.data?.length === 0 ? (
+        <div className="card"><Empty icon="library" title="No libraries yet">They appear after WooSarr reads your Plex server.</Empty></div>
+      ) : null}
+      {libs.data && libs.data.length > 0 ? (
+        <div className="table-wrap">
+          <table className="responsive">
+            <thead><tr><th>Library</th><th>Type</th><th>Granted by roles</th><th>Shared with</th><th>Exempt</th></tr></thead>
+            <tbody>
+              {libs.data.map((l) => (
+                <tr key={l.library_id}>
+                  <td data-label="Library">
+                    <strong>{l.title}</strong> <span className="small muted">#{l.library_id}</span>
+                    {l.removed ? <div><Badge tone="danger">Missing on server</Badge></div> : null}
+                  </td>
+                  <td data-label="Type" className="small">{l.type}</td>
+                  <td data-label="Granted by roles">
+                    <div className="row">
+                      {l.roles.length ? l.roles.map((r) => <Badge key={r.role_id} tone="accent" icon="roles">{r.name}</Badge>) : <Badge tone="neutral">Unmanaged</Badge>}
+                    </div>
+                  </td>
+                  <td data-label="Shared with">{l.shared_with} user{l.shared_with === 1 ? "" : "s"}</td>
+                  <td data-label="Exempt">
+                    <Switch checked={l.is_exempt} onChange={(v) => void setExempt(l, v)} label={l.is_exempt ? "Exempt" : "Managed"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </>
+  );
+}

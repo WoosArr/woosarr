@@ -35,3 +35,5 @@ frontend/src/generated/
 .idea/
 .vscode/
 *.swp
+frontend/test-results/
+frontend/playwright-report/

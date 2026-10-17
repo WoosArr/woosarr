@@ -98,7 +98,9 @@ def auth_status(request: Request, db: DbDep) -> AuthStatus:
 @router.post("/login", response_model=LoginOut)
 def login(body: LoginIn, request: Request, response: Response, db: DbDep) -> LoginOut:
     ip = client_ip(request)
-    if not request.app.state.login_limiter.hit(ip):
+    # Only failed attempts count: signing in often (several devices behind one
+    # address) must not lock anyone out; guessing passwords must.
+    if request.app.state.login_limiter.blocked(ip):
         log.warning("login rate limit hit ip=%s", ip)
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many login attempts; try again later")
     if not app_settings.load(db).local_login_enabled:
@@ -107,6 +109,7 @@ def login(body: LoginIn, request: Request, response: Response, db: DbDep) -> Log
         user = auth.authenticate(db, body.username, body.password)
     except auth.AuthError as exc:
         # Commit the failed-login counter / lockout, then answer.
+        request.app.state.login_limiter.record(ip)
         db.commit()
         log.warning("login failed username=%s ip=%s reason=%s", body.username, ip, exc)
         audit.record(db, f"ip:{ip}", "login_failed", "admin", body.username)
@@ -135,11 +138,12 @@ def change_password(body: PasswordChangeIn, request: Request, db: DbDep, princip
     user = db.get(AdminUser, principal.user.id)
     if user is None or user.auth_source != "local":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "password login is not used for this account")
-    if not request.app.state.login_limiter.hit(client_ip(request)):
+    if request.app.state.login_limiter.blocked(client_ip(request)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many attempts; try again later")
     try:
         auth.authenticate(db, user.username, body.current_password)
     except auth.AuthError:
+        request.app.state.login_limiter.record(client_ip(request))
         db.commit()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "current password is wrong") from None
     try:

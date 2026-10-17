@@ -21,7 +21,7 @@ from woosarr.db.models import (
     PlexUser,
     utcnow,
 )
-from woosarr.services import audit
+from woosarr.services import audit, impact
 from woosarr.services.access import library_sources, load_snapshot, user_state
 
 router = APIRouter(tags=["users"], dependencies=[Depends(require_admin)])
@@ -216,6 +216,51 @@ def remove_access(body: RemoveAccessIn, request: Request, db: DbDep, principal: 
     db.commit()  # release the session before the sync worker takes its lock
     results = request.app.state.sync.remove_access(body.plex_user_ids, body.library_ids, principal.actor)
     return [RemoveAccessResult(**r, username=names.get(str(r["plex_user_id"]), ""), dry_run=dry_run) for r in results]
+
+
+class RemovePreview(BaseModel):
+    plex_user_id: str
+    username: str
+    removed: list[str]
+    kept_by_roles: list[str]
+    not_shared: list[str]
+    owner: bool
+
+
+@router.post("/users/remove-access/preview", response_model=list[RemovePreview])
+def remove_access_preview(body: RemoveAccessIn, db: DbDep) -> list[RemovePreview]:
+    """What 'Remove libraries' would do, from the last observed shares (no Plex calls)."""
+    return [RemovePreview(**r) for r in impact.removal_preview(db, body.plex_user_ids, body.library_ids)]
+
+
+class RestoreItem(BaseModel):
+    plex_user_id: str
+    library_ids: list[str] = Field(default_factory=list, max_length=200)
+    manual_library_ids: list[str] = Field(default_factory=list, max_length=200)
+
+
+class RestoreIn(BaseModel):
+    items: list[RestoreItem] = Field(min_length=1, max_length=500)
+
+
+class RestoreResult(BaseModel):
+    plex_user_id: str
+    restored: list[str]
+    error: str | None
+
+
+@router.post("/users/restore-access", response_model=list[RestoreResult])
+def restore_access(body: RestoreIn, request: Request, db: DbDep, principal: AdminDep) -> list[RestoreResult]:
+    """Undo a 'Remove libraries' (gives back what was removed, recreates manual grants)."""
+    known = set(db.scalars(select(PlexUser.plex_user_id).where(
+        PlexUser.plex_user_id.in_([i.plex_user_id for i in body.items]))))
+    libs = {lib for i in body.items for lib in (*i.library_ids, *i.manual_library_ids)}
+    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(libs))))
+    if {i.plex_user_id for i in body.items} - known or libs - known_libs:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown users or libraries")
+    db.commit()
+    results = request.app.state.sync.restore_access([i.model_dump() for i in body.items], principal.actor)
+    return [RestoreResult(**r) for r in results]
 
 
 class AdminLinkIn(BaseModel):

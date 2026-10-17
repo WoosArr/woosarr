@@ -24,7 +24,7 @@ from woosarr.db.models import (
     PlexUser,
     utcnow,
 )
-from woosarr.services import audit
+from woosarr.services import audit, impact
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.engine import plan_for_user
 
@@ -87,6 +87,26 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
 @router.get("/settings", response_model=AppSettings)
 def get_settings(db: DbDep) -> AppSettings:
     return app_settings.load(db)
+
+
+class SettingsImpact(BaseModel):
+    users_gaining: int
+    users_losing: int
+    users: list[dict[str, Any]]
+
+
+@router.post("/settings/preview", response_model=SettingsImpact)
+def preview_settings(changes: dict[str, Any], db: DbDep) -> SettingsImpact:
+    """Who would gain/lose which libraries if these settings were saved (no Plex calls)."""
+    try:
+        proposed = AppSettings.model_validate(app_settings.load(db).model_dump() | changes)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors(include_url=False, include_context=False)
+        ) from None
+    users = impact.settings_impact(db, proposed)
+    return SettingsImpact(users_gaining=sum(1 for u in users if u["gain"]),
+                          users_losing=sum(1 for u in users if u["lose"]), users=users)
 
 
 @router.patch("/settings", response_model=AppSettings)

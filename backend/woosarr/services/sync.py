@@ -26,7 +26,7 @@ from woosarr.core import app_settings
 from woosarr.db.models import ManualGrant, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import audit, inventory, invites
+from woosarr.services import audit, impact, inventory, invites
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.apply import apply_plan
 from woosarr.sync.engine import Plan, plan_for_user
@@ -262,13 +262,7 @@ class SyncService:
                         log.exception("remove access: reading shares failed for user=%s", uid)
                         entry["error"] = f"{type(exc).__name__}: {exc}"
                         continue
-                    state = user_state(snap, uid, settings, current)
-                    role_libs: set[str] = set()
-                    if state is not None and state.linked:
-                        for role in state.role_ids:
-                            role_libs |= set(snap.role_map.get(role, ())) & snap.universe
-                    keep = wanted & current & role_libs
-                    remove = (wanted & current) - keep
+                    remove, keep = impact.removal_split(snap, settings, uid, current, wanted)
                     entry.update(removed=sorted(remove), kept_by_roles=sorted(keep),
                                  not_shared=sorted(wanted - current))
                     if remove and not settings.dry_run:
@@ -284,6 +278,44 @@ class SyncService:
                     audit.record(s, actor, "access_removed_admin", "plex_user", uid, dry_run=settings.dry_run,
                                  removed=entry["removed"], kept_by_roles=entry["kept_by_roles"],
                                  manual_removed=manual, not_shared=entry["not_shared"])
+        return results
+
+    def restore_access(self, items: Iterable[dict], actor: str) -> list[dict[str, object]]:
+        """Undo a 'Remove libraries': give the removed libraries back and recreate
+        the manual grants that were deleted. Respects dry-run; audited."""
+        results: list[dict[str, object]] = []
+        with self._run_lock:
+            with self._db.session() as s:
+                settings = app_settings.load(s)
+                for item in items:
+                    for lib in item.get("manual_library_ids") or []:
+                        if s.get(ManualGrant, (item["plex_user_id"], lib)) is None:
+                            s.add(ManualGrant(plex_user_id=item["plex_user_id"], library_id=lib, granted_by=actor))
+            gateway = self._gateway()
+            for item in items:
+                uid, libs = str(item["plex_user_id"]), frozenset(item.get("library_ids") or [])
+                entry: dict[str, object] = {"plex_user_id": uid, "restored": [], "error": None}
+                results.append(entry)
+                if libs and gateway is None:
+                    entry["error"] = "Plex is not configured"
+                    continue
+                if libs:
+                    with self._user_lock(uid):
+                        try:
+                            current = gateway.get_user_library_ids(uid)
+                            missing = libs - current
+                            if missing and not settings.dry_run:
+                                gateway.set_user_libraries(uid, current | missing)
+                                with self._db.session() as s:
+                                    inventory.store_shares(s, uid, current | missing)
+                            entry["restored"] = sorted(missing)
+                        except Exception as exc:  # reported per user
+                            log.exception("restore access failed for user=%s", uid)
+                            entry["error"] = f"{type(exc).__name__}: {exc}"
+                            continue
+                with self._db.session() as s:
+                    audit.record(s, actor, "access_restored_admin", "plex_user", uid, dry_run=settings.dry_run,
+                                 restored=entry["restored"], manual_restored=item.get("manual_library_ids") or [])
         return results
 
     def _run(self, only: list[str] | None, reason: str, drop_roles: bool = False) -> SyncReport:

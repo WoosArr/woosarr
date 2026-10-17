@@ -5,6 +5,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Changed
+- Remove libraries: each library shows ✓ / – / empty for whether all, some or none of the selected users have it; untick to remove; live impact preview, Reset, and Undo after removing.
+- Settings that change access (dry-run, leave-server policy, ignore unverified links) show who gains/loses what before saving; the go-live confirmation includes the numbers.
+- Login rate limiting counts only failed attempts per IP (successful sign-ins no longer count towards the limit).
 - Reaction post options: one role per reaction, picked from a dropdown (with inline *Create new role*); the label is always the role's name.
 
 ### Added

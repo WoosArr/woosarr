@@ -1,11 +1,12 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings, type RoleOut } from "../api";
+import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings, type LibraryOut, type RoleOut } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
 import { useDiscordFeatures } from "../features";
+import { ImpactList, type UserChange } from "../Impact";
 
 const TABS = [
   ["general", "General"],
@@ -35,10 +36,34 @@ export default function SettingsPage() {
   );
 }
 
+const ACCESS_SETTINGS = ["dry_run", "leave_policy", "ignore_unverified_links"] as const;
+
+interface SettingsImpact {
+  users_gaining: number;
+  users_losing: number;
+  users: UserChange[];
+}
+
 function General() {
   const s = useLoad(() => api.get<AppSettings>("/api/v1/settings"));
   const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
+  const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const [draft, setDraft] = useState<Partial<AppSettings>>({});
+  const [impact, setImpact] = useState<SettingsImpact | null>(null);
+  const accessDraft = Object.fromEntries(Object.entries(draft).filter(([k]) => (ACCESS_SETTINGS as readonly string[]).includes(k)));
+  const accessKey = JSON.stringify(accessDraft);
+  useEffect(() => {
+    if (accessKey === "{}") {
+      setImpact(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api.post<SettingsImpact>("/api/v1/settings/preview", JSON.parse(accessKey)).then((r) => live && setImpact(r), () => live && setImpact(null));
+    }, 250);
+    return () => { live = false; clearTimeout(t); };
+  }, [accessKey]);
+  const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
   const toast = useToast();
   const confirm = useConfirm();
   if (s.error) return <ErrorBanner error={s.error} />;
@@ -51,7 +76,13 @@ function General() {
     if (draft.dry_run === false && s.data!.dry_run) {
       const ok = await confirm({
         title: "Turn off dry-run?",
-        body: <p>WooSarr will start changing Plex library shares for linked users. Check the dashboard's pending changes first.</p>,
+        body: (
+          <p>
+            WooSarr will start changing Plex library shares for linked users
+            {impact ? <>: <strong>{impact.users_gaining}</strong> user{impact.users_gaining === 1 ? "" : "s"} gain and <strong>{impact.users_losing}</strong> lose access on the next sync</> : null}.
+            Check the impact below the settings first.
+          </p>
+        ),
         confirmLabel: "Go live",
         danger: true,
       });
@@ -125,6 +156,14 @@ function General() {
         Keep audit entries for (days)
         <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </label>
+      {accessKey !== "{}" ? (
+        <div className="card" style={{ boxShadow: "none" }} aria-live="polite">
+          <h3>Impact of these changes</h3>
+          {!impact ? <Spinner label="Calculating" /> : (
+            <ImpactList titles={titles} changes={impact.users} empty="No linked user's access changes." />
+          )}
+        </div>
+      ) : null}
       <div className="row">
         <button className="btn primary" disabled={!dirty} onClick={() => void save()}>Save</button>
         <button className="btn" disabled={!dirty} onClick={() => setDraft({})}>Discard</button>

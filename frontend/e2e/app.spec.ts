@@ -121,17 +121,41 @@ test("reaction post draft with emoji and roles", async ({ page }) => {
   await expect(page.getByText(/Series Fans · 0/)).toBeVisible();
 });
 
-test("remove libraries shows per-user results", async ({ page }) => {
+test("remove libraries: tri-state boxes, impact preview, undo", async ({ page }) => {
   await login(page);
   await page.goto("/users");
+  await page.getByLabel("Select alice").check();
   await page.getByLabel("Select bob").check();
   await page.getByRole("button", { name: /Remove libraries/ }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Family Videos").check();
-  await dialog.getByRole("button", { name: "Remove" }).click();
+  // alice: Movies + TV Shows, bob: Movies + Family Videos (demo shares)
+  const box = (name: string) => dialog.getByRole("checkbox", { name, exact: true });
+  await expect(box("Movies")).toBeChecked();
+  expect(await box("TV Shows").evaluate((el) => (el as HTMLInputElement).indeterminate)).toBe(true);
+  await expect(box("Music")).toBeDisabled();
+  await box("Family Videos").click();
+  await expect(dialog.getByText("— will be removed")).toBeVisible();
+  await expect(dialog.getByText(/bob\s*loses Family Videos/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Reset" }).click();
+  await expect(dialog.getByText("— will be removed")).toHaveCount(0);
+  await box("Family Videos").click();
+  await dialog.getByRole("button", { name: "Remove 1 library" }).click();
   await expect(dialog.getByText(/Dry-run is on/)).toBeVisible();
   await expect(dialog.getByText(/removed Family Videos/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Undo" }).click();
+  await expect(dialog.getByText(/Reverted/)).toBeVisible();
   await dialog.getByRole("button", { name: "Done" }).click();
+});
+
+test("settings show the impact of going live", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: /Dry-run/ }).click();
+  await expect(page.getByRole("heading", { name: "Impact of these changes" })).toBeVisible();
+  // Either a gain/lose summary or "nothing changes", depending on links at this point in the run.
+  await expect(page.getByText(/\d+ gain/).first().or(page.getByText("No linked user's access changes."))).toBeVisible();
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByRole("heading", { name: "Impact of these changes" })).toHaveCount(0);
 });
 
 test("logs and audit trail", async ({ page }) => {

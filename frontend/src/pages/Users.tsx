@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, qs, type InviteOut, type LibraryOut, type MemberOut, type UserOut } from "../api";
 import { Icon } from "../icons";
 import {
@@ -16,6 +16,7 @@ import {
   useLoad,
   useToast,
 } from "../ui";
+import { ImpactList } from "../Impact";
 import { LibraryChooser } from "./LibraryChooser";
 
 type Filter = "" | "verified" | "unverified" | "unlinked";
@@ -220,55 +221,161 @@ interface RemoveResult {
   dry_run: boolean;
 }
 
-function BulkModal({
-  action,
-  users,
-  libraries,
-  onClose,
-  onDone,
-}: {
+function BulkModal(props: {
   action: "add" | "remove";
   users: UserOut[];
   libraries: LibraryOut[];
   onClose: () => void;
   onDone: () => void;
 }) {
+  return props.action === "add" ? <AddModal {...props} /> : <RemoveModal {...props} />;
+}
+
+function AddModal({ users, libraries, onClose, onDone }: { users: UserOut[]; libraries: LibraryOut[]; onClose: () => void; onDone: () => void }) {
   const [libs, setLibs] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<RemoveResult[] | null>(null);
   const toast = useToast();
-  const titles = new Map(libraries.map((l) => [l.library_id, l.title]));
-  const names = (ids: string[]) => ids.map((id) => titles.get(id) ?? id).join(", ");
   const submit = async () => {
     setBusy(true);
     try {
-      if (action === "add") {
-        const r = await api.post<{ changed: number }>("/api/v1/users/manual-grants", {
-          plex_user_ids: users.map((u) => u.plex_user_id), library_ids: [...libs], action: "add",
-        });
-        toast.ok(`${r.changed} manual grant${r.changed === 1 ? "" : "s"} added. Syncing.`);
-        onDone();
-      } else {
-        setResults(await api.post<RemoveResult[]>("/api/v1/users/remove-access", {
-          plex_user_ids: users.map((u) => u.plex_user_id), library_ids: [...libs],
-        }));
-      }
+      const r = await api.post<{ changed: number }>("/api/v1/users/manual-grants", {
+        plex_user_ids: users.map((u) => u.plex_user_id), library_ids: [...libs], action: "add",
+      });
+      toast.ok(`${r.changed} manual grant${r.changed === 1 ? "" : "s"} added. Syncing.`);
+      onDone();
     } catch (e) {
       toast.error(e);
     } finally {
       setBusy(false);
     }
   };
+  return (
+    <Modal title="Add libraries manually" onClose={onClose} actions={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={!libs.size || busy} onClick={() => void submit()}>Add</button>
+      </>
+    }>
+      <p className="small">{users.length} user{users.length === 1 ? "" : "s"}: {users.map((u) => u.username).join(", ")}</p>
+      <p className="small muted">Manual grants stay no matter which roles a user has.</p>
+      <LibraryChooser libraries={libraries} selected={libs} onChange={setLibs} label="Libraries" />
+    </Modal>
+  );
+}
+
+interface RemoveResult {
+  plex_user_id: string;
+  username: string;
+  removed: string[];
+  kept_by_roles: string[];
+  manual_removed: string[];
+  not_shared: string[];
+  error: string | null;
+  dry_run: boolean;
+}
+
+interface PreviewRow {
+  plex_user_id: string;
+  username: string;
+  removed: string[];
+  kept_by_roles: string[];
+}
+
+function TriStateBox({ state, marked, label, onToggle }: { state: "all" | "some" | "none"; marked: boolean; label: string; onToggle: () => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const checked = state === "all" && !marked;
+  const mixed = state === "some" && !marked;
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = mixed;
+  }, [mixed]);
+  return (
+    <input ref={ref} type="checkbox" checked={checked} disabled={state === "none"} onChange={onToggle} aria-label={label} />
+  );
+}
+
+function RemoveModal({ users, libraries, onClose, onDone }: { users: UserOut[]; libraries: LibraryOut[]; onClose: () => void; onDone: () => void }) {
+  const [marked, setMarked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null);
+  const [results, setResults] = useState<RemoveResult[] | null>(null);
+  const [undone, setUndone] = useState(false);
+  const toast = useToast();
+  const titles = new Map(libraries.map((l) => [l.library_id, l.title]));
+  const names = (ids: string[]) => ids.map((id) => titles.get(id) ?? id).join(", ");
+  const ids = users.map((u) => u.plex_user_id);
+
+  // How many selected users currently have each library (last sync).
+  const has = (u: UserOut, lib: string) => u.libraries.some((l) => l.library_id === lib && l.shared);
+  const stateOf = (lib: string): "all" | "some" | "none" => {
+    const n = users.filter((u) => has(u, lib)).length;
+    return n === 0 ? "none" : n === users.length ? "all" : "some";
+  };
+  const key = [...marked].sort().join(",");
+  useEffect(() => {
+    if (!marked.size) {
+      setPreview(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api.post<PreviewRow[]>("/api/v1/users/remove-access/preview", { plex_user_ids: ids, library_ids: [...marked] })
+        .then((r) => live && setPreview(r), () => live && setPreview(null));
+    }, 200);
+    return () => { live = false; clearTimeout(t); };
+  }, [key]);
+
+  const toggle = (lib: string) => {
+    const next = new Set(marked);
+    if (next.has(lib)) next.delete(lib); else next.add(lib);
+    setMarked(next);
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      setResults(await api.post<RemoveResult[]>("/api/v1/users/remove-access", { plex_user_ids: ids, library_ids: [...marked] }));
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const undo = async () => {
+    if (!results) return;
+    setBusy(true);
+    try {
+      const items = results.filter((r) => r.removed.length || r.manual_removed.length)
+        .map((r) => ({ plex_user_id: r.plex_user_id, library_ids: r.removed, manual_library_ids: r.manual_removed }));
+      const out = await api.post<{ plex_user_id: string; restored: string[]; error: string | null }[]>("/api/v1/users/restore-access", { items });
+      const failed = out.filter((o) => o.error);
+      if (failed.length) toast.error(new Error(`Undo failed for ${failed.length} user(s); see the logs.`));
+      else toast.ok("Undone: the removed libraries were given back.");
+      setUndone(true);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (results) {
+    const anything = results.some((r) => r.removed.length || r.manual_removed.length);
     return (
-      <Modal title="Remove libraries: results" onClose={onDone} actions={<button className="btn primary" onClick={onDone}>Done</button>}>
+      <Modal title={undone ? "Remove libraries: undone" : "Remove libraries: results"} onClose={onDone} actions={
+        <>
+          {anything && !undone ? <button className="btn" disabled={busy} onClick={() => void undo()}><Icon name="refresh" /> Undo</button> : null}
+          <button className="btn primary" onClick={onDone}>Done</button>
+        </>
+      }>
         {results[0]?.dry_run ? <div className="banner warn small"><Icon name="eye" /><div>Dry-run is on: nothing was changed in Plex; the audit trail shows what would have been removed.</div></div> : null}
+        {undone ? <div className="banner info small"><Icon name="check" /><div>Reverted: the libraries listed below were given back.</div></div> : null}
         <ul className="small" style={{ paddingLeft: 18 }}>
           {results.map((r) => (
             <li key={r.plex_user_id} style={{ marginBottom: 6 }}>
               <strong>{r.username}</strong>
               {r.error ? <> — <span style={{ color: "var(--danger)" }}>{r.error}</span></> : null}
-              {r.removed.length ? <> — removed {names(r.removed)}</> : null}
+              {r.removed.length ? <> — {undone ? "restored" : "removed"} {names(r.removed)}</> : null}
               {r.kept_by_roles.length ? <> — kept {names(r.kept_by_roles)} (their Discord roles grant it; change roles or the role mapping)</> : null}
               {!r.error && !r.removed.length && !r.kept_by_roles.length ? <> — nothing to remove</> : null}
             </li>
@@ -277,28 +384,52 @@ function BulkModal({
       </Modal>
     );
   }
+
+  const visible = libraries.filter((l) => !l.removed);
   return (
-    <Modal
-      title={action === "add" ? "Add libraries manually" : "Remove libraries"}
-      onClose={onClose}
-      actions={
-        <>
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className={`btn ${action === "remove" ? "danger" : "primary"}`} disabled={!libs.size || busy} onClick={() => void submit()}>
-            {action === "add" ? "Add" : "Remove"}
-          </button>
-        </>
-      }
-    >
-      <p className="small">
-        {users.length} user{users.length === 1 ? "" : "s"}: {users.map((u) => u.username).join(", ")}
-      </p>
+    <Modal title="Remove libraries" onClose={onClose} actions={
+      <>
+        <button className="btn" disabled={!marked.size} onClick={() => setMarked(new Set())}>Reset</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn danger" disabled={!marked.size || busy} onClick={() => void submit()}>
+          Remove{marked.size ? ` ${marked.size} librar${marked.size === 1 ? "y" : "ies"}` : ""}
+        </button>
+      </>
+    }>
+      <p className="small">{users.length} user{users.length === 1 ? "" : "s"}: {users.map((u) => u.username).join(", ")}</p>
       <p className="small muted">
-        {action === "add"
-          ? "Manual grants stay no matter which roles a user has."
-          : "Removes the libraries from these users in Plex now, plus any manual grants for them. Libraries a linked user's Discord roles grant are kept, since the next sync would add them back."}
+        ✓ all selected users have it · – some do · empty: none do. Untick a library to remove it from everyone who has it.
+        Libraries a linked user's Discord roles grant are kept (the next sync would add them back).
       </p>
-      <LibraryChooser libraries={libraries} selected={libs} onChange={setLibs} label="Libraries" />
+      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="small muted" style={{ marginBottom: 6 }}>Libraries</legend>
+        <div className="chooser">
+          {visible.map((l) => {
+            const st = stateOf(l.library_id);
+            const n = users.filter((u) => has(u, l.library_id)).length;
+            const isMarked = marked.has(l.library_id);
+            return (
+              <label key={l.library_id} className="check" style={isMarked ? { borderColor: "var(--danger)", background: "var(--danger-soft)" } : undefined}>
+                <TriStateBox state={st} marked={isMarked} label={l.title} onToggle={() => toggle(l.library_id)} />
+                <span>
+                  {l.title}
+                  <span className="small muted"> {isMarked ? "— will be removed" : st === "none" ? "— nobody" : st === "some" ? `— ${n} of ${users.length}` : ""}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      {marked.size ? (
+        <div className="card" style={{ marginTop: 14, boxShadow: "none" }} aria-live="polite">
+          <h3>Impact</h3>
+          {!preview ? <Spinner label="Calculating" /> : (
+            <ImpactList titles={titles} empty="Nobody would lose anything."
+              changes={preview.map((p) => ({ plex_user_id: p.plex_user_id, username: p.username, lose: p.removed, kept: p.kept_by_roles }))} />
+          )}
+        </div>
+      ) : null}
     </Modal>
   );
 }

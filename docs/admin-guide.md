@@ -40,7 +40,7 @@ The rules:
 
 ### Removing access by hand
 
-Users page → select users → **Remove libraries**: removes those libraries from the users in Plex now, together with any manual grants for them (dry-run respected, audited as `access_removed_admin`). For a linked user, libraries their Discord roles grant are kept and listed, because the next sync would add them back: remove the role in Discord or change the role mapping instead. For unlinked users WooSarr doesn't manage access, so nothing re-adds a removed library.
+Users page → select users → **Remove libraries**. Each library shows what the selected users have now (from the last sync): ✓ all have it, – some do, empty: nobody (disabled). Untick a library to remove it from everyone who has it; the dialog previews who loses what before you confirm, **Reset** clears your changes, and after removing, **Undo** gives everything back (including deleted manual grants; audited as `access_restored_admin`). It removes those libraries from the users in Plex now, together with any manual grants for them (dry-run respected, audited as `access_removed_admin`). For a linked user, libraries their Discord roles grant are kept and listed, because the next sync would add them back: remove the role in Discord or change the role mapping instead. For unlinked users WooSarr doesn't manage access, so nothing re-adds a removed library.
 
 ### Members who leave the Discord server
 
@@ -51,6 +51,10 @@ Default: their role-granted libraries are removed; manual grants and exempt libr
 - **Verified**: the user signed in to Plex during `/link`, or an admin created the link.
 - **Unverified**: the user typed a Plex username. It isn't proven. A verified link to the same Plex account replaces it.
 - Turn on *Ignore unverified links* to manage only verified users.
+
+## Impact previews
+
+Role mapping changes (Roles page), Remove libraries (Users page) and settings that change access (dry-run, leave-server policy, ignore unverified links) show who gains or loses which libraries before you save. Previews use the shares seen at the last sync and make no Plex calls.
 
 ## Dry-run
 

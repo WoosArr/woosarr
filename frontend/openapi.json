@@ -1917,6 +1917,133 @@
         "title": "RemoveAccessResult",
         "type": "object"
       },
+      "RemovePreview": {
+        "properties": {
+          "kept_by_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kept By Roles",
+            "type": "array"
+          },
+          "not_shared": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Not Shared",
+            "type": "array"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "boolean"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plex_user_id",
+          "username",
+          "removed",
+          "kept_by_roles",
+          "not_shared",
+          "owner"
+        ],
+        "title": "RemovePreview",
+        "type": "object"
+      },
+      "RestoreIn": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RestoreItem"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RestoreIn",
+        "type": "object"
+      },
+      "RestoreItem": {
+        "properties": {
+          "library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Library Ids",
+            "type": "array"
+          },
+          "manual_library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Manual Library Ids",
+            "type": "array"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plex_user_id"
+        ],
+        "title": "RestoreItem",
+        "type": "object"
+      },
+      "RestoreResult": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          },
+          "restored": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Restored",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plex_user_id",
+          "restored",
+          "error"
+        ],
+        "title": "RestoreResult",
+        "type": "object"
+      },
       "RoleCreateIn": {
         "properties": {
           "color": {
@@ -2103,6 +2230,33 @@
           "color"
         ],
         "title": "RoleRef",
+        "type": "object"
+      },
+      "SettingsImpact": {
+        "properties": {
+          "users": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Users",
+            "type": "array"
+          },
+          "users_gaining": {
+            "title": "Users Gaining",
+            "type": "integer"
+          },
+          "users_losing": {
+            "title": "Users Losing",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "users_gaining",
+          "users_losing",
+          "users"
+        ],
+        "title": "SettingsImpact",
         "type": "object"
       },
       "SetupAdminIn": {
@@ -4287,6 +4441,50 @@
         ]
       }
     },
+    "/api/v1/settings/preview": {
+      "post": {
+        "description": "Who would gain/lose which libraries if these settings were saved (no Plex calls).",
+        "operationId": "preview_settings_api_v1_settings_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Changes",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsImpact"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Settings",
+        "tags": [
+          "status"
+        ]
+      }
+    },
     "/api/v1/setup/admin": {
       "post": {
         "operationId": "create_first_admin_api_v1_setup_admin_post",
@@ -4566,6 +4764,98 @@
           }
         },
         "summary": "Remove Access",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/remove-access/preview": {
+      "post": {
+        "description": "What 'Remove libraries' would do, from the last observed shares (no Plex calls).",
+        "operationId": "remove_access_preview_api_v1_users_remove_access_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveAccessIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RemovePreview"
+                  },
+                  "title": "Response Remove Access Preview Api V1 Users Remove Access Preview Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Access Preview",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/restore-access": {
+      "post": {
+        "description": "Undo a 'Remove libraries' (gives back what was removed, recreates manual grants).",
+        "operationId": "restore_access_api_v1_users_restore_access_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RestoreResult"
+                  },
+                  "title": "Response Restore Access Api V1 Users Restore Access Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Access",
         "tags": [
           "users"
         ]

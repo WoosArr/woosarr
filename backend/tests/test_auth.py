@@ -159,6 +159,10 @@ class SessionTests(unittest.TestCase):
         ]
         self.assertIn(429, codes)
 
+    def test_successful_logins_do_not_count_towards_the_limit(self):
+        for _ in range(15):
+            self.h.login(ADMIN, PASSWORD)  # same IP, all succeed
+
     def test_password_change_ends_other_sessions(self):
         other = self.h.login(ADMIN, PASSWORD)
         r = self.c.post("/api/v1/auth/password", json={"current_password": PASSWORD, "new_password": OTHER_PASSWORD})

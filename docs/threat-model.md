@@ -52,7 +52,7 @@ Before an admin exists, whoever reaches the UI first could create one.
 - The setup endpoint is gone forever once an admin exists.
 
 ### Password guessing
-argon2id (argon2-cffi defaults: t=3, m=64 MiB, p=4), 12-character minimum, per-account lockout (5 failures → 15 min), per-IP limiter (10 attempts / 5 min), identical errors for unknown users and wrong passwords, dummy hash verification to equalise timing.
+argon2id (argon2-cffi defaults: t=3, m=64 MiB, p=4), 12-character minimum, per-account lockout (5 failures → 15 min), per-IP limiter (10 failed attempts / 5 min; successful sign-ins don't count, so several devices behind one address aren't locked out), identical errors for unknown users and wrong passwords, dummy hash verification to equalise timing.
 
 ### Session theft / fixation
 Session ids are rotated on every login; logout deletes the server-side row; idle (12 h) and absolute (7 d) expiry; password change or admin disable ends other sessions.

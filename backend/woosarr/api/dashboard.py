@@ -203,7 +203,9 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
 
 class WidgetIn(BaseModel):
     id: Literal[WIDGETS]  # type: ignore[valid-type]
-    size: Literal["s", "m", "l"] = "m"  # quarter, half, full width
+    size: Literal["xs", "s", "m", "l"] = "m"  # eighth, quarter, half, full width
+    # How a widget with chartable data is drawn: its usual form, a circle (donut) or bars.
+    view: Literal["default", "donut", "bar"] = "default"
     hidden: bool = False
 
 

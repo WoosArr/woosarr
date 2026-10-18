@@ -265,6 +265,12 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections: now first
   await expect(page.getByRole("button", { name: "Move Linked users earlier" })).toBeDisabled();
   await page.getByLabel("Size of Linked users").selectOption("m");
+  // Libraries: eighth width, drawn as a circle; Link coverage: bars.
+  await page.getByLabel("Size of Libraries").selectOption("xs");
+  await page.getByLabel("Chart for Libraries").selectOption("donut");
+  await page.getByLabel("Chart for Link coverage").selectOption("bar");
+  const a11yCharts = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(a11yCharts.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
   await page.getByRole("button", { name: "Save layout" }).click();
   await expect(page.getByText("Dashboard saved.")).toBeVisible();
   await page.reload();
@@ -273,6 +279,10 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   const first = page.locator(".dash-grid > section").first();
   await expect(first).toContainText("Linked users");
   await expect(first).toHaveClass(/w-m/);
+  const libs = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: "Libraries", exact: true }) });
+  await expect(libs).toHaveClass(/w-xs/);
+  await expect(libs.getByRole("img", { name: /Libraries by how they're managed: Managed by roles \d+, Exempt \d+, No role \d+/ })).toBeVisible();
+  await expect(page.getByRole("list", { name: /Plex users by link status: Verified \d+/ })).toBeVisible();
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
   await page.getByRole("button", { name: "Save layout" }).click();

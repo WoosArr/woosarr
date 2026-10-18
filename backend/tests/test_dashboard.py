@@ -135,16 +135,19 @@ class DashboardApiTests(unittest.TestCase):
         ids = [w["id"] for w in r["widgets"]]
         self.assertEqual(ids[0], "integrations")
         self.assertEqual(len(ids), len(set(ids)))
-        mine = [{"id": "errors", "size": "l"}, {"id": "stat_linked", "size": "s"},
+        mine = [{"id": "errors", "size": "l"}, {"id": "stat_linked", "size": "xs", "view": "donut"},
                 {"id": "integrations", "size": "m", "hidden": True}]
         r = self.c.put("/api/v1/dashboard/layout", json={"widgets": mine})
         self.assertEqual(r.status_code, 200, r.text)
         got = r.json()["widgets"]
         self.assertEqual([w["id"] for w in got[:3]], ["errors", "stat_linked", "integrations"])
+        self.assertEqual((got[1]["size"], got[1]["view"], got[0]["view"]), ("xs", "donut", "default"))
         self.assertTrue(all(w["hidden"] for w in got[3:]))  # not listed -> hidden at the end
         self.assertEqual(self.c.get("/api/v1/dashboard/layout").json()["widgets"], got)
         self.assertEqual(self.c.put("/api/v1/dashboard/layout",
                                     json={"widgets": [{"id": "nope"}]}).status_code, 422)
+        for bad in ({"id": "errors", "size": "xl"}, {"id": "errors", "view": "pie3d"}):
+            self.assertEqual(self.c.put("/api/v1/dashboard/layout", json={"widgets": [bad]}).status_code, 422)
         self.assertEqual(self.c.put("/api/v1/dashboard/layout",
                                     json={"widgets": [{"id": "errors"}, {"id": "errors"}]}).status_code, 422)
         # another admin has their own layout

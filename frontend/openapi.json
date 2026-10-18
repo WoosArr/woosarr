@@ -3944,11 +3944,22 @@
           "size": {
             "default": "m",
             "enum": [
+              "xs",
               "s",
               "m",
               "l"
             ],
             "title": "Size",
+            "type": "string"
+          },
+          "view": {
+            "default": "default",
+            "enum": [
+              "default",
+              "donut",
+              "bar"
+            ],
+            "title": "View",
             "type": "string"
           }
         },

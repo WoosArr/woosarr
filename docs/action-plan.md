@@ -238,6 +238,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P7-05** Settings: general (dry-run with go-live confirmation, interval, leave policy, ignore-unverified, cooldown, log level, audit retention), appearance, my account, admins, API keys. Secret replacement is replace-only on the Setup page (re-sign-in to Plex, *Replace token* for Discord). SAML deferred (D7a).
 
 - [x] **P7-06** Customizable dashboard: per-admin layout (`GET/PUT/DELETE /api/v1/dashboard/layout`, move/resize/hide/add), widgets from `GET /api/v1/dashboard/insights` (link coverage, access changes per day, activity, library access, requests, invites, setup checklist, security) and number tiles. *Verify:* `tests/test_dashboard.py`, Playwright `dashboard widgets…` (+ axe in edit mode).
+- [x] **P7-08** Dashboard: `xs` (eighth) size on an 8-column grid; per-widget `view` default / donut / bar with text legends. *Verify:* `test_layout_per_admin_with_defaults`, Playwright `dashboard widgets…` (+ axe with charts).
 - [x] **P7-07** Users page *Linked* tab (`?link=linked`). *Verify:* `test_users_linked_filter`, Playwright `users page has a Linked tab…`.
 
 ### Phase 8 — Logs

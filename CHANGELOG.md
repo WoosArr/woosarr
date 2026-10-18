@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- Dashboard: eighth-width widgets (8 per row; widths are now eighth, quarter, half and full), and a **Circle** or **Bars** view for widgets with chartable data (number tiles, warnings and errors, link coverage, access changes, activity, library access, requests, security), with legends showing the values.
 - Customizable dashboard: widgets can be moved, resized and hidden per admin, with new widgets for link coverage, access changes per day, recent activity, library access, requests, Plex invites, a setup checklist and security (failed sign-ins, sessions, API keys), plus individual number tiles.
 - Warnings and errors on the dashboard are grouped by problem and can be **marked resolved**, which hides them from the dashboard for 24 hours (audited; Unresolve available).
 - Users page: **Linked** tab (verified + unverified) between Unverified and Unlinked.

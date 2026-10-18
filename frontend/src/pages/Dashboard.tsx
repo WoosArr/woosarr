@@ -11,6 +11,7 @@ type Widget = components["schemas"]["WidgetIn"];
 type Layout = components["schemas"]["LayoutOut"];
 type WidgetId = Widget["id"];
 type Size = NonNullable<Widget["size"]>;
+type View = NonNullable<Widget["view"]>;
 
 type LastRun = {
   reason: string;
@@ -55,7 +56,16 @@ const TITLES: Record<WidgetId, string> = {
   setup: "Setup checklist",
   security: "Security",
 };
-const SIZE_LABEL: Record<Size, string> = { s: "Small", m: "Half width", l: "Full width" };
+const SIZE_LABEL: Record<Size, string> = { xs: "Eighth width", s: "Quarter width", m: "Half width", l: "Full width" };
+const SIZES: Size[] = ["xs", "s", "m", "l"];
+
+// Widgets whose data can also be drawn as a circle or bars; the first entry names the usual form.
+const VIEWS: Partial<Record<WidgetId, string>> = {
+  stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
+  stat_requests: "Number", stat_invites: "Number", errors: "List", links: "Stacked bar",
+  access_chart: "Columns", activity: "List", libraries: "List", requests: "List", security: "Numbers",
+};
+const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
 
 export default function DashboardPage() {
   const toast = useToast();
@@ -170,12 +180,19 @@ export default function DashboardPage() {
                 <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
                 <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
                 <select className="inline-input" aria-label={`Size of ${TITLES[w.id]}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
-                  {(["s", "m", "l"] as Size[]).map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
+                  {SIZES.map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
                 </select>
+                {VIEWS[w.id] ? (
+                  <select className="inline-input" aria-label={`Chart for ${TITLES[w.id]}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
+                    <option value="default">{VIEWS[w.id]}</option>
+                    <option value="donut">{VIEW_LABEL.donut}</option>
+                    <option value="bar">{VIEW_LABEL.bar}</option>
+                  </select>
+                ) : null}
                 <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>
               </div>
             ) : null}
-            <WidgetBody id={w.id} ctx={ctx} />
+            <WidgetBody id={w.id} ctx={ctx} view={w.view ?? "default"} />
           </section>
         ))}
       </div>
@@ -208,9 +225,18 @@ function Title({ id, children }: { id: WidgetId; children?: ReactNode }) {
   );
 }
 
-function WidgetBody({ id, ctx }: { id: WidgetId; ctx: Ctx }) {
+function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
   const c = ctx.status.counts;
   const ins = ctx.insights;
+  if (view !== "default" && VIEWS[id]) {
+    const data = seriesFor(id, ctx);
+    return (
+      <>
+        <Title id={id} />
+        {!data ? <Spinner /> : <Chart view={view} {...data} />}
+      </>
+    );
+  }
   switch (id) {
     case "integrations":
       return (
@@ -628,5 +654,166 @@ function Security({ ins }: { ins: Insights | null }) {
         <div><div className="stat-value">{s.api_keys}</div><div className="small muted"><Link to="/settings?tab=keys">API keys</Link></div></div>
       </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- charts
+
+type Seg = { label: string; value: number; color: string };
+interface Series { segs: Seg[]; label: string; center?: string; unit?: string }
+
+const C = {
+  ok: "var(--ok)", warn: "var(--warn)", danger: "var(--danger)", info: "var(--info)", accent: "var(--accent)",
+  muted: "var(--border)", strong: "var(--accent-strong)",
+};
+const CYCLE = [C.accent, C.info, C.ok, C.warn, C.danger, C.strong, "var(--text-muted)", C.muted];
+const REQ_COLOR: Record<string, string> = {
+  pending: C.warn, approved: C.info, declined: C.danger, failed: C.danger, partially_available: C.accent,
+  available: C.ok, deleted: C.muted,
+};
+
+/** The numbers behind a widget, for its circle / bar views (null while loading). */
+function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
+  const ins = ctx.insights;
+  const c = ctx.status.counts;
+  const need = (x: unknown) => x === null || x === undefined;
+  switch (id) {
+    case "stat_plex_users":
+    case "links": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      return { label: "Plex users by link status", center: String(l.plex_users), unit: "users",
+        segs: [{ label: "Verified", value: l.verified, color: C.ok }, { label: "Unverified", value: l.unverified, color: C.warn },
+          { label: "Not linked", value: l.unlinked, color: C.muted }] };
+    }
+    case "stat_linked": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      return { label: "Linked Plex users", center: `${l.plex_users ? Math.round((l.linked / l.plex_users) * 100) : 0}%`,
+        segs: [{ label: "Linked", value: l.linked, color: C.accent }, { label: "Not linked", value: l.unlinked, color: C.muted }] };
+    }
+    case "stat_libraries": {
+      if (need(ins)) return null;
+      const libs = ins!.libraries as { exempt: boolean; managed: boolean }[];
+      return { label: "Libraries by how they're managed", center: String(c.libraries), unit: "libraries",
+        segs: [{ label: "Managed by roles", value: libs.filter((l) => l.managed && !l.exempt).length, color: C.accent },
+          { label: "Exempt", value: libs.filter((l) => l.exempt).length, color: C.info },
+          { label: "No role", value: libs.filter((l) => !l.managed && !l.exempt).length, color: C.muted }] };
+    }
+    case "stat_roles": {
+      if (need(ins)) return null;
+      const s = ins!.setup as { roles_mapped: number; roles_unmapped: number };
+      return { label: "Discord roles that give libraries", center: String(c.roles), unit: "roles",
+        segs: [{ label: "Give libraries", value: s.roles_mapped, color: C.accent }, { label: "Give none", value: s.roles_unmapped, color: C.muted }] };
+    }
+    case "stat_requests":
+    case "requests": {
+      if (need(ins)) return null;
+      const by = ins!.requests.by_status as Record<string, number>;
+      const total = Object.values(by).reduce((a, n) => a + n, 0);
+      return { label: "Requests by status", center: String(total), unit: "requests",
+        segs: Object.entries(by).map(([k, n]) => ({ label: (REQ_STATE[k] ?? [, k])[1] as string, value: n, color: REQ_COLOR[k] ?? C.muted })) };
+    }
+    case "stat_invites": {
+      if (need(ins)) return null;
+      const v = ins!.invites as { pending: number; accepted_7d: number };
+      return { label: "Plex invites", center: String(v.pending), unit: "pending",
+        segs: [{ label: "Pending", value: v.pending, color: C.warn }, { label: "Accepted this week", value: v.accepted_7d, color: C.ok }] };
+    }
+    case "errors": {
+      if (need(ctx.errors)) return null;
+      const g = ctx.errors!;
+      const sum = (f: (x: ErrorGroup) => boolean, k: "count" | "hidden") => g.filter(f).reduce((a, x) => a + x[k], 0);
+      const errors = sum((x) => x.level === "ERROR", "count");
+      const warnings = sum((x) => x.level === "WARNING", "count");
+      return { label: "Warnings and errors in the last 24 hours", center: String(errors + warnings), unit: "open",
+        segs: [{ label: "Errors", value: errors, color: C.danger }, { label: "Warnings", value: warnings, color: C.warn },
+          { label: "Resolved", value: g.reduce((a, x) => a + x.hidden, 0), color: C.muted }] };
+    }
+    case "access_chart": {
+      if (need(ins)) return null;
+      const days = ins!.access_by_day as { changed: number; planned: number }[];
+      const applied = days.reduce((a, d) => a + d.changed, 0);
+      const planned = days.reduce((a, d) => a + d.planned, 0);
+      return { label: "Access changes in the last 14 days", center: String(applied + planned), unit: "changes",
+        segs: [{ label: "Applied", value: applied, color: C.accent }, { label: "Planned in dry-run", value: planned, color: C.warn }] };
+    }
+    case "activity": {
+      if (need(ins)) return null;
+      const counts = new Map<string, number>();
+      for (const a of ins!.activity as { action: string }[]) {
+        const name = ACTION_TEXT[a.action] ?? a.action.replace(/_/g, " ");
+        counts.set(name, (counts.get(name) ?? 0) + 1);
+      }
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+      return { label: "Recent activity by kind", center: String(top.reduce((a, [, n]) => a + n, 0)), unit: "events",
+        segs: top.map(([label, value], i) => ({ label, value, color: CYCLE[i % CYCLE.length] })) };
+    }
+    case "libraries": {
+      if (need(ins)) return null;
+      const libs = (ins!.libraries as { title: string; users: number }[]).slice(0, 8);
+      return { label: "Users with access per library", unit: "users",
+        segs: libs.map((l, i) => ({ label: l.title, value: l.users, color: CYCLE[i % CYCLE.length] })) };
+    }
+    case "security": {
+      if (need(ins)) return null;
+      const s = ins!.security;
+      return { label: "Security", segs: [{ label: "Failed sign-ins (24 h)", value: s.failed_logins_24h, color: C.warn },
+        { label: "Active sessions", value: s.sessions, color: C.accent }, { label: "API keys", value: s.api_keys, color: C.info }] };
+    }
+    default:
+      return null;
+  }
+}
+
+function Chart({ view, segs, label, center, unit }: Series & { view: View }) {
+  const total = segs.reduce((a, s) => a + s.value, 0);
+  const summary = `${label}: ${segs.map((s) => `${s.label} ${s.value}`).join(", ")}`;
+  if (total === 0) return <p className="small muted" style={{ margin: 0 }}>Nothing to show yet.</p>;
+  return view === "donut" ? <Donut segs={segs} summary={summary} center={center ?? String(total)} unit={unit} total={total} />
+    : <BarList segs={segs} summary={summary} />;
+}
+
+function Donut({ segs, summary, center, unit, total }: { segs: Seg[]; summary: string; center: string; unit?: string; total: number }) {
+  const r = 40, len = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div className="donut-wrap">
+      <svg viewBox="0 0 100 100" className="donut" role="img" aria-label={summary}>
+        <circle cx="50" cy="50" r={r} fill="none" stroke="var(--border)" strokeWidth="14" opacity="0.35" />
+        {segs.filter((s) => s.value > 0).map((s) => {
+          const part = (s.value / total) * len;
+          const el = (
+            <circle key={s.label} cx="50" cy="50" r={r} fill="none" stroke={s.color} strokeWidth="14"
+              strokeDasharray={`${part} ${len - part}`} strokeDashoffset={-offset} transform="rotate(-90 50 50)">
+              <title>{`${s.label}: ${s.value}`}</title>
+            </circle>
+          );
+          offset += part;
+          return el;
+        })}
+        <text x="50" y={unit ? 50 : 55} textAnchor="middle" className="donut-value">{center}</text>
+        {unit ? <text x="50" y="64" textAnchor="middle" className="donut-unit">{unit}</text> : null}
+      </svg>
+      <ul className="dash-legend small donut-legend">
+        {segs.map((s) => (
+          <li key={s.label}><span className="dot" style={{ background: s.color }} /> {s.label} <strong>{s.value}</strong></li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BarList({ segs, summary }: { segs: Seg[]; summary: string }) {
+  const max = Math.max(1, ...segs.map((s) => s.value));
+  return (
+    <ul className="dash-list small" aria-label={summary}>
+      {segs.map((s) => (
+        <li key={s.label}>
+          <div className="row spread"><span>{s.label}</span><strong>{s.value}</strong></div>
+          <div className="dash-bar thin" aria-hidden="true"><span style={{ width: `${(s.value / max) * 100}%`, background: s.color }} /></div>
+        </li>
+      ))}
+    </ul>
   );
 }

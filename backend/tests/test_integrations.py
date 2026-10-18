@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ import plexapi
 from cryptography.fernet import Fernet
 from plexapi.exceptions import Unauthorized
 from sqlalchemy import select
+from sqlalchemy.orm import Session as SASession
 
 from tests.fake_plextv import MACHINE, FakePlexTV
 from woosarr.core import app_settings, kv
@@ -283,6 +285,45 @@ class DiscordCacheTests(Base):
         self.assertIsNone(self.run_db(discord_cache.member_changed, unlinked))
         self.assertEqual(self.run_db(discord_cache.member_left, "d1"), "11")
         self.assertIsNone(self.run_db(discord_cache.member_left, "d1"))
+
+    def test_role_and_member_writes_survive_a_concurrent_insert(self):
+        """Live 2026-10-18: an integration (Patreon) created a role and Discord sent role-create
+        and role-update together; both handlers saw "no row" and inserted -> UNIQUE constraint."""
+        self.run_db(discord_cache.upsert_role, discord_cache.RoleData("r7", "Patreon", managed=True))
+        self.run_db(discord_cache.member_changed, discord_cache.MemberData("d1", "alice", None, ()))
+        real_get = SASession.get
+
+        def stale_get(session, model, key, *a, **kw):  # the other handler hasn't committed yet
+            return None if model in (DiscordRole, DiscordMember) else real_get(session, model, key, *a, **kw)
+
+        with mock.patch.object(SASession, "get", stale_get):
+            self.run_db(discord_cache.upsert_role, discord_cache.RoleData("r7", "Patreon Gold", position=3,
+                                                                           managed=True))
+            self.run_db(discord_cache.member_changed, discord_cache.MemberData("d1", "alice", "Al", ("r7",)))
+        with self.db.session() as s:
+            role = s.get(DiscordRole, "r7")
+            self.assertEqual((role.name, role.position, role.deleted), ("Patreon Gold", 3, False))
+            self.assertEqual((s.get(DiscordMember, "d1").role_ids, s.get(DiscordMember, "d1").display_name),
+                             (["r7"], "Al"))
+
+    def test_concurrent_role_events_for_a_new_role(self):
+        errors = []
+
+        def hit(i):
+            try:
+                self.run_db(discord_cache.upsert_role, discord_cache.RoleData("r9", f"name {i}"))
+                self.run_db(discord_cache.member_changed, discord_cache.MemberData("d5", "x", None, (f"r{i}",)))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=hit, args=(i,)) for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        with self.db.session() as s:
+            self.assertEqual(len(s.scalars(select(DiscordRole).where(DiscordRole.role_id == "r9")).all()), 1)
 
     def test_role_deleted_strips_role_and_returns_holders(self):
         self.run_db(discord_cache.upsert_role, discord_cache.RoleData("r1", "Movies"))

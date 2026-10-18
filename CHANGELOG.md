@@ -11,6 +11,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Users page: **Linked** tab (verified + unverified) between Unverified and Unlinked.
 
 ### Fixed
+- Discord role and member cache updates could fail with "UNIQUE constraint failed" when Discord sent two events for a new role or member at the same moment (e.g. an integration such as Patreon creating its role); writes are now atomic upserts.
 - Publishing a reaction post into a channel where the bot lacks Add Reactions / Read Message History / Use External Emojis failed with an internal error after the message was already sent; the permissions are now checked first and Discord refusals are shown with the missing permission.
 - `/link` → *Sign in with Plex* could fail with "Unknown interaction" because WooSarr contacted plex.tv before answering Discord's 3-second deadline.
 - Routine Discord gateway reconnects (resumed within a second) were logged as warnings; they're INFO now, with a warning only if the bot stays disconnected for 60 s.

@@ -11,6 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import DiscordLink, DiscordMember, DiscordRole, utcnow
@@ -40,14 +41,16 @@ def _linked_plex_id(session: Session, discord_user_id: str) -> str | None:
 
 
 def upsert_role(session: Session, role: RoleData) -> None:
-    row = session.get(DiscordRole, role.role_id)
-    if row is None:
-        session.add(DiscordRole(role_id=role.role_id, name=role.name, color=role.color,
-                                position=role.position, managed=role.managed))
-    else:
-        row.name, row.color, row.position, row.managed, row.deleted = (
-            role.name, role.color, role.position, role.managed, False)
-        row.synced_at = utcnow()
+    # One atomic statement: Discord often sends role-create and role-update for a
+    # new role together, and their handlers run in parallel worker threads, so
+    # "look up, then insert" let both insert (UNIQUE constraint, live 2026-10-18).
+    values = {"name": role.name, "color": role.color, "position": role.position, "managed": role.managed,
+              "deleted": False, "synced_at": utcnow()}
+    session.execute(insert(DiscordRole).values(role_id=role.role_id, **values)
+                    .on_conflict_do_update(index_elements=[DiscordRole.role_id], set_=values))
+    cached = session.identity_map.get(session.identity_key(DiscordRole, role.role_id))
+    if cached is not None:
+        session.expire(cached)  # the ORM's copy is now stale
 
 
 def role_deleted(session: Session, role_id: str) -> list[str]:
@@ -71,9 +74,18 @@ def member_changed(session: Session, member: MemberData, in_guild: bool = True) 
     row = session.get(DiscordMember, member.discord_user_id)
     roles = sorted(set(member.role_ids))
     if row is None:
-        row = DiscordMember(discord_user_id=member.discord_user_id, username=member.username,
-                            display_name=member.display_name, role_ids=roles, in_guild=in_guild)
-        session.add(row)
+        # Insert-or-ignore: a parallel handler (join + role change together) may have
+        # inserted this member since the lookup; then fall through and update it.
+        created = session.execute(
+            insert(DiscordMember).values(discord_user_id=member.discord_user_id, username=member.username,
+                                         display_name=member.display_name, role_ids=roles, in_guild=in_guild,
+                                         synced_at=utcnow())
+            .on_conflict_do_nothing(index_elements=[DiscordMember.discord_user_id])).rowcount
+        row = session.scalars(select(DiscordMember).where(DiscordMember.discord_user_id == member.discord_user_id)
+                              .execution_options(populate_existing=True)).one()
+    else:
+        created = 0
+    if created:
         changed = True
     else:
         changed = sorted(row.role_ids or []) != roles or row.in_guild != in_guild

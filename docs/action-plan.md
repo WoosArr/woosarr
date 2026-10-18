@@ -246,6 +246,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P8-02** Audit trail tab (`GET /api/v1/audit`, action filter, paging).
 - [x] **P8-03** Log level setting applies live; file logs rotate by size (`WOOSARR_LOG_FILE_MAX_BYTES` × backups); audit retention in days, pruned on full reconcile.
 
+- [x] **P8-06** Live error 2026-10-18 21:50: `on_guild_role_update` → UNIQUE constraint on `discord_roles_cache` (role-create + role-update for the new *Patreon* role handled in parallel threads). Role and member cache writes are atomic SQLite upserts. *Verify:* `tests/test_integrations.py::DiscordCacheTests::test_role_and_member_writes_survive_a_concurrent_insert` (reproduced the error before the fix).
 - [x] **P8-04** Dashboard warnings/errors grouped by fingerprint (`services/error_digest.py`), **mark resolved** hides a group for 24 h (`PUT/DELETE /api/v1/errors/{fp}/resolved`, migration 0009, audited); separate WARNING+ ring buffer. *Verify:* `tests/test_dashboard.py`.
 - [x] **P8-05** Live log review 2026-10-18: reaction-post publish 500 (missing channel permissions → pre-check + clear errors), `/link` Plex button "Unknown interaction" (defer before plex.tv), gateway reconnect noise (INFO + 60 s watchdog), 4004 message, Seerr 404 noise. *Verify:* `tests/test_discord_features.py::…publish_refused_up_front…`, `tests/test_discord_events.py::LiveLogFixTests`.
 

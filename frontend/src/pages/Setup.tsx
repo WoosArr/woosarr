@@ -353,6 +353,7 @@ function DiscordCard() {
           <Detail text={s.detail} />
           <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code> and <code>/invite</code> in your server (and the request command once Seerr is connected).</p>
           <BotFeatures status={s} />
+          <BotAvatar status={s} onDone={() => void st.reload()} />
           <div className="row">
             <button className="btn sm" onClick={() => void act(() => api.post<DiscordStatus>("/api/v1/discord/restart"), "Bot restarted.")}><Icon name="refresh" size={14} /> Restart bot</button>
             <button className="btn sm" onClick={() => setReplacing(true)}><Icon name="key" size={14} /> Replace token</button>
@@ -393,7 +394,7 @@ function DiscordToken({ onDone, onCancel }: { onDone: (s: DiscordStatus) => void
         <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Discord Developer Portal</a>, create an application and open <strong>Bot</strong>.</li>
         <li>Under <strong>Privileged Gateway Intents</strong>, turn on <strong>Server Members Intent</strong> and save.</li>
         <li>Press <strong>Reset Token</strong>, copy the token and paste it below.</li>
-        <li className="muted">Optional: give the bot WooSarr's icon. <a href="/icon-512.png" download="woosarr-icon-512.png">Download it (512 px PNG)</a> and upload it as the bot's <strong>Icon</strong> on the same Bot page.</li>
+        <li className="muted">Optional: once connected, set the bot's avatar to WooSarr's icon (or your own image) under <strong>Bot avatar</strong> below.</li>
       </ol>
       <ErrorBanner error={error instanceof ApiError ? new Error(error.message) : error} />
       <Field label="Bot token" hint="Checked with Discord, then stored encrypted. It's never shown again.">
@@ -494,6 +495,115 @@ function BotFeatures({ status }: { status: DiscordStatus }) {
         </table>
       </div>
       {url ? <p style={{ marginTop: 8 }}><a className="btn sm" href={url} target="_blank" rel="noreferrer"><Icon name="link" size={14} /> Invite / update bot with these permissions</a></p> : null}
+    </details>
+  );
+}
+
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/gif"];
+const AVATAR_MAX = 8 * 1024 * 1024;
+
+interface AvatarOut { avatar_url: string | null; app_icon: boolean; width: number; height: number }
+
+function readImage(file: File): Promise<{ uri: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that file."));
+    reader.onload = () => {
+      const uri = String(reader.result);
+      const img = new Image();
+      img.onload = () => resolve({ uri, width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => reject(new Error("That file isn't an image the browser can open."));
+      img.src = uri;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function BotAvatar({ status, onDone }: { status: DiscordStatus; onDone: () => void }) {
+  const [source, setSource] = useState<"default" | "custom">("default");
+  const [custom, setCustom] = useState<{ uri: string; width: number; height: number; name: string } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [appIcon, setAppIcon] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const pick = async (file: File | undefined) => {
+    setProblem(null);
+    setCustom(null);
+    if (!file) return;
+    if (!AVATAR_TYPES.includes(file.type)) return setProblem("Use a PNG, JPEG or GIF image.");
+    if (file.size > AVATAR_MAX) return setProblem("The image is larger than 8 MB.");
+    try {
+      const img = await readImage(file);
+      if (Math.min(img.width, img.height) < 128) return setProblem(`The image is ${img.width}×${img.height} px; Discord needs at least 128×128.`);
+      setCustom({ ...img, name: file.name });
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
+  const preview = source === "default" ? "/logo-192.webp" : custom?.uri;
+  const ready = source === "default" || (!!custom && !problem);
+  const apply = async () => {
+    setBusy(true);
+    try {
+      const r = await api.put<AvatarOut>("/api/v1/discord/avatar", { source, image: source === "custom" ? custom?.uri : null, app_icon: appIcon });
+      toast.ok(`Bot avatar updated${r.app_icon ? " (and the application icon)" : ""}. Discord may take a minute to show it everywhere.`);
+      onDone();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <details className="small">
+      <summary><strong>Bot avatar</strong></summary>
+      <div className="stack" style={{ marginTop: 8 }}>
+        <div className="row" style={{ gap: 16, alignItems: "center" }}>
+          <figure style={{ margin: 0, textAlign: "center" }}>
+            {status.avatar_url
+              ? <img src={status.avatar_url} alt="Current bot avatar" width={64} height={64} style={{ borderRadius: "50%" }} />
+              : <div className="muted" style={{ width: 64 }}>—</div>}
+            <figcaption className="muted">Now</figcaption>
+          </figure>
+          <span aria-hidden="true" className="muted">→</span>
+          <figure style={{ margin: 0, textAlign: "center" }}>
+            {preview
+              ? <img src={preview} alt="New bot avatar" width={64} height={64} style={{ borderRadius: "50%", objectFit: "cover" }} />
+              : <div className="muted" style={{ width: 64 }}>—</div>}
+            <figcaption className="muted">New</figcaption>
+          </figure>
+        </div>
+        <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend className="sr-only">Avatar image</legend>
+          <label className="check" style={{ marginBottom: 6 }}>
+            <input type="radio" name="bot-avatar" checked={source === "default"} onChange={() => setSource("default")} />
+            <span><strong>WooSarr icon</strong> <span className="muted">(default)</span></span>
+          </label>
+          <label className="check">
+            <input type="radio" name="bot-avatar" checked={source === "custom"} onChange={() => setSource("custom")} />
+            <span><strong>My own image</strong> <span className="muted">— PNG, JPEG or GIF, at least 128×128, up to 8 MB</span></span>
+          </label>
+        </fieldset>
+        {source === "custom" ? (
+          <Field label="Image file" hint="Discord shows avatars as circles, cropped from the centre." error={problem ?? undefined}>
+            <input type="file" accept={AVATAR_TYPES.join(",")} onChange={(e) => void pick(e.target.files?.[0])} />
+          </Field>
+        ) : null}
+        {custom && source === "custom" && custom.width !== custom.height ? (
+          <p className="muted" style={{ margin: 0 }}>{custom.name} is {custom.width}×{custom.height}; Discord crops it to a square from the centre.</p>
+        ) : null}
+        <label className="check">
+          <input type="checkbox" checked={appIcon} onChange={(e) => setAppIcon(e.target.checked)} />
+          <span>Also use it as the application icon <span className="muted">(Developer Portal and the bot's profile)</span></span>
+        </label>
+        <p className="muted" style={{ margin: 0 }}>Discord allows only about two avatar changes per hour.</p>
+        <div className="row">
+          <button className="btn sm primary" disabled={!ready || busy || !status.connected} onClick={() => void apply()}>
+            {busy ? "Updating…" : "Update avatar"}
+          </button>
+          {!status.connected ? <span className="muted">Connect the bot first.</span> : null}
+        </div>
+      </div>
     </details>
   );
 }

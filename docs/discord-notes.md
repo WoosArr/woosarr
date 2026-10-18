@@ -28,7 +28,7 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 1. Developer Portal → New Application → **Bot**.
 2. **Privileged Gateway Intents → Server Members Intent: on.** WooSarr checks this before saving the token: `GET /applications/@me` → `flags` must contain `GATEWAY_GUILD_MEMBERS` (1<<14) or `GATEWAY_GUILD_MEMBERS_LIMITED` (1<<15).
 3. **Reset Token** and paste it into WooSarr. It's validated with `GET /users/@me`, stored encrypted as `discord.bot_token`, and never shown again.
-   Optional: upload WooSarr's icon as the bot's **Icon** (Bot page). The Setup page links a 512 px PNG (`/icon-512.png`; Discord accepts PNG/JPG/GIF, not SVG). WooSarr doesn't change the avatar itself.
+   Optional, once connected: **Setup → Discord → Bot avatar** sets the bot's avatar to WooSarr's icon (default) or an uploaded image, and optionally the application icon too. See *Bot avatar* below.
 4. Invite with the generated URL: `scope=bot applications.commands`, `permissions=0`. The bot needs no channel permissions: it only reads roles and members (intent) and answers `/link` with ephemeral replies.
 5. Pick the server (`GET /users/@me/guilds`). One guild in v1 (D11).
 
@@ -86,3 +86,13 @@ Reactions page:
 4. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 5. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.
 6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reactions page shows *Update pending* until it has.
+
+## Bot avatar
+
+**Setup → Discord → Bot avatar** (admins, only while the bot is connected):
+
+- **WooSarr icon** (default): the 512 px PNG shipped in the image (`backend/woosarr/assets/bot-avatar.png`, rendered by `make icons`).
+- **My own image**: PNG, JPEG or GIF, at least 128×128, up to 8 MB. The type and size are read from the file's bytes (not its name or the browser's claim); SVG and WebP are refused because Discord's image data doesn't take them. Discord shows avatars as circles cropped from the centre; the page previews that.
+- **Also use it as the application icon**: also sets the icon in the Developer Portal (and on the bot's profile).
+
+WooSarr sends it with the bot's own token: `PATCH /users/@me {"avatar": "data:…"}` and, if ticked, `PATCH /applications/@me {"icon": "data:…"}`. No permission is needed. Discord allows about **two avatar changes per hour**; beyond that the page says how long to wait. The image isn't stored by WooSarr; each change is audited (`discord_avatar_set` with the image's SHA-256, size and type, or `discord_avatar_failed` with the reason) and logged (`discord avatar updated …`).

@@ -1,3 +1,4 @@
+import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
@@ -70,6 +71,25 @@ test("discord wizard: bad token, good token, invite, pick server", async ({ page
   await discord.getByRole("button", { name: "Use this server" }).click();
   await expect(discord.getByText("Connected", { exact: true })).toBeVisible();
   await expect(discord.getByText(/run \/link/)).toBeVisible();
+
+  // Bot avatar: custom upload previews; applying sends the image (intercepted: never reaches Discord).
+  const sent: { source?: string; image?: string | null; app_icon?: boolean }[] = [];
+  await page.route("**/api/v1/discord/avatar", async (route) => {
+    sent.push(route.request().postDataJSON());
+    await route.fulfill({ json: { avatar_url: null, app_icon: true, width: 192, height: 192 } });
+  });
+  await discord.getByText("Bot avatar").click();
+  await expect(discord.getByRole("img", { name: "New bot avatar" })).toHaveAttribute("src", "/logo-192.webp");
+  await discord.getByLabel(/My own image/).check();
+  await discord.getByLabel("Image file").setInputFiles(path.resolve("public/icon-192.png"));
+  await expect(discord.getByRole("img", { name: "New bot avatar" })).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await discord.getByLabel(/Also use it as the application icon/).check();
+  await discord.getByRole("button", { name: "Update avatar" }).click();
+  await expect(page.getByText(/Bot avatar updated \(and the application icon\)/)).toBeVisible();
+  expect(sent).toHaveLength(1);
+  expect(sent[0].source).toBe("custom");
+  expect(sent[0].app_icon).toBe(true);
+  expect(sent[0].image).toMatch(/^data:image\/png;base64,/);
 
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(results.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);

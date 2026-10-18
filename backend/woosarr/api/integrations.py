@@ -15,7 +15,7 @@ from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
 from woosarr.db.models import Library, RoleLibrary
 from woosarr.plex_api_gateway import PlexAuthError
-from woosarr.services import audit, discord_bot
+from woosarr.services import audit, discord_avatar, discord_bot
 from woosarr.services import discord_features as features
 from woosarr.services.discord_bot import DiscordConfigError
 
@@ -211,6 +211,22 @@ class DiscordStatus(BaseModel):
     invite_url: str | None
     detail: str | None
     features: list[FeatureOut] = []
+    avatar_url: str | None = None  # the bot's current avatar (while connected)
+
+
+class AvatarIn(BaseModel):
+    source: Literal["default", "custom"]
+    # custom: data:image/png|jpeg|gif;base64,... (checked by its bytes; max 8 MB decoded)
+    image: Annotated[str | None, Field(max_length=11_200_000)] = None
+    # Also use it as the application's icon (Developer Portal → General Information).
+    app_icon: bool = False
+
+
+class AvatarOut(BaseModel):
+    avatar_url: str | None
+    app_icon: bool
+    width: int
+    height: int
 
 
 class DiscordTokenIn(BaseModel):
@@ -371,6 +387,30 @@ async def discord_set_guild(body: DiscordGuildIn, request: Request, principal: A
     await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_guild_selected", "discord_guild", guild["id"],
                                             name=guild["name"]))
     return _discord_status(svc)
+
+
+@router.put("/discord/avatar", response_model=AvatarOut)
+async def discord_set_avatar(body: AvatarIn, request: Request, principal: AdminDep) -> AvatarOut:
+    """Set the bot's avatar to WooSarr's icon or an uploaded image (Discord: ~2 changes per hour)."""
+    svc = _discord(request)
+    try:
+        if body.source == "default":
+            image = discord_avatar.default_image()
+        elif not body.image:
+            raise discord_avatar.AvatarError("Choose an image to upload.")
+        else:
+            image = discord_avatar.decode_data_uri(body.image)
+        result = await svc.set_avatar(image, body.app_icon)
+    except discord_avatar.AvatarError as exc:
+        error, code = str(exc), exc.status
+        await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_avatar_failed", "discord_bot", None,
+                                                source=body.source, error=error))
+        raise HTTPException(code, error) from None
+    await svc.run_db(lambda s: audit.record(s, principal.actor, "discord_avatar_set", "discord_bot", None,
+                                            source=body.source, sha256=image.sha256, size=f"{image.width}x{image.height}",
+                                            type=image.mime, app_icon=bool(result["app_icon"])))
+    return AvatarOut(avatar_url=result["avatar_url"], app_icon=bool(result["app_icon"]), width=image.width,
+                     height=image.height)
 
 
 @router.post("/discord/restart", response_model=DiscordStatus)

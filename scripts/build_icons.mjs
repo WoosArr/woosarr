@@ -28,6 +28,7 @@ const RASTERS = [
   ["frontend/public/logo-64.webp", "small", 64, "image/webp"], // sidebar (30 px @2x)
   ["frontend/public/logo-192.webp", "full", 192, "image/webp"], // login / setup (96 px @2x)
   ["unraid/icon.png", "full", 256, "image/png"], // Unraid template / Community Apps
+  ["backend/woosarr/assets/bot-avatar.png", "full", 512, "image/png"], // default Discord bot avatar
 ];
 const ICO_SIZES = [16, 32, 48];
 

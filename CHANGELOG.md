@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Added
+- Setup → Discord → **Bot avatar**: set the bot's avatar to the WooSarr icon (default) or an uploaded PNG/JPEG/GIF (checked by its bytes; at least 128×128, up to 8 MB), with a circular preview, and optionally use it as the application icon. Uses the bot's own token; Discord's limit of about two changes per hour is reported with the wait time. Audited.
+
 ### Changed
 - New WooSarr icon (raven over a purple moon) everywhere: browser tab (SVG + ICO), iOS/Android home screen and web manifest, sidebar and sign-in screen, API docs page, Unraid template, README; a 512 px PNG to use as the Discord bot's avatar is linked from the Setup page. All sizes are rendered from `assets/brand/woosarr.svg` with `make icons`.
 

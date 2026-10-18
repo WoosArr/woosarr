@@ -210,6 +210,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [~] **P4-10** Per-library role creation (Libraries page) mapped to the library. *Remaining:* **LIVE**.
 - [~] **P4-11** Reaction posts (reaction roles): channel pick/create, post/edit, reactions, pin; reacting gives Discord roles, un-reacting removes them (kept if another reaction gives the same role); re-synced on reconnect (migration 0004). Libraries follow from role mappings. *Verify:* `tests/test_discord_features.py`. *Remaining:* **LIVE** post + react.
 - [x] **P4-12** Bot permission feature gating + invite-link builder + `docs/discord-notes.md` breakdown.
+- [~] **P4-13** Bot avatar from WooSarr: default WooSarr icon (packaged `assets/bot-avatar.png`) or admin upload (PNG/JPEG/GIF sniffed from bytes, ≥128 px, ≤8 MB), optional application icon, `PUT /api/v1/discord/avatar`, rate-limit message, audit; Setup → Discord → Bot avatar. *Verify:* `tests/test_discord_avatar.py` (local fake Discord API), Playwright `discord wizard…`. *Remaining:* **LIVE** set it on the real bot.
 - [x] **P4-06** Admin link/unlink API (`PUT/DELETE /api/v1/users/{id}/link`, one-to-one enforced, audited, triggers reconcile). *Verify:* `test_link_unlink_and_sources`.
 
 ### Phase 5 — Sync engine

@@ -25,7 +25,14 @@ from woosarr.core import app_settings, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, Reaction, ReactionPost, utcnow
 from woosarr.db.session import Database
-from woosarr.services import audit, discord_requests, invites, link_service, reaction_text
+from woosarr.services import (
+    audit,
+    discord_avatar,
+    discord_requests,
+    invites,
+    link_service,
+    reaction_text,
+)
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
 
@@ -761,7 +768,21 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
             "guild": {"id": guild["id"], "name": self._guild_name or guild.get("name")} if guild else None,
             "invite_url": invite_url(bot["application_id"]) if bot else None,
             "detail": detail,
+            "avatar_url": self._avatar_url(),
         }
+
+    def _avatar_url(self) -> str | None:
+        client = self._client
+        user = getattr(client, "user", None) if client is not None and client.is_ready() else None
+        avatar = getattr(user, "display_avatar", None)
+        return str(avatar.replace(size=256).url) if avatar is not None else None
+
+    async def set_avatar(self, image: discord_avatar.Image, app_icon: bool) -> dict[str, str | None]:
+        """Set the bot's avatar (and optionally the application icon) with the stored token."""
+        token = self._token()
+        if not token:
+            raise discord_avatar.AvatarError("Enter the bot token first.", 409)
+        return await discord_avatar.apply(token, image, app_icon)
 
     # ---- configuration (P9-01) ---------------------------------------------------
 

@@ -603,6 +603,75 @@
         "title": "AuthStatus",
         "type": "object"
       },
+      "AvatarIn": {
+        "properties": {
+          "app_icon": {
+            "default": false,
+            "title": "App Icon",
+            "type": "boolean"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "maxLength": 11200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "source": {
+            "enum": [
+              "default",
+              "custom"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "AvatarIn",
+        "type": "object"
+      },
+      "AvatarOut": {
+        "properties": {
+          "app_icon": {
+            "title": "App Icon",
+            "type": "boolean"
+          },
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "app_icon",
+          "width",
+          "height"
+        ],
+        "title": "AvatarOut",
+        "type": "object"
+      },
       "ChannelOut": {
         "properties": {
           "can_post": {
@@ -652,6 +721,17 @@
       },
       "DiscordStatus": {
         "properties": {
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
           "bot": {
             "anyOf": [
               {
@@ -4226,6 +4306,48 @@
           }
         },
         "summary": "Discord Disconnect",
+        "tags": [
+          "integrations"
+        ]
+      }
+    },
+    "/api/v1/discord/avatar": {
+      "put": {
+        "description": "Set the bot's avatar to WooSarr's icon or an uploaded image (Discord: ~2 changes per hour).",
+        "operationId": "discord_set_avatar_api_v1_discord_avatar_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvatarIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvatarOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Set Avatar",
         "tags": [
           "integrations"
         ]

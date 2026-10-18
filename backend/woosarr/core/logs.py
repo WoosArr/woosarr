@@ -62,11 +62,18 @@ TEXT_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 class RingBufferHandler(logging.Handler):
-    """Keeps the most recent records in memory with a monotonically rising seq."""
+    """Keeps the most recent records in memory with a monotonically rising seq.
+
+    Warnings and errors are also kept in a separate ring, so a busy INFO log
+    can't push them out before the dashboard (last 24 h) has shown them.
+    """
+
+    PROBLEMS_CAPACITY = 2000
 
     def __init__(self, capacity: int) -> None:
         super().__init__()
         self._entries: collections.deque[LogEntry] = collections.deque(maxlen=capacity)
+        self._problems: collections.deque[LogEntry] = collections.deque(maxlen=self.PROBLEMS_CAPACITY)
         self._seq = 0
         self._entries_lock = threading.Lock()
 
@@ -78,9 +85,10 @@ class RingBufferHandler(logging.Handler):
                 exc = logging.Formatter().formatException(record.exc_info)
             with self._entries_lock:
                 self._seq += 1
-                self._entries.append(
-                    LogEntry(self._seq, _timestamp(record), record.levelname, record.name, message, exc)
-                )
+                entry = LogEntry(self._seq, _timestamp(record), record.levelname, record.name, message, exc)
+                self._entries.append(entry)
+                if record.levelno >= logging.WARNING:
+                    self._problems.append(entry)
         except RecursionError:
             raise
         # Same contract as logging.Handler.emit: never let a log call crash the app.
@@ -96,7 +104,8 @@ class RingBufferHandler(logging.Handler):
     ) -> tuple[list[LogEntry], int]:
         """Entries with seq > since, oldest first, plus the latest seq for the next poll."""
         with self._entries_lock:
-            snapshot = list(self._entries)
+            # WARNING and up: the problems ring holds more of them than the main ring.
+            snapshot = list(self._problems if min_level >= logging.WARNING else self._entries)
             latest = self._seq
         needle = contains.lower() if contains else None
         matches = [

@@ -354,3 +354,37 @@ td .row { gap: 4px; }
 
 /* Visible to screen readers only. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Dashboard widgets: 4 columns (s = 1, m = 2, l = 4), 2 on tablets, 1 on phones. */
+.dash-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.dash-w { min-width: 0; margin: 0; }
+.dash-w.w-s { grid-column: span 1; }
+.dash-w.w-m { grid-column: span 2; }
+.dash-w.w-l { grid-column: span 4; }
+.dash-w.editing { outline: 2px dashed var(--border); outline-offset: 2px; }
+.dash-w h2 { font-size: 1rem; }
+.dash-tools { gap: 4px; margin: -4px -4px 10px; padding: 6px; border-radius: var(--radius-sm); background: var(--accent-soft); flex-wrap: wrap; }
+.dash-tools select { width: auto; padding: 2px 6px; }
+.dash-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.dash-hidden { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.dash-msg { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dash-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--border); }
+.dash-bar.thin { height: 5px; margin-top: 3px; }
+.dash-bar > span { display: block; height: 100%; }
+.dash-legend { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.dash-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 2px; border: 1px solid var(--text-muted); }
+.dash-chart { width: 100%; height: auto; display: block; }
+.dash-axis { font-size: 9px; fill: var(--text-muted); }
+.card.flat { box-shadow: none; }
+.stat-link { display: block; text-decoration: none; color: inherit; }
+.grid.cols-3-tight { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1100px) {
+  .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-w.w-l, .dash-w.w-m { grid-column: span 2; }
+}
+@media (max-width: 600px) {
+  /* Phones: number tiles two per row, everything else full width. */
+  .dash-grid { gap: 12px; }
+  .dash-w.w-s { grid-column: span 1; }
+  .dash-w.w-m, .dash-w.w-l { grid-column: span 2; }
+}

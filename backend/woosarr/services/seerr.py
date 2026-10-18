@@ -165,7 +165,9 @@ class SeerrClient:
             data = None
         if r.status_code >= 400 or (300 <= r.status_code < 400):
             message = data.get("message") if isinstance(data, dict) else None
-            log.warning("seerr %s %s -> %s (%s ms) %s", method, log_path, r.status_code, ms, (message or "")[:200])
+            # 404 on a single request: deleted in Seerr; the caller handles it.
+            level = logging.INFO if r.status_code == 404 and method == "GET" else logging.WARNING
+            log.log(level, "seerr %s %s -> %s (%s ms) %s", method, log_path, r.status_code, ms, (message or "")[:200])
             if r.status_code == 401 or (r.status_code == 403 and user_id is None and path == "/auth/me"):
                 raise SeerrError("Seerr rejected the API key (Seerr → Settings → General → API Key).", r.status_code)
             if 300 <= r.status_code < 400:

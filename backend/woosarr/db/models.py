@@ -307,6 +307,20 @@ class MediaRequest(Base):
     checked_at: Mapped[datetime | None]
 
 
+class ErrorResolution(Base):
+    """An admin marked a group of recent warnings/errors resolved: the dashboard
+    hides its occurrences until `until` (resolve time + 24 h)."""
+
+    __tablename__ = "error_resolutions"
+    fingerprint: Mapped[str] = mapped_column(String(16), primary_key=True)
+    level: Mapped[str] = mapped_column(String(10))
+    logger: Mapped[str] = mapped_column(String(100))
+    message: Mapped[str] = mapped_column(String(300))
+    resolved_at: Mapped[datetime] = mapped_column(default=utcnow)
+    resolved_by: Mapped[str] = mapped_column(String(100))
+    until: Mapped[datetime]
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

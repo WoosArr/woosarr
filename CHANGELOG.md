@@ -5,6 +5,19 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- Customizable dashboard: widgets can be moved, resized and hidden per admin, with new widgets for link coverage, access changes per day, recent activity, library access, requests, Plex invites, a setup checklist and security (failed sign-ins, sessions, API keys), plus individual number tiles.
+- Warnings and errors on the dashboard are grouped by problem and can be **marked resolved**, which hides them from the dashboard for 24 hours (audited; Unresolve available).
+- Users page: **Linked** tab (verified + unverified) between Unverified and Unlinked.
+
+### Fixed
+- Publishing a reaction post into a channel where the bot lacks Add Reactions / Read Message History / Use External Emojis failed with an internal error after the message was already sent; the permissions are now checked first and Discord refusals are shown with the missing permission.
+- `/link` → *Sign in with Plex* could fail with "Unknown interaction" because WooSarr contacted plex.tv before answering Discord's 3-second deadline.
+- Routine Discord gateway reconnects (resumed within a second) were logged as warnings; they're INFO now, with a warning only if the bot stays disconnected for 60 s.
+- A reset or revoked bot token (gateway close 4004) now shows "Discord rejected the bot token" instead of a raw error.
+- Seerr requests deleted in Seerr no longer log a warning on every status check.
+- Warnings and errors could drop out of the in-memory log buffer before the dashboard counted them.
+
+### Added
 - Setup → Discord → **Bot avatar**: set the bot's avatar to the WooSarr icon (default) or an uploaded PNG/JPEG/GIF (checked by its bytes; at least 128×128, up to 8 MB), with a circular preview, and optionally use it as the application icon. Uses the bot's own token; Discord's limit of about two changes per hour is reported with the wait time. Audited.
 
 ### Changed

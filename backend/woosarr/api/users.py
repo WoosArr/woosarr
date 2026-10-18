@@ -117,7 +117,8 @@ def _users(db, only: str | None = None) -> list[UserOut]:
 @router.get("/users", response_model=list[UserOut])
 def list_users(
     db: DbDep,
-    link: Annotated[Literal["verified", "unverified", "unlinked"] | None, Query()] = None,
+    # linked = verified + unverified
+    link: Annotated[Literal["verified", "unverified", "linked", "unlinked"] | None, Query()] = None,
     include_removed: bool = False,
 ) -> list[UserOut]:
     users = _users(db)
@@ -127,6 +128,8 @@ def list_users(
         users = [u for u in users if u.link and u.link.verified]
     elif link == "unverified":
         users = [u for u in users if u.link and not u.link.verified]
+    elif link == "linked":
+        users = [u for u in users if u.link is not None]
     elif link == "unlinked":
         users = [u for u in users if u.link is None]
     return users

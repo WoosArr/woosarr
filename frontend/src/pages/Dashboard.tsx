@@ -1,21 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, type PlanOut, type StatusOut } from "../api";
-import { Icon } from "../icons";
-import { Badge, Empty, ErrorBanner, PageHead, Spinner, ago, useLoad, useToast } from "../ui";
+import type { components } from "../generated/api";
+import { Icon, type IconName } from "../icons";
+import { Badge, Empty, ErrorBanner, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
 
-function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"; s: StatusOut["plex"] }) {
-  return (
-    <div className="card">
-      <div className="row spread">
-        <span className="row"><Icon name={icon} /> <strong>{name}</strong></span>
-        {s.connected ? <Badge tone="ok">Connected</Badge> : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
-      </div>
-      {s.detail ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
-      {!s.configured ? <Link to="/setup" className="small">Set up {name} →</Link> : null}
-    </div>
-  );
-}
+type ErrorGroup = components["schemas"]["ErrorGroupOut"];
+type Insights = components["schemas"]["InsightsOut"];
+type Widget = components["schemas"]["WidgetIn"];
+type Layout = components["schemas"]["LayoutOut"];
+type WidgetId = Widget["id"];
+type Size = NonNullable<Widget["size"]>;
 
 type LastRun = {
   reason: string;
@@ -32,40 +27,115 @@ type LastRun = {
   error_messages: string[];
 };
 
+interface Ctx {
+  status: StatusOut;
+  insights: Insights | null;
+  errors: ErrorGroup[] | null;
+  preview: PlanOut[] | null;
+  reloadErrors: () => void;
+}
+
+const TITLES: Record<WidgetId, string> = {
+  integrations: "Connections",
+  stat_plex_users: "Plex users",
+  stat_linked: "Linked users",
+  stat_libraries: "Libraries",
+  stat_roles: "Discord roles",
+  stat_requests: "Open requests",
+  stat_invites: "Pending invites",
+  errors: "Warnings and errors",
+  last_sync: "Last sync",
+  pending: "Pending changes",
+  links: "Link coverage",
+  access_chart: "Access changes (14 days)",
+  activity: "Recent activity",
+  libraries: "Library access",
+  requests: "Requests",
+  invites: "Plex invites",
+  setup: "Setup checklist",
+  security: "Security",
+};
+const SIZE_LABEL: Record<Size, string> = { s: "Small", m: "Half width", l: "Full width" };
+
 export default function DashboardPage() {
   const toast = useToast();
-  const { data, error, reload } = useLoad(() => api.get<StatusOut>("/api/v1/status"));
+  const status = useLoad(() => api.get<StatusOut>("/api/v1/status"));
   const preview = useLoad(() => api.get<PlanOut[]>("/api/v1/sync/preview"));
+  const insights = useLoad(() => api.get<Insights>("/api/v1/dashboard/insights"));
+  const errors = useLoad(() => api.get<ErrorGroup[]>("/api/v1/errors"));
+  const layout = useLoad(() => api.get<Layout>("/api/v1/dashboard/layout"));
+  const [editing, setEditing] = useState<Widget[] | null>(null);
 
   useEffect(() => {
-    const t = setInterval(() => void reload(), 10000);
-    return () => clearInterval(t);
-  }, [reload]);
+    const fast = setInterval(() => { void status.reload(); void errors.reload(); }, 10000);
+    const slow = setInterval(() => { void insights.reload(); void preview.reload(); }, 30000);
+    return () => { clearInterval(fast); clearInterval(slow); };
+  }, [status.reload, errors.reload, insights.reload, preview.reload]);
 
   const syncNow = async () => {
     try {
       await api.post("/api/v1/sync", {});
       toast.ok("Full sync queued.");
-      setTimeout(() => {
-        void reload();
-        void preview.reload();
-      }, 2500);
+      setTimeout(() => { void status.reload(); void preview.reload(); void insights.reload(); }, 2500);
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  const saveLayout = async () => {
+    try {
+      layout.setData(await api.put<Layout>("/api/v1/dashboard/layout", { widgets: editing }));
+      setEditing(null);
+      toast.ok("Dashboard saved.");
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  const resetLayout = async () => {
+    try {
+      const fresh = await api.del<Layout>("/api/v1/dashboard/layout");
+      layout.setData(fresh);
+      setEditing(fresh.widgets);
+      toast.ok("Back to the default dashboard.");
     } catch (e) {
       toast.error(e);
     }
   };
 
-  if (error) return <ErrorBanner error={error} />;
-  if (!data) return <Spinner />;
-  const last = data.sync.last_run as LastRun | null;
-  const c = data.counts;
+  if (status.error) return <ErrorBanner error={status.error} />;
+  if (!status.data || !layout.data) return <Spinner />;
+  const data = status.data;
+  const ctx: Ctx = { status: data, insights: insights.data, errors: errors.data, preview: preview.data,
+    reloadErrors: () => { void errors.reload(); void status.reload(); } };
+  const widgets = editing ?? layout.data.widgets;
+  const shown = widgets.filter((w) => !w.hidden);
+  const hidden = widgets.filter((w) => w.hidden);
+  const update = (id: WidgetId, patch: Partial<Widget>) => setEditing(widgets.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+  const move = (id: WidgetId, delta: number) => {
+    const order = [...shown];
+    const i = order.findIndex((w) => w.id === id);
+    const j = i + delta;
+    if (j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    setEditing([...order, ...hidden]);
+  };
 
   return (
     <>
       <PageHead title="Dashboard" sub={`WooSarr ${data.version}`}>
-        <button className="btn primary" onClick={() => void syncNow()} disabled={!data.plex.connected}>
-          <Icon name="refresh" /> Sync now
-        </button>
+        {editing ? (
+          <>
+            <button className="btn" onClick={() => void resetLayout()}>Reset to default</button>
+            <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
+            <button className="btn primary" onClick={() => void saveLayout()}><Icon name="check" /> Save layout</button>
+          </>
+        ) : (
+          <>
+            <button className="btn" onClick={() => setEditing(layout.data!.widgets)}><Icon name="settings" /> Customize</button>
+            <button className="btn primary" onClick={() => void syncNow()} disabled={!data.plex.connected}>
+              <Icon name="refresh" /> Sync now
+            </button>
+          </>
+        )}
       </PageHead>
 
       {data.dry_run ? (
@@ -73,7 +143,7 @@ export default function DashboardPage() {
           <Icon name="eye" />
           <div>
             <strong>Dry-run is on.</strong> WooSarr logs and audits what it <em>would</em> change but doesn't touch Plex.
-            Turn it off in <Link to="/settings">Settings</Link> once the planned changes below look right.
+            Turn it off in <Link to="/settings">Settings</Link> once the planned changes look right.
           </div>
         </div>
       ) : null}
@@ -81,81 +151,482 @@ export default function DashboardPage() {
         <div className="banner danger" role="alert">
           <Icon name="alert" />
           <div>
-            {data.recent_errors} error{data.recent_errors === 1 ? "" : "s"} in the last 24 hours. <Link to="/logs?level=ERROR">View logs</Link>
+            {data.recent_errors} unresolved error{data.recent_errors === 1 ? "" : "s"} in the last 24 hours. <Link to="/logs?level=ERROR">View logs</Link>
           </div>
         </div>
       ) : null}
 
-      <div className="grid cols-2" style={{ marginBottom: 16 }}>
-        <Integration name="Plex" icon="plex" s={data.plex} />
-        <Integration name="Discord" icon="discord" s={data.discord} />
-      </div>
+      {editing ? (
+        <p className="small muted">Move, resize or hide widgets, then <strong>Save layout</strong>. The layout is saved for your admin account.</p>
+      ) : null}
 
-      <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        <Stat label="Plex users" value={c.plex_users} to="/users" />
-        <Stat label="Linked" value={c.linked_users} sub={`${c.verified_links} verified`} to="/users" />
-        <Stat label="Libraries" value={c.libraries} sub={`${c.exempt_libraries} exempt`} to="/libraries" />
-        <Stat label="Discord roles" value={c.roles} sub={`${c.discord_members} members`} to="/roles" />
-      </div>
-
-      <div className="grid cols-2">
-        <section className="card" aria-labelledby="sync-h">
-          <h2 id="sync-h">Last sync</h2>
-          {!last ? (
-            <p className="muted">No sync has run yet{data.plex.connected ? "; the first one starts shortly after startup." : "."}</p>
-          ) : (
-            <div className="stack small">
-              <div className="row">
-                {last.skipped ? <Badge tone="neutral">Skipped</Badge> : last.errors ? <Badge tone="danger">{last.errors} errors</Badge> : <Badge tone="ok">OK</Badge>}
-                {last.dry_run ? <Badge tone="warn" icon="eye">Dry run</Badge> : null}
-                <span className="muted">{ago(last.finished_at ?? last.started_at)} · {last.full ? "full" : "partial"} · {last.reason}</span>
+      <div className="dash-grid">
+        {shown.map((w, i) => (
+          <section key={w.id} className={`card dash-w w-${w.size ?? "m"}${editing ? " editing" : ""}`} aria-labelledby={`w-${w.id}`}>
+            {editing ? (
+              <div className="row dash-tools">
+                <strong className="small">{TITLES[w.id]}</strong>
+                <span style={{ flex: 1 }} />
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
+                <select className="inline-input" aria-label={`Size of ${TITLES[w.id]}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
+                  {(["s", "m", "l"] as Size[]).map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
+                </select>
+                <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>
               </div>
-              {last.skipped ? <p>{last.skipped}</p> : (
-                <p>
-                  Checked {last.users_checked} linked users, {last.users_changed} needed changes, {last.writes} written
-                  {last.skipped_drift ? `, ${last.skipped_drift} skipped (changed in Plex meanwhile)` : ""}.
-                </p>
-              )}
-              {last.error_messages.slice(0, 3).map((m) => <code key={m} className="small" style={{ display: "block" }}>{m}</code>)}
-            </div>
-          )}
-          <p className="small muted" style={{ marginTop: 8 }}>
-            <Icon name="clock" size={14} /> Next full reconcile in {Math.round(Number(data.sync.next_full_reconcile_in_seconds) / 60)} min
-            {data.sync.running ? " · running now" : ""}
-          </p>
-        </section>
-
-        <section className="card" aria-labelledby="plan-h">
-          <h2 id="plan-h">Pending changes</h2>
-          {preview.loading && !preview.data ? <Spinner /> : null}
-          {preview.data && preview.data.length === 0 ? (
-            <Empty icon="check" title="Nothing to change">Every linked user already has the access their roles give.</Empty>
-          ) : null}
-          {preview.data && preview.data.length > 0 ? (
-            <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
-              {preview.data.slice(0, 8).map((p) => (
-                <li key={p.plex_user_id}>
-                  <strong>{p.username}</strong>
-                  {p.add.length ? <> gains {p.add.length}</> : null}
-                  {p.add.length && p.remove.length ? "," : null}
-                  {p.remove.length ? <> loses {p.remove.length}</> : null}
-                </li>
-              ))}
-              {preview.data.length > 8 ? <li className="muted">…and {preview.data.length - 8} more</li> : null}
-            </ul>
-          ) : null}
-        </section>
+            ) : null}
+            <WidgetBody id={w.id} ctx={ctx} />
+          </section>
+        ))}
       </div>
+
+      {editing && hidden.length ? (
+        <section className="card" style={{ marginTop: 16 }} aria-labelledby="hidden-widgets">
+          <h2 id="hidden-widgets">More widgets</h2>
+          <ul className="dash-hidden">
+            {hidden.map((w) => (
+              <li key={w.id} className="row spread">
+                <span>{TITLES[w.id]}</span>
+                <button className="btn sm" onClick={() => setEditing([...shown, { ...w, hidden: false }, ...hidden.filter((h) => h.id !== w.id)])}>
+                  <Icon name="plus" size={14} /> Add
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </>
   );
 }
 
-function Stat({ label, value, sub, to }: { label: string; value: number; sub?: string; to: string }) {
+function Title({ id, children }: { id: WidgetId; children?: ReactNode }) {
   return (
-    <Link to={to} className="card" style={{ textDecoration: "none", color: "inherit" }}>
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+    <div className="row spread" style={{ marginBottom: 8 }}>
+      <h2 id={`w-${id}`} style={{ margin: 0 }}>{TITLES[id]}</h2>
+      {children}
+    </div>
+  );
+}
+
+function WidgetBody({ id, ctx }: { id: WidgetId; ctx: Ctx }) {
+  const c = ctx.status.counts;
+  const ins = ctx.insights;
+  switch (id) {
+    case "integrations":
+      return (
+        <>
+          <Title id={id} />
+          <div className="grid cols-2">
+            <Integration name="Plex" icon="plex" s={ctx.status.plex} />
+            <Integration name="Discord" icon="discord" s={ctx.status.discord} />
+            {ins ? (
+              <div className="card flat">
+                <div className="row spread">
+                  <span className="row"><Icon name="download" /> <strong>Seerr</strong></span>
+                  {ins.requests.configured ? <Badge tone="ok">Connected</Badge> : <Badge tone="neutral">Optional</Badge>}
+                </div>
+                {!ins.requests.configured ? <Link to="/setup" className="small">Set up requests →</Link> : null}
+              </div>
+            ) : null}
+          </div>
+        </>
+      );
+    case "stat_plex_users":
+      return <Stat id={id} value={c.plex_users} to="/users" />;
+    case "stat_linked":
+      return <Stat id={id} value={c.linked_users} sub={`${c.verified_links} verified`} to="/users" />;
+    case "stat_libraries":
+      return <Stat id={id} value={c.libraries} sub={`${c.exempt_libraries} exempt`} to="/libraries" />;
+    case "stat_roles":
+      return <Stat id={id} value={c.roles} sub={`${c.discord_members} members`} to="/roles" />;
+    case "stat_requests": {
+      const by = (ins?.requests.by_status ?? {}) as Record<string, number>;
+      const open = (by.pending ?? 0) + (by.approved ?? 0) + (by.partially_available ?? 0);
+      return <Stat id={id} value={ins ? open : null} sub={ins ? `${ins.requests.last_7d as number} this week` : undefined} to="/requests" />;
+    }
+    case "stat_invites":
+      return <Stat id={id} value={ins ? (ins.invites.pending as number) : null} sub={ins ? `${ins.invites.accepted_7d as number} accepted this week` : undefined} to="/users" />;
+    case "errors":
+      return <ErrorsWidget ctx={ctx} />;
+    case "last_sync":
+      return <LastSync status={ctx.status} />;
+    case "pending":
+      return <Pending preview={ctx.preview} />;
+    case "links":
+      return <Links ins={ins} />;
+    case "access_chart":
+      return <AccessChart ins={ins} />;
+    case "activity":
+      return <Activity ins={ins} />;
+    case "libraries":
+      return <Libraries ins={ins} />;
+    case "requests":
+      return <Requests ins={ins} />;
+    case "invites":
+      return <Invites ins={ins} />;
+    case "setup":
+      return <SetupChecklist ins={ins} status={ctx.status} />;
+    case "security":
+      return <Security ins={ins} />;
+  }
+}
+
+function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"; s: StatusOut["plex"] }) {
+  return (
+    <div className="card flat">
+      <div className="row spread">
+        <span className="row"><Icon name={icon} /> <strong>{name}</strong></span>
+        {s.connected ? <Badge tone="ok">Connected</Badge> : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
+      </div>
+      {s.detail ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
+      {!s.configured ? <Link to="/setup" className="small">Set up {name} →</Link> : null}
+    </div>
+  );
+}
+
+function Stat({ id, value, sub, to }: { id: WidgetId; value: number | null; sub?: string; to: string }) {
+  return (
+    <Link to={to} className="stat-link">
+      <div className="stat-label" id={`w-${id}`}>{TITLES[id]}</div>
+      <div className="stat-value">{value ?? "–"}</div>
       {sub ? <div className="small muted">{sub}</div> : null}
     </Link>
+  );
+}
+
+function Loading({ ins }: { ins: Insights | null }) {
+  return ins ? null : <Spinner />;
+}
+
+function ErrorsWidget({ ctx }: { ctx: Ctx }) {
+  const toast = useToast();
+  const [showResolved, setShowResolved] = useState(false);
+  const groups = ctx.errors ?? [];
+  const open = groups.filter((g) => g.count > 0);
+  const resolved = groups.filter((g) => g.count === 0 && g.resolved_until);
+  const act = async (g: ErrorGroup, resolve: boolean) => {
+    try {
+      if (resolve) await api.put(`/api/v1/errors/${g.fingerprint}/resolved`);
+      else await api.del(`/api/v1/errors/${g.fingerprint}/resolved`);
+      toast.ok(resolve ? "Marked resolved; hidden from the dashboard for 24 hours." : "Shown again.");
+      ctx.reloadErrors();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  return (
+    <>
+      <Title id="errors"><Link to="/logs?level=WARNING" className="small">All logs →</Link></Title>
+      {!ctx.errors ? <Spinner /> : open.length === 0 ? (
+        <Empty icon="check" title="No open warnings or errors">Nothing new in the last 24 hours{resolved.length ? " (apart from resolved ones)" : ""}.</Empty>
+      ) : (
+        <ul className="dash-list">
+          {open.slice(0, 8).map((g) => (
+            <li key={g.fingerprint}>
+              <div className="row" style={{ alignItems: "flex-start" }}>
+                <Badge tone={g.level === "ERROR" ? "danger" : "warn"}>{g.level === "ERROR" ? "Error" : "Warning"}</Badge>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="dash-msg">{g.message}</div>
+                  <div className="small muted">
+                    {g.count}× · last {ago(g.last_ts)} · <code>{g.logger}</code>{g.exc ? <> · {g.exc}</> : null}
+                  </div>
+                </div>
+                <button className="btn sm" onClick={() => void act(g, true)} aria-label={`Mark resolved: ${g.message.slice(0, 80)}`}>Resolve</button>
+              </div>
+            </li>
+          ))}
+          {open.length > 8 ? <li className="muted small">…and {open.length - 8} more on the <Link to="/logs?level=WARNING">Logs</Link> page</li> : null}
+        </ul>
+      )}
+      {resolved.length ? (
+        <div style={{ marginTop: 8 }}>
+          <button className="btn ghost sm" aria-expanded={showResolved} onClick={() => setShowResolved(!showResolved)}>
+            {showResolved ? "Hide" : "Show"} {resolved.length} resolved
+          </button>
+          {showResolved ? (
+            <ul className="dash-list">
+              {resolved.map((g) => (
+                <li key={g.fingerprint} className="row">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="dash-msg muted">{g.message}</div>
+                    <div className="small muted">Resolved by {g.resolved_by?.replace(/^admin:/, "")}; hidden until {new Date(g.resolved_until!).toLocaleString()}</div>
+                  </div>
+                  <button className="btn ghost sm" onClick={() => void act(g, false)}>Unresolve</button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function LastSync({ status }: { status: StatusOut }) {
+  const last = status.sync.last_run as LastRun | null;
+  return (
+    <>
+      <Title id="last_sync" />
+      {!last ? (
+        <p className="muted">No sync has run yet{status.plex.connected ? "; the first one starts shortly after startup." : "."}</p>
+      ) : (
+        <div className="stack small">
+          <div className="row">
+            {last.skipped ? <Badge tone="neutral">Skipped</Badge> : last.errors ? <Badge tone="danger">{last.errors} errors</Badge> : <Badge tone="ok">OK</Badge>}
+            {last.dry_run ? <Badge tone="warn" icon="eye">Dry run</Badge> : null}
+            <span className="muted">{ago(last.finished_at ?? last.started_at)} · {last.full ? "full" : "partial"} · {last.reason}</span>
+          </div>
+          {last.skipped ? <p>{last.skipped}</p> : (
+            <p>
+              Checked {last.users_checked} linked users, {last.users_changed} needed changes, {last.writes} written
+              {last.skipped_drift ? `, ${last.skipped_drift} skipped (changed in Plex meanwhile)` : ""}.
+            </p>
+          )}
+          {last.error_messages.slice(0, 3).map((m) => <code key={m} className="small" style={{ display: "block" }}>{m}</code>)}
+        </div>
+      )}
+      <p className="small muted" style={{ marginTop: 8 }}>
+        <Icon name="clock" size={14} /> Next full reconcile in {Math.round(Number(status.sync.next_full_reconcile_in_seconds) / 60)} min
+        {status.sync.running ? " · running now" : ""}
+      </p>
+    </>
+  );
+}
+
+function Pending({ preview }: { preview: PlanOut[] | null }) {
+  return (
+    <>
+      <Title id="pending" />
+      {!preview ? <Spinner /> : preview.length === 0 ? (
+        <Empty icon="check" title="Nothing to change">Every linked user already has the access their roles give.</Empty>
+      ) : (
+        <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
+          {preview.slice(0, 8).map((p) => (
+            <li key={p.plex_user_id}>
+              <strong>{p.username}</strong>
+              {p.add.length ? <> gains {p.add.length}</> : null}
+              {p.add.length && p.remove.length ? "," : null}
+              {p.remove.length ? <> loses {p.remove.length}</> : null}
+            </li>
+          ))}
+          {preview.length > 8 ? <li className="muted">…and {preview.length - 8} more</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function Bar({ parts, label }: { parts: [number, string, string][]; label: string }) {
+  const total = parts.reduce((a, [n]) => a + n, 0) || 1;
+  return (
+    <div className="dash-bar" role="img" aria-label={label}>
+      {parts.map(([n, color, name]) => n > 0 ? <span key={name} style={{ width: `${(n / total) * 100}%`, background: color }} title={`${name}: ${n}`} /> : null)}
+    </div>
+  );
+}
+
+function Links({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="links" /><Loading ins={ins} /></>;
+  const l = ins.links;
+  const pct = l.plex_users ? Math.round((l.linked / l.plex_users) * 100) : 0;
+  return (
+    <>
+      <Title id="links"><span className="small muted">{pct}% linked</span></Title>
+      <Bar label={`${l.verified} verified, ${l.unverified} unverified, ${l.unlinked} unlinked`}
+        parts={[[l.verified, "var(--ok)", "Verified"], [l.unverified, "var(--warn)", "Unverified"], [l.unlinked, "var(--border)", "Unlinked"]]} />
+      <ul className="dash-legend small">
+        <li><span className="dot" style={{ background: "var(--ok)" }} /> <Link to="/users">{l.verified} verified</Link></li>
+        <li><span className="dot" style={{ background: "var(--warn)" }} /> {l.unverified} unverified</li>
+        <li><span className="dot" style={{ background: "var(--border)" }} /> {l.unlinked} Plex users not linked</li>
+      </ul>
+      <p className="small muted" style={{ margin: "8px 0 0" }}>
+        {l.members_unlinked} of {l.members} Discord members haven't linked a Plex account (they can run <code>/link</code>).
+      </p>
+    </>
+  );
+}
+
+function AccessChart({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="access_chart" /><Loading ins={ins} /></>;
+  const days = ins.access_by_day as { date: string; changed: number; planned: number; users: number }[];
+  const max = Math.max(1, ...days.map((d) => d.changed + d.planned));
+  const total = days.reduce((a, d) => a + d.changed, 0);
+  const planned = days.reduce((a, d) => a + d.planned, 0);
+  const w = 280, h = 90, bw = w / days.length;
+  return (
+    <>
+      <Title id="access_chart"><span className="small muted">{total} applied{planned ? `, ${planned} planned (dry-run)` : ""}</span></Title>
+      <svg viewBox={`0 0 ${w} ${h + 14}`} className="dash-chart" role="img" aria-label={`Access changes per day over 14 days: ${total} applied, ${planned} planned`}>
+        {days.map((d, i) => {
+          const hc = (d.changed / max) * h;
+          const hp = (d.planned / max) * h;
+          return (
+            <g key={d.date}>
+              <title>{`${d.date}: ${d.changed} applied, ${d.planned} planned, ${d.users} users`}</title>
+              <rect x={i * bw + 2} y={h - hc} width={bw - 4} height={hc} fill="var(--accent)" rx="2" />
+              <rect x={i * bw + 2} y={h - hc - hp} width={bw - 4} height={hp} fill="var(--warn)" opacity="0.7" rx="2" />
+            </g>
+          );
+        })}
+        <text x="0" y={h + 12} className="dash-axis">{days[0]?.date.slice(5)}</text>
+        <text x={w} y={h + 12} textAnchor="end" className="dash-axis">today</text>
+      </svg>
+      <ul className="dash-legend small">
+        <li><span className="dot" style={{ background: "var(--accent)" }} /> applied</li>
+        <li><span className="dot" style={{ background: "var(--warn)" }} /> planned in dry-run</li>
+      </ul>
+    </>
+  );
+}
+
+const ACTION_TEXT: Record<string, string> = {
+  link_self: "linked their Plex account", link_admin: "linked a user", unlink_self: "unlinked themselves",
+  unlink_admin: "unlinked a user", invite_sent: "sent a Plex invite", invite_accepted: "invite accepted",
+  role_mapping_changed: "changed role libraries", settings_changed: "changed settings", library_exempt: "changed an exemption",
+  request_created: "requested a title", reaction_added: "reacted on a post", reaction_removed: "removed a reaction",
+  login_failed: "failed to sign in", error_resolved: "resolved an error", discord_avatar_set: "changed the bot avatar",
+  reaction_post_published: "published a reaction post", seerr_connected: "connected Seerr",
+};
+
+function actor(a: string): string {
+  if (a === "system") return "WooSarr";
+  if (a.startsWith("admin:")) return a.slice(6);
+  if (a.startsWith("discord:")) return "A member";
+  if (a.startsWith("ip:")) return a.slice(3);
+  return a;
+}
+
+function Activity({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="activity" /><Loading ins={ins} /></>;
+  const rows = ins.activity as { ts: string; actor: string; action: string; target_id: string | null }[];
+  return (
+    <>
+      <Title id="activity"><Link to="/logs?tab=audit" className="small">Audit trail →</Link></Title>
+      {rows.length === 0 ? <p className="muted small">Nothing yet.</p> : (
+        <ul className="dash-list small">
+          {rows.map((r, i) => (
+            <li key={i} className="row spread">
+              <span><strong>{actor(r.actor)}</strong> {ACTION_TEXT[r.action] ?? r.action.replace(/_/g, " ")}</span>
+              <span className="muted">{ago(r.ts)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function Libraries({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="libraries" /><Loading ins={ins} /></>;
+  const libs = ins.libraries as { library_id: string; title: string; users: number; exempt: boolean; managed: boolean }[];
+  const max = Math.max(1, ...libs.map((l) => l.users));
+  return (
+    <>
+      <Title id="libraries"><Link to="/libraries" className="small">Libraries →</Link></Title>
+      {libs.length === 0 ? <p className="muted small">No libraries yet.</p> : (
+        <ul className="dash-list small">
+          {libs.slice(0, 8).map((l) => (
+            <li key={l.library_id}>
+              <div className="row spread">
+                <span>{l.title} {l.exempt ? <Badge tone="info">Exempt</Badge> : !l.managed ? <Badge tone="neutral">No role</Badge> : null}</span>
+                <span className="muted">{l.users} user{l.users === 1 ? "" : "s"}</span>
+              </div>
+              <div className="dash-bar thin" aria-hidden="true"><span style={{ width: `${(l.users / max) * 100}%`, background: "var(--accent)" }} /></div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+const REQ_STATE: Record<string, [Tone, string]> = {
+  pending: ["warn", "Waiting"], approved: ["info", "Approved"], declined: ["danger", "Declined"], failed: ["danger", "Failed"],
+  partially_available: ["accent", "Partly available"], available: ["ok", "Available"], deleted: ["neutral", "Removed"],
+};
+
+function Requests({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="requests" /><Loading ins={ins} /></>;
+  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: { title: string; year: string; media_type: string; status: string; created_at: string }[] };
+  return (
+    <>
+      <Title id="requests"><Link to="/requests" className="small">Requests →</Link></Title>
+      {!r.configured && r.recent.length === 0 ? (
+        <p className="small muted">Connect Seerr on the <Link to="/setup">Setup</Link> page so members can request movies and shows from Discord.</p>
+      ) : (
+        <>
+          <div className="row" style={{ flexWrap: "wrap", marginBottom: 8 }}>
+            {Object.entries(r.by_status).map(([s, n]) => <Badge key={s} tone={(REQ_STATE[s] ?? ["neutral"])[0]}>{(REQ_STATE[s] ?? [, s])[1]}: {n}</Badge>)}
+            <span className="small muted">{r.last_7d} this week</span>
+          </div>
+          <ul className="dash-list small">
+            {r.recent.map((x, i) => (
+              <li key={i} className="row spread">
+                <span>{x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}</span>
+                <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
+function Invites({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="invites" /><Loading ins={ins} /></>;
+  const v = ins.invites as { pending: number; accepted_7d: number; recent: { identifier: string; created_at: string }[] };
+  return (
+    <>
+      <Title id="invites"><Link to="/users" className="small">Users →</Link></Title>
+      <p className="small" style={{ margin: "0 0 8px" }}><strong>{v.pending}</strong> pending · {v.accepted_7d} accepted this week</p>
+      {v.recent.length ? (
+        <ul className="dash-list small">
+          {v.recent.map((i) => <li key={i.identifier + i.created_at} className="row spread"><span>{i.identifier}</span><span className="muted">{ago(i.created_at)}</span></li>)}
+        </ul>
+      ) : <p className="small muted">No pending invites. Members with an allowed role can use <code>/invite</code>.</p>}
+    </>
+  );
+}
+
+function Check({ ok, children, to }: { ok: boolean; children: ReactNode; to?: string }) {
+  const icon: IconName = ok ? "check" : "alert";
+  return (
+    <li className="row">
+      <span style={{ color: ok ? "var(--ok)" : "var(--warn)" }}><Icon name={icon} size={16} /></span>
+      <span>{children} {to && !ok ? <Link to={to}>Fix →</Link> : null}</span>
+    </li>
+  );
+}
+
+function SetupChecklist({ ins, status }: { ins: Insights | null; status: StatusOut }) {
+  if (!ins) return <><Title id="setup" /><Loading ins={ins} /></>;
+  const s = ins.setup as { unmanaged_libraries: number; exempt_libraries: number; roles_mapped: number; roles_unmapped: number };
+  return (
+    <>
+      <Title id="setup" />
+      <ul className="dash-list small">
+        <Check ok={status.plex.connected} to="/setup">Plex connected</Check>
+        <Check ok={status.discord.connected} to="/setup">Discord bot connected</Check>
+        <Check ok={s.roles_mapped > 0} to="/roles">{s.roles_mapped} role{s.roles_mapped === 1 ? "" : "s"} give libraries ({s.roles_unmapped} without)</Check>
+        <Check ok={s.unmanaged_libraries === 0} to="/roles">{s.unmanaged_libraries === 0 ? "Every library is managed by a role or exempt" : `${s.unmanaged_libraries} librar${s.unmanaged_libraries === 1 ? "y has" : "ies have"} no role (left as shared in Plex)`}</Check>
+        <Check ok={!status.dry_run} to="/settings">{status.dry_run ? "Dry-run is on (nothing is written to Plex)" : "Live: changes are written to Plex"}</Check>
+      </ul>
+    </>
+  );
+}
+
+function Security({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="security" /><Loading ins={ins} /></>;
+  const s = ins.security;
+  return (
+    <>
+      <Title id="security"><Link to="/settings?tab=admins" className="small">Admins →</Link></Title>
+      <div className="grid cols-3-tight">
+        <div><div className="stat-value" style={{ color: s.failed_logins_24h ? "var(--warn)" : undefined }}>{s.failed_logins_24h}</div><div className="small muted">failed sign-ins (24 h)</div></div>
+        <div><div className="stat-value">{s.sessions}</div><div className="small muted">active sessions</div></div>
+        <div><div className="stat-value">{s.api_keys}</div><div className="small muted"><Link to="/settings?tab=keys">API keys</Link></div></div>
+      </div>
+    </>
   );
 }

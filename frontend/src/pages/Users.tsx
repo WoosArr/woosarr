@@ -19,7 +19,7 @@ import {
 import { ImpactList } from "../Impact";
 import { LibraryChooser } from "./LibraryChooser";
 
-type Filter = "" | "verified" | "unverified" | "unlinked";
+type Filter = "" | "verified" | "unverified" | "linked" | "unlinked";
 
 export default function UsersPage() {
   const [filter, setFilter] = useState<Filter>("");
@@ -88,7 +88,7 @@ export default function UsersPage() {
       <div className="row" style={{ marginBottom: 12 }}>
         <input type="search" className="inline-input" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search users" style={{ width: 260 }} />
         <div className="segmented" role="group" aria-label="Link filter">
-          {(["", "verified", "unverified", "unlinked"] as Filter[]).map((f) => (
+          {(["", "verified", "unverified", "linked", "unlinked"] as Filter[]).map((f) => (
             <button key={f || "all"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {f ? f[0].toUpperCase() + f.slice(1) : "All"}
             </button>

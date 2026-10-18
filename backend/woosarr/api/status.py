@@ -13,7 +13,6 @@ from sqlalchemy import func, select
 from woosarr import __version__
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
-from woosarr.core import logs as logcore
 from woosarr.core.app_settings import AppSettings
 from woosarr.db.models import (
     AuditLog,
@@ -24,7 +23,7 @@ from woosarr.db.models import (
     PlexUser,
     utcnow,
 )
-from woosarr.services import audit, impact
+from woosarr.services import audit, error_digest, impact
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.engine import plan_for_user
 
@@ -58,9 +57,8 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     settings = app_settings.load(db)
     plex = state.plex_status()
     discord = state.discord_status()
-    entries, _ = logcore.buffer().query(min_level=logging.WARNING, limit=5000)
-    cutoff = (utcnow() - timedelta(hours=24)).isoformat()
-    recent = [e for e in entries if e.ts >= cutoff]
+    # Last 24 h, minus groups an admin marked resolved (services/error_digest.py).
+    recent_warnings, recent_errors = error_digest.visible_counts(db)
     return StatusOut(
         version=__version__,
         dry_run=settings.dry_run,
@@ -79,8 +77,8 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
             "discord_members": _count(db, DiscordMember, DiscordMember.in_guild.is_(True)),
             "audit_entries_24h": _count(db, AuditLog, AuditLog.ts >= utcnow() - timedelta(hours=24)),
         },
-        recent_warnings=sum(1 for e in recent if e.level == "WARNING"),
-        recent_errors=sum(1 for e in recent if e.level in ("ERROR", "CRITICAL")),
+        recent_warnings=recent_warnings,
+        recent_errors=recent_errors,
     )
 
 

@@ -253,6 +253,44 @@ test("request command name can be renamed but not to a reserved name", async ({ 
   await expect(page.getByText("Connect Seerr on the")).toBeVisible();
 });
 
+test("dashboard widgets can be hidden, moved, added back and reset", async ({ page }) => {
+  await login(page);
+  await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Customize" }).click();
+  const a11y = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(a11y.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
+  // Hide the Plex users tile, add the Security widget, move Linked users first.
+  await page.locator("section", { has: page.getByText("Plex users", { exact: true }) }).getByRole("button", { name: "Hide" }).click();
+  await page.getByRole("region", { name: "More widgets" }).getByRole("listitem").filter({ hasText: "Security" }).getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections: now first
+  await expect(page.getByRole("button", { name: "Move Linked users earlier" })).toBeDisabled();
+  await page.getByLabel("Size of Linked users").selectOption("m");
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await expect(page.getByText("Dashboard saved.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toHaveCount(0);
+  const first = page.locator(".dash-grid > section").first();
+  await expect(first).toContainText("Linked users");
+  await expect(first).toHaveClass(/w-m/);
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Warnings and errors" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Link coverage" })).toBeVisible();
+});
+
+test("users page has a Linked tab between Unverified and Unlinked", async ({ page }) => {
+  await login(page);
+  await page.goto("/users");
+  const tabs = page.getByRole("group", { name: "Link filter" }).getByRole("button");
+  await expect(tabs).toHaveText(["All", "Verified", "Unverified", "Linked", "Unlinked"]);
+  await tabs.filter({ hasText: /^Linked$/ }).click();
+  await expect(tabs.filter({ hasText: /^Linked$/ })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("mobile layout uses a drawer for navigation", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await login(page);

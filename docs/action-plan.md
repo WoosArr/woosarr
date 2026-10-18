@@ -237,10 +237,16 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P7-04** Dashboard: Plex/Discord status, last sync report, pending changes (preview), 24 h error count, dry-run banner, Sync now.
 - [x] **P7-05** Settings: general (dry-run with go-live confirmation, interval, leave policy, ignore-unverified, cooldown, log level, audit retention), appearance, my account, admins, API keys. Secret replacement is replace-only on the Setup page (re-sign-in to Plex, *Replace token* for Discord). SAML deferred (D7a).
 
+- [x] **P7-06** Customizable dashboard: per-admin layout (`GET/PUT/DELETE /api/v1/dashboard/layout`, move/resize/hide/add), widgets from `GET /api/v1/dashboard/insights` (link coverage, access changes per day, activity, library access, requests, invites, setup checklist, security) and number tiles. *Verify:* `tests/test_dashboard.py`, Playwright `dashboard widgets…` (+ axe in edit mode).
+- [x] **P7-07** Users page *Linked* tab (`?link=linked`). *Verify:* `test_users_linked_filter`, Playwright `users page has a Linked tab…`.
+
 ### Phase 8 — Logs
 - [x] **P8-01** Logs page: live tail (2 s cursor polling), level filter, search, export shown lines (JSONL) and full file; keeps up to 20k lines with `content-visibility` rows. Push streaming dropped: polling with `since` is enough for one admin UI.
 - [x] **P8-02** Audit trail tab (`GET /api/v1/audit`, action filter, paging).
 - [x] **P8-03** Log level setting applies live; file logs rotate by size (`WOOSARR_LOG_FILE_MAX_BYTES` × backups); audit retention in days, pruned on full reconcile.
+
+- [x] **P8-04** Dashboard warnings/errors grouped by fingerprint (`services/error_digest.py`), **mark resolved** hides a group for 24 h (`PUT/DELETE /api/v1/errors/{fp}/resolved`, migration 0009, audited); separate WARNING+ ring buffer. *Verify:* `tests/test_dashboard.py`.
+- [x] **P8-05** Live log review 2026-10-18: reaction-post publish 500 (missing channel permissions → pre-check + clear errors), `/link` Plex button "Unknown interaction" (defer before plex.tv), gateway reconnect noise (INFO + 60 s watchdog), 4004 message, Seerr 404 noise. *Verify:* `tests/test_discord_features.py::…publish_refused_up_front…`, `tests/test_discord_events.py::LiveLogFixTests`.
 
 ### Phase 9 — Setup assistants
 - [x] **P9-01** Discord wizard on the Setup page. **Live:** bot *WooSarr* connected to *Dave's Plex Chat* (6 roles, 36 members).

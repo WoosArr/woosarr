@@ -935,6 +935,95 @@
         "title": "EmojiOut",
         "type": "object"
       },
+      "ErrorGroupOut": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "exc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exc"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "first_ts": {
+            "title": "First Ts",
+            "type": "string"
+          },
+          "hidden": {
+            "title": "Hidden",
+            "type": "integer"
+          },
+          "last_ts": {
+            "title": "Last Ts",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "WARNING",
+              "ERROR"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "title": "Logger",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
+          },
+          "resolved_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Until"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "level",
+          "logger",
+          "message",
+          "exc",
+          "count",
+          "hidden",
+          "first_ts",
+          "last_ts",
+          "resolved_until",
+          "resolved_by"
+        ],
+        "title": "ErrorGroupOut",
+        "type": "object"
+      },
       "FeatureOut": {
         "properties": {
           "available": {
@@ -1042,6 +1131,75 @@
           "users"
         ],
         "title": "ImpactOut",
+        "type": "object"
+      },
+      "InsightsOut": {
+        "properties": {
+          "access_by_day": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Access By Day",
+            "type": "array"
+          },
+          "activity": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "invites": {
+            "additionalProperties": true,
+            "title": "Invites",
+            "type": "object"
+          },
+          "libraries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Libraries",
+            "type": "array"
+          },
+          "links": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Links",
+            "type": "object"
+          },
+          "requests": {
+            "additionalProperties": true,
+            "title": "Requests",
+            "type": "object"
+          },
+          "security": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Security",
+            "type": "object"
+          },
+          "setup": {
+            "additionalProperties": true,
+            "title": "Setup",
+            "type": "object"
+          }
+        },
+        "required": [
+          "links",
+          "activity",
+          "access_by_day",
+          "libraries",
+          "invites",
+          "requests",
+          "setup",
+          "security"
+        ],
+        "title": "InsightsOut",
         "type": "object"
       },
       "IntegrationStatus": {
@@ -1185,6 +1343,44 @@
           "permissions"
         ],
         "title": "InviteUrlOut",
+        "type": "object"
+      },
+      "LayoutIn": {
+        "properties": {
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/WidgetIn"
+            },
+            "maxItems": 18,
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "widgets"
+        ],
+        "title": "LayoutIn",
+        "type": "object"
+      },
+      "LayoutOut": {
+        "properties": {
+          "custom": {
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/WidgetIn"
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "widgets",
+          "custom"
+        ],
+        "title": "LayoutOut",
         "type": "object"
       },
       "LibraryAccess": {
@@ -3714,6 +3910,54 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WidgetIn": {
+        "properties": {
+          "hidden": {
+            "default": false,
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "id": {
+            "enum": [
+              "integrations",
+              "stat_plex_users",
+              "stat_linked",
+              "stat_libraries",
+              "stat_roles",
+              "stat_requests",
+              "stat_invites",
+              "errors",
+              "last_sync",
+              "pending",
+              "links",
+              "access_chart",
+              "activity",
+              "libraries",
+              "requests",
+              "invites",
+              "setup",
+              "security"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "size": {
+            "default": "m",
+            "enum": [
+              "s",
+              "m",
+              "l"
+            ],
+            "title": "Size",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "WidgetIn",
+        "type": "object"
+      },
       "WriteCheckIn": {
         "properties": {
           "confirm": {
@@ -4290,6 +4534,107 @@
         ]
       }
     },
+    "/api/v1/dashboard/insights": {
+      "get": {
+        "description": "Everything the dashboard widgets show, from data WooSarr already keeps.",
+        "operationId": "insights_api_v1_dashboard_insights_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Insights",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/dashboard/layout": {
+      "delete": {
+        "operationId": "reset_layout_api_v1_dashboard_layout_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset Layout",
+        "tags": [
+          "dashboard"
+        ]
+      },
+      "get": {
+        "operationId": "get_layout_api_v1_dashboard_layout_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Layout",
+        "tags": [
+          "dashboard"
+        ]
+      },
+      "put": {
+        "operationId": "put_layout_api_v1_dashboard_layout_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LayoutOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Layout",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/api/v1/discord": {
       "delete": {
         "operationId": "discord_disconnect_api_v1_discord_delete",
@@ -4699,6 +5044,136 @@
         "summary": "Discord Set Token",
         "tags": [
           "integrations"
+        ]
+      }
+    },
+    "/api/v1/errors": {
+      "get": {
+        "description": "Warnings/errors of the last 24 h grouped by problem, newest first.",
+        "operationId": "list_errors_api_v1_errors_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "default": "WARNING",
+              "enum": [
+                "WARNING",
+                "ERROR"
+              ],
+              "title": "Level",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ErrorGroupOut"
+                  },
+                  "title": "Response List Errors Api V1 Errors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Errors",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/api/v1/errors/{fingerprint}/resolved": {
+      "delete": {
+        "operationId": "unresolve_error_api_v1_errors__fingerprint__resolved_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unresolve Error",
+        "tags": [
+          "dashboard"
+        ]
+      },
+      "put": {
+        "description": "Hide this problem's occurrences from the dashboard for 24 h.",
+        "operationId": "resolve_error_api_v1_errors__fingerprint__resolved_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "title": "Fingerprint",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Error",
+        "tags": [
+          "dashboard"
         ]
       }
     },
@@ -6396,6 +6871,7 @@
                   "enum": [
                     "verified",
                     "unverified",
+                    "linked",
                     "unlinked"
                   ],
                   "type": "string"

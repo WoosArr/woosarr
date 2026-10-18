@@ -50,6 +50,7 @@ FLAG_GATEWAY_GUILD_MEMBERS = 1 << 14
 FLAG_GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15
 LINK_POLL_SECONDS = 2
 LINK_TIMEOUT_SECONDS = 300
+DISCONNECT_GRACE_SECONDS = 60
 
 
 class DiscordConfigError(Exception):
@@ -118,6 +119,8 @@ class WooSarrBot(discord.Client):
         self.guild_id = guild_id
         self.tree = app_commands.CommandTree(self)
         self.request_name: str | None = None  # registered name of the request command
+        self._disconnect_watch: asyncio.Task | None = None
+        self._gateway_up = False
         self._commands_lock = asyncio.Lock()
         self._register_commands()
 
@@ -177,11 +180,26 @@ class WooSarrBot(discord.Client):
         self.service.trigger(None, "discord connected")
         self.service.schedule_role_sync()
 
+    async def on_connect(self) -> None:
+        self._gateway_up = True
+
     async def on_resumed(self) -> None:
+        self._gateway_up = True
         log.info("discord session resumed")
 
     async def on_disconnect(self) -> None:
-        log.warning("discord gateway disconnected; discord.py reconnects automatically")
+        self._gateway_up = False
+        # Discord rotates gateway sessions routinely; discord.py resumes within a
+        # second or two. Only a disconnect that lasts is worth a warning.
+        log.info("discord gateway disconnected; discord.py reconnects automatically")
+        if self._disconnect_watch is None or self._disconnect_watch.done():
+            self._disconnect_watch = asyncio.create_task(self._warn_if_still_down())
+
+    async def _warn_if_still_down(self) -> None:
+        await asyncio.sleep(DISCONNECT_GRACE_SECONDS)
+        if not self.is_closed() and not self._gateway_up:
+            log.warning("discord gateway still disconnected after %s s; discord.py keeps retrying",
+                        DISCONNECT_GRACE_SECONDS)
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         if not self._ours(after.guild):
@@ -258,6 +276,18 @@ class _LinkView(discord.ui.View):
     @discord.ui.button(label="Sign in with Plex (verified)", style=discord.ButtonStyle.primary)
     async def by_oauth(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await self.service.start_oauth_link(interaction)
+
+
+def reaction_channel_missing(channel: Any, guild: Any, emojis: list[str]) -> list[str]:
+    """Permission names the bot lacks in the channel to post a reaction post with these emoji."""
+    p = channel.permissions_for(guild.me)
+    need = {"View Channel": p.view_channel, "Send Messages": p.send_messages, "Add Reactions": p.add_reactions,
+            "Read Message History": p.read_message_history}
+    own = {str(e.id) for e in getattr(guild, "emojis", [])}
+    external = [e for e in emojis if e.startswith("<") and e.rstrip(">").rsplit(":", 1)[-1] not in own]
+    if external:
+        need["Use External Emojis"] = getattr(p, "use_external_emojis", False)
+    return [name for name, ok in need.items() if not (ok or getattr(p, "administrator", False))]
 
 
 def option_role_ids(option: dict) -> set[str]:
@@ -378,29 +408,52 @@ class _GuildFeatures:
             channel = guild.get_channel(int(post["channel_id"]))
         if not isinstance(channel, discord.TextChannel):
             raise DiscordConfigError("Choose a text channel (or a name for a new one).")
+        emojis = [normalize_emoji(o["emoji"]) for o in post["options"]]
+        missing = reaction_channel_missing(channel, guild, emojis)
+        if missing:
+            log.warning("reaction post %s not published: bot lacks %s in #%s", post_id, ", ".join(missing),
+                        channel.name)
+            raise DiscordConfigError(f"The bot is missing {', '.join(missing)} in #{channel.name}. Allow it in the "
+                                     "channel's permissions (Edit Channel → Permissions → the bot's role), then try "
+                                     "again.")
         message = None
-        if post["message_id"] and str(channel.id) == post["channel_id"]:
-            try:
-                message = await channel.fetch_message(int(post["message_id"]))
-                await message.edit(content=post["content"], allowed_mentions=discord.AllowedMentions.none())
-            except discord.NotFound:
-                message = None
-        if message is None:
-            message = await channel.send(post["content"], allowed_mentions=discord.AllowedMentions.none())
-        present = {str(r.emoji) for r in message.reactions if r.me}
-        for opt in post["options"]:
-            emoji = normalize_emoji(opt["emoji"])
-            if emoji not in present:
-                await message.add_reaction(discord.PartialEmoji.from_str(emoji))
         pinned = False
-        if post["pin"]:
-            ok, why = features.available(self.feature_status(), "pin_posts")
-            if ok:
-                if not message.pinned:
-                    await message.pin(reason="WooSarr reaction post")
-                pinned = True
-            else:
-                log.warning("reaction post %s not pinned: %s", post_id, why)
+        try:
+            if post["message_id"] and str(channel.id) == post["channel_id"]:
+                try:
+                    message = await channel.fetch_message(int(post["message_id"]))
+                    await message.edit(content=post["content"], allowed_mentions=discord.AllowedMentions.none())
+                except discord.NotFound:
+                    message = None
+            if message is None:
+                message = await channel.send(post["content"], allowed_mentions=discord.AllowedMentions.none())
+            present = {str(r.emoji) for r in message.reactions if r.me}
+            for emoji in emojis:
+                if emoji not in present:
+                    try:
+                        await message.add_reaction(discord.PartialEmoji.from_str(emoji))
+                    except discord.HTTPException as exc:
+                        if exc.status == 400 or getattr(exc, "code", 0) == 10014:  # unknown / unusable emoji
+                            raise DiscordConfigError(f"Discord can't use the emoji {emoji} (deleted, or from a "
+                                                     "server the bot isn't in). Pick another one.") from None
+                        raise
+            if post["pin"]:
+                ok, why = features.available(self.feature_status(), "pin_posts")
+                if ok:
+                    if not message.pinned:
+                        await message.pin(reason="WooSarr reaction post")
+                    pinned = True
+                else:
+                    log.warning("reaction post %s not pinned: %s", post_id, why)
+        except discord.Forbidden as exc:
+            log.warning("reaction post %s: Discord refused (%s) in #%s", post_id, exc.text or exc, channel.name)
+            raise DiscordConfigError(f"Discord refused: {exc.text or 'missing permissions'} in #{channel.name}. Check "
+                                     "the bot's permissions in that channel (View Channel, Send Messages, Add "
+                                     "Reactions, Read Message History, and Use External Emojis for other servers' "
+                                     "emoji).") from None
+        except discord.HTTPException as exc:
+            log.warning("reaction post %s: Discord error %s in #%s: %s", post_id, exc.status, channel.name, exc.text)
+            raise DiscordConfigError(f"Discord answered {exc.status}: {exc.text or 'error'}. Try again.") from None
 
         def save(s):
             row = s.get(ReactionPost, post_id)
@@ -707,6 +760,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         self._role_problem: str | None = None
         self._post_task: asyncio.Task | None = None
         self._post_again = False
+        self._link_tasks: set[asyncio.Task] = set()
         if sync is not None:
             sync.after_run.append(lambda _report: self.schedule_role_sync())
             # Role mappings / library names may have changed: keep reaction post legends current.
@@ -846,6 +900,13 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
                            "Gateway Intents), then press Restart.")
         except discord.LoginFailure:
             self.set_error("Discord rejected the bot token. Enter it again on the Setup page.")
+        except discord.ConnectionClosed as exc:
+            if exc.code == 4004:  # authentication failed: token reset or revoked
+                self.set_error("Discord rejected the bot token (it was reset or revoked). Enter the new token on the "
+                               "Setup page.")
+            else:
+                log.exception("discord gateway closed the connection")
+                self.set_error(f"Discord closed the connection (code {exc.code}). Press Restart bot to try again.")
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # surface anything else in the UI instead of dying silently
@@ -944,19 +1005,24 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
 
     async def start_oauth_link(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)
+        # Answer Discord first: it drops interactions not answered within 3 s, and
+        # starting the Plex sign-in is a plex.tv round trip.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
             pin_id, url = await asyncio.to_thread(
                 self._plex.start_login, None, "link", f"woosarr-link-{uuid.uuid4()}")
         except Exception:
             log.exception("could not start Plex sign-in for /link")
-            await interaction.response.send_message("Plex sign-in is unavailable right now. Try the username option.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Plex sign-in is unavailable right now. Try the username option.",
+                                            ephemeral=True)
             return
         view = discord.ui.View(timeout=LINK_TIMEOUT_SECONDS)
         view.add_item(discord.ui.Button(label="Open Plex sign-in", url=url))
-        await interaction.response.send_message("Sign in on the Plex page, then come back here. This expires in 5 minutes.",
-                                                view=view, ephemeral=True)
-        asyncio.create_task(self._finish_oauth_link(interaction, discord_id, pin_id))
+        await interaction.followup.send("Sign in on the Plex page, then come back here. This expires in 5 minutes.",
+                                        view=view, ephemeral=True)
+        task = asyncio.create_task(self._finish_oauth_link(interaction, discord_id, pin_id))
+        self._link_tasks.add(task)  # keep a reference until it finishes
+        task.add_done_callback(self._link_tasks.discard)
 
     async def _finish_oauth_link(self, interaction: discord.Interaction, discord_id: str, pin_id: str) -> None:
         deadline = time.monotonic() + LINK_TIMEOUT_SECONDS

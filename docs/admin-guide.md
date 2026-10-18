@@ -53,6 +53,26 @@ Default: their role-granted libraries are removed; manual grants and exempt libr
 - **Unverified**: the user typed a Plex username. It isn't proven. A verified link to the same Plex account replaces it.
 - Turn on *Ignore unverified links* to manage only verified users.
 
+## Dashboard
+
+The dashboard is made of widgets. **Customize** lets each admin move (↑/↓), resize (small = a quarter of the width, half, full) and hide widgets, and add hidden ones back from *More widgets*; **Save layout** stores it for your admin account, **Reset to default** brings back WooSarr's layout. Widgets:
+
+| Widget | Shows |
+|--------|-------|
+| Connections | Plex, Discord and Seerr status |
+| Plex users / Linked users / Libraries / Discord roles / Open requests / Pending invites | One number each, linking to its page |
+| Warnings and errors | Last 24 h, grouped by problem (repeats with different ids count once), with **Resolve** |
+| Last sync / Pending changes | The last sync report and what the next one would change |
+| Link coverage | Verified / unverified / unlinked Plex users, and Discord members who haven't linked |
+| Access changes (14 days) | Applied changes per day (and planned ones in dry-run) |
+| Recent activity | The latest audited events, without routine sync and sign-in entries |
+| Library access | Users per library; marks exempt libraries and libraries no role manages |
+| Requests / Plex invites | Recent requests by status; pending invites |
+| Setup checklist | Connections, role mappings, unmanaged libraries, dry-run |
+| Security | Failed sign-ins (24 h), active sessions, API keys |
+
+**Resolve** hides that problem from the dashboard (the banner count and the widget) for 24 hours, including earlier occurrences; it's audited (`error_resolved`) and shared by all admins. If it happens again after the 24 hours, it shows up again. *Show resolved* lists resolved problems with **Unresolve**. The Logs page always shows everything. Warnings and errors are kept in their own in-memory buffer (2,000 entries), so a busy INFO log doesn't push them out before they're seen.
+
 ## Impact previews
 
 Role mapping changes (Roles page), Remove libraries (Users page) and settings that change access (dry-run, leave-server policy, ignore unverified links) show who gains or loses which libraries before you save. Previews use the shares seen at the last sync and make no Plex calls.

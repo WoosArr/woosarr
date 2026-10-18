@@ -144,9 +144,11 @@ class FakeMessage:
 class FakeChannel:
     def __init__(self, cid, name):
         self.id, self.name, self.category, self.messages, self.sent = cid, name, None, {}, []
+        self.perms = {"view_channel": True, "send_messages": True, "add_reactions": True,
+                      "read_message_history": True, "use_external_emojis": False, "administrator": False}
 
     def permissions_for(self, _me):
-        return SimpleNamespace(view_channel=True, send_messages=True, add_reactions=True)
+        return SimpleNamespace(**self.perms)
 
     async def send(self, content, allowed_mentions=None):
         msg = FakeMessage(8000 + len(self.sent))
@@ -293,6 +295,45 @@ class GuildFeatureTests(GuildMixin, Base):
             s.get(ReactionPost, 1).message_id = None
         out = self.fire(self.svc.publish_post(1))
         self.assertFalse(out["pinned"])
+
+    def test_publish_refused_up_front_when_channel_permissions_are_missing(self):
+        guild = FakeGuild(perms(**ALL))
+        self.attach(guild)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).message_id = None
+        guild.channel.perms["add_reactions"] = False
+        with self.assertRaisesRegex(DiscordConfigError, "missing Add Reactions in #plex-access"):
+            self.fire(self.svc.publish_post(1))
+        self.assertEqual(guild.channel.sent, [])  # nothing half-posted
+        guild.channel.perms["add_reactions"] = True
+        with self.db.session() as s:  # another server's custom emoji needs Use External Emojis
+            post = s.get(ReactionPost, 1)
+            post.options = [*post.options, {"emoji": "<:other:999888777>", "role_id": "8001"}]
+        with self.assertRaisesRegex(DiscordConfigError, "Use External Emojis"):
+            self.fire(self.svc.publish_post(1))
+        guild.channel.perms["use_external_emojis"] = True
+        self.fire(self.svc.publish_post(1))
+        self.assertIn("<:other:999888777>", guild.channel.sent[0].added)
+
+    def test_discord_refusal_while_publishing_is_a_clear_error(self):
+        import discord
+
+        guild = FakeGuild(perms(**ALL))
+        self.attach(guild)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).message_id = None
+
+        async def refuse(_emoji):
+            raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"),
+                                    {"code": 50013, "message": "Missing Permissions"})
+
+        original = FakeMessage.add_reaction
+        FakeMessage.add_reaction = lambda self, emoji: refuse(emoji)
+        try:
+            with self.assertRaisesRegex(DiscordConfigError, "Discord refused: Missing Permissions in #plex-access"):
+                self.fire(self.svc.publish_post(1))
+        finally:
+            FakeMessage.add_reaction = original
 
     def test_publish_into_new_channel_needs_manage_channels(self):
         guild = FakeGuild(perms(**ALL))

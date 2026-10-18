@@ -74,7 +74,11 @@ These roles can themselves be mapped to libraries on the Roles page, e.g. give e
 
 ## Per-library roles
 
-Libraries page → **Create role** creates `Plex · <library>` and maps it to that library. Assign the role in Discord and members get the library on the next sync. Needs *Create roles*.
+Libraries page → **Create role** opens the same dialog as the Roles page with the name prefilled as `Plex · <library>` (change it to anything), a colour, and that library already ticked (add others if you like). WooSarr creates the role and maps it. Assign the role in Discord and members get the library on the next sync. Needs *Create roles*.
+
+## Roles deleted in Discord
+
+When a role is deleted in Discord (or was deleted while the bot was offline), the Roles page marks it **Deleted in Discord** and keeps its mappings so nothing changes silently. **Remove** (per role) or **Remove N deleted roles** forgets it in WooSarr and cleans up everything that refers to it: role → library mappings, the link-status roles and the *Roles allowed to /invite* / *request* lists in Settings, and reaction-post options that give it (the post's legend is updated). The confirmation lists exactly what will be removed. Roles that still exist in Discord can't be removed here (delete them in Discord first). No one can hold a deleted role, so no Plex access changes; a sync runs anyway when mappings were removed. Audited as `role_removed`.
 
 ## Reaction posts
 

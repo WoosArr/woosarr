@@ -301,6 +301,49 @@ test("users page has a Linked tab between Unverified and Unlinked", async ({ pag
   await expect(tabs.filter({ hasText: /^Linked$/ })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
+  await login(page);
+  await page.goto("/roles");
+  const row = page.getByRole("row", { name: /Old Movie Night/ });
+  await expect(row.getByText("Deleted in Discord")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
+  await row.getByRole("button", { name: "Remove Old Movie Night from WooSarr" }).click();
+  await expect(page.getByRole("dialog")).toContainText("no longer exists in Discord");
+  await expect(page.getByRole("dialog")).toContainText("nothing else refers to it");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("Removed 1 role.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+});
+
+test("libraries: create role lets the admin set the name", async ({ page }) => {
+  await login(page);
+  // Demo mode has no real bot: report role creation as available and capture the create call.
+  await page.route("**/api/v1/discord/status", async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.features = (body.features ?? []).map((f: { key: string }) => (f.key === "create_roles" ? { ...f, available: true, notes: [] } : f));
+    await route.fulfill({ response: res, json: body });
+  });
+  const sent: Record<string, unknown>[] = [];
+  await page.route("**/api/v1/discord/roles", async (route) => {
+    sent.push(route.request().postDataJSON());
+    await route.fulfill({ status: 201, json: { role_id: "123456789012345678", name: "Film Club" } });
+  });
+  await page.goto("/libraries");
+  await page.getByRole("row", { name: /^Movies/ }).getByRole("button", { name: "Create role" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create a role for Movies" });
+  const name = dialog.getByLabel("Name");
+  await expect(name).toHaveValue("Plex · Movies");
+  await expect(dialog.getByRole("checkbox", { name: /^Movies/ })).toBeChecked();
+  await name.fill("Film Club");
+  await dialog.getByRole("button", { name: "Create role" }).click();
+  await expect(page.getByText(/Created Film Club in Discord and mapped its libraries/)).toBeVisible();
+  expect(sent).toHaveLength(1);
+  expect(sent[0].name).toBe("Film Club");
+  expect(sent[0].purpose).toBe("plain");
+  expect((sent[0].library_ids as string[]).length).toBe(1);
+});
+
 test("mobile layout uses a drawer for navigation", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await login(page);

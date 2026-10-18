@@ -1,19 +1,73 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, type ImpactOut, type LibraryOut, type RoleCreated, type RoleOut } from "../api";
+import type { components } from "../generated/api";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
-import { Badge, Empty, ErrorBanner, Modal, PageHead, RoleChip, Spinner, useLoad, useToast } from "../ui";
+import { Badge, Empty, ErrorBanner, Modal, PageHead, RoleChip, Spinner, useConfirm, useLoad, useToast } from "../ui";
+
+type RoleReferences = components["schemas"]["RoleReferences"];
+type PurgeOut = components["schemas"]["PurgeOut"];
+
+const SETTING_NAMES: Record<string, string> = {
+  verified_role_id: "Verified link role", unverified_role_id: "Unverified link role", linked_role_id: "Linked role",
+  invite_role_ids: "Roles allowed to /invite", request_role_ids: "Roles allowed to request",
+};
+
+/** What removing these roles from WooSarr cleans up, as a list for the confirm dialog. */
+function cleanup(refs: RoleReferences[], titles: Map<string, string>): ReactNode {
+  return (
+    <ul className="small" style={{ paddingLeft: 18, margin: "8px 0 0" }}>
+      {refs.map((r) => {
+        const parts = [
+          r.library_ids.length ? `library mapping (${r.library_ids.map((id) => titles.get(id) ?? id).join(", ")})` : null,
+          ...r.settings.map((k) => `setting "${SETTING_NAMES[k] ?? k}"`),
+          ...r.reaction_posts.map((p) => `reaction ${String(p.emoji)} on "${String(p.title)}"`),
+        ].filter(Boolean);
+        return <li key={r.role_id}><strong>{r.name}</strong>: {parts.length ? parts.join("; ") : "nothing else refers to it"}</li>;
+      })}
+    </ul>
+  );
+}
 import { LibraryChooser } from "./LibraryChooser";
 
 export default function RolesPage() {
   const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
   const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
+  const deleted = useLoad(() => api.get<RoleReferences[]>("/api/v1/roles/deleted"));
+  const confirm = useConfirm();
+  const toast = useToast();
   const [editing, setEditing] = useState<RoleOut | null>(null);
   const [showManaged, setShowManaged] = useState(false);
   const [creating, setCreating] = useState(false);
   const { available, why } = useDiscordFeatures();
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
   const shown = (roles.data ?? []).filter((r) => showManaged || !r.managed || r.library_ids.length);
+  const gone = deleted.data ?? [];
+
+  const remove = async (refs: RoleReferences[]) => {
+    const one = refs.length === 1;
+    const ok = await confirm({
+      title: one ? `Remove ${refs[0].name}?` : `Remove ${refs.length} deleted roles?`,
+      body: (
+        <>
+          <p>{one ? "This role no longer exists in Discord." : "These roles no longer exist in Discord."} WooSarr forgets {one ? "it" : "them"} and cleans up:</p>
+          {cleanup(refs, titles)}
+          <p className="small muted" style={{ marginTop: 8 }}>Nobody can hold a deleted role, so no one's Plex access changes; a sync runs to confirm.</p>
+        </>
+      ),
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const r = one ? await api.del<PurgeOut>(`/api/v1/roles/${refs[0].role_id}`) : await api.post<PurgeOut>("/api/v1/roles/remove-deleted");
+      toast.ok(`Removed ${r.removed.length} role${r.removed.length === 1 ? "" : "s"}.`);
+      void roles.reload();
+      void deleted.reload();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
 
   return (
     <>
@@ -22,6 +76,9 @@ export default function RolesPage() {
           <input type="checkbox" checked={showManaged} onChange={(e) => setShowManaged(e.target.checked)} />
           Show bot/integration roles
         </label>
+        {gone.length > 1 ? (
+          <button className="btn danger" onClick={() => void remove(gone)}><Icon name="trash" /> Remove {gone.length} deleted roles</button>
+        ) : null}
         <button className="btn primary" disabled={!available("create_roles") || !libraries.data} title={why("create_roles") ?? "Create a new Discord role"} onClick={() => setCreating(true)}>
           <Icon name="plus" /> Create role
         </button>
@@ -52,9 +109,16 @@ export default function RolesPage() {
                   </td>
                   <td data-label="Linked members">{r.linked_holders}</td>
                   <td style={{ textAlign: "right" }}>
-                    <button className="btn sm" onClick={() => setEditing(r)} disabled={!libraries.data}>
-                      <Icon name="library" size={14} /> Edit libraries
-                    </button>
+                    {r.deleted ? (
+                      <button className="btn sm danger" disabled={!gone.some((g) => g.role_id === r.role_id)}
+                        onClick={() => void remove(gone.filter((g) => g.role_id === r.role_id))} aria-label={`Remove ${r.name} from WooSarr`}>
+                        <Icon name="trash" size={14} /> Remove
+                      </button>
+                    ) : (
+                      <button className="btn sm" onClick={() => setEditing(r)} disabled={!libraries.data}>
+                        <Icon name="library" size={14} /> Edit libraries
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -153,10 +217,17 @@ function RoleEditor({ role, libraries, onClose, onSaved }: { role: RoleOut; libr
   );
 }
 
-function CreateRoleModal({ libraries, onClose, onCreated }: { libraries: LibraryOut[]; onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState("");
+export function CreateRoleModal({ libraries, onClose, onCreated, initialName = "", initialLibraries = [], title = "Create a Discord role" }: {
+  libraries: LibraryOut[];
+  onClose: () => void;
+  onCreated: (role: RoleCreated) => void;
+  initialName?: string;
+  initialLibraries?: string[];
+  title?: string;
+}) {
+  const [name, setName] = useState(initialName);
   const [color, setColor] = useState("#7c3aed");
-  const [libs, setLibs] = useState<Set<string>>(new Set());
+  const [libs, setLibs] = useState<Set<string>>(new Set(initialLibraries));
   const [busy, setBusy] = useState(false);
   const toast = useToast();
   const create = async () => {
@@ -166,7 +237,7 @@ function CreateRoleModal({ libraries, onClose, onCreated }: { libraries: Library
         name: name.trim(), purpose: "plain", library_ids: [...libs], color: parseInt(color.slice(1), 16),
       });
       toast.ok(`Created ${r.name} in Discord${libs.size ? " and mapped its libraries. A sync has been queued." : "."}`);
-      onCreated();
+      onCreated(r);
     } catch (e) {
       toast.error(e);
     } finally {
@@ -174,14 +245,14 @@ function CreateRoleModal({ libraries, onClose, onCreated }: { libraries: Library
     }
   };
   return (
-    <Modal title="Create a Discord role" onClose={onClose} actions={
+    <Modal title={title} onClose={onClose} actions={
       <>
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={!name.trim() || busy} onClick={() => void create()}>{busy ? "Creating…" : "Create role"}</button>
       </>
     }>
       <div className="stack">
-        <label className="field">Name<input type="text" value={name} maxLength={100} onChange={(e) => setName(e.target.value)} placeholder="e.g. Movie Night" /></label>
+        <label className="field">Name<input type="text" value={name} maxLength={100} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. Movie Night" /></label>
         <label className="field">Colour
           <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 64, height: 36, padding: 2 }} />
         </label>

@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { api, type LibraryOut, type PlexServerOut } from "../api";
+import { CreateRoleModal } from "./Roles";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, PageHead, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
@@ -9,23 +11,7 @@ export default function LibrariesPage() {
   const confirm = useConfirm();
   const toast = useToast();
   const { available, why } = useDiscordFeatures();
-
-  const createRole = async (lib: LibraryOut) => {
-    const name = `Plex · ${lib.title}`;
-    const ok = await confirm({
-      title: `Create role "${name}"?`,
-      body: <p>WooSarr creates the Discord role and maps it to <strong>{lib.title}</strong>. Give the role to members in Discord and they get the library on the next sync.</p>,
-      confirmLabel: "Create role",
-    });
-    if (!ok) return;
-    try {
-      await api.post("/api/v1/discord/roles", { name, purpose: "library", library_id: lib.library_id });
-      toast.ok(`Created ${name}.`);
-      void libs.reload();
-    } catch (e) {
-      toast.error(e);
-    }
-  };
+  const [roleFor, setRoleFor] = useState<LibraryOut | null>(null);
 
   const setExempt = async (lib: LibraryOut, exempt: boolean) => {
     const ok = await confirm({
@@ -93,7 +79,7 @@ export default function LibrariesPage() {
                     <Switch checked={l.is_exempt} onChange={(v) => void setExempt(l, v)} label={l.is_exempt ? "Exempt" : "Managed"} />
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <button className="btn sm" disabled={!available("create_roles") || l.removed} title={why("create_roles") ?? "Create a Discord role for this library"} onClick={() => void createRole(l)}>
+                    <button className="btn sm" disabled={!available("create_roles") || l.removed} title={why("create_roles") ?? "Create a Discord role for this library"} onClick={() => setRoleFor(l)}>
                       <Icon name="roles" size={14} /> Create role
                     </button>
                   </td>
@@ -102,6 +88,16 @@ export default function LibrariesPage() {
             </tbody>
           </table>
         </div>
+      ) : null}
+      {roleFor && libs.data ? (
+        <CreateRoleModal
+          title={`Create a role for ${roleFor.title}`}
+          libraries={libs.data.filter((l) => !l.removed)}
+          initialName={`Plex · ${roleFor.title}`}
+          initialLibraries={[roleFor.library_id]}
+          onClose={() => setRoleFor(null)}
+          onCreated={() => { setRoleFor(null); void libs.reload(); }}
+        />
       ) : null}
     </>
   );

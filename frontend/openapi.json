@@ -2595,6 +2595,27 @@
         "title": "PublishOut",
         "type": "object"
       },
+      "PurgeOut": {
+        "properties": {
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/RoleReferences"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "sync_queued": {
+            "title": "Sync Queued",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed",
+          "sync_queued"
+        ],
+        "title": "PurgeOut",
+        "type": "object"
+      },
       "ReactionOption": {
         "properties": {
           "emoji": {
@@ -3345,6 +3366,68 @@
           "color"
         ],
         "title": "RoleRef",
+        "type": "object"
+      },
+      "RoleReferences": {
+        "properties": {
+          "deleted_in_discord": {
+            "title": "Deleted In Discord",
+            "type": "boolean"
+          },
+          "library_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Library Ids",
+            "type": "array"
+          },
+          "members_holding": {
+            "title": "Members Holding",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reaction_posts": {
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Reaction Posts",
+            "type": "array"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "settings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Settings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role_id",
+          "name",
+          "deleted_in_discord",
+          "library_ids",
+          "settings",
+          "reaction_posts",
+          "members_holding"
+        ],
+        "title": "RoleReferences",
         "type": "object"
       },
       "SeerrIn": {
@@ -6523,6 +6606,95 @@
           }
         },
         "summary": "List Roles",
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/v1/roles/deleted": {
+      "get": {
+        "description": "Roles WooSarr still remembers that no longer exist in Discord, and what refers to them.",
+        "operationId": "deleted_roles_api_v1_roles_deleted_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoleReferences"
+                  },
+                  "title": "Response Deleted Roles Api V1 Roles Deleted Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Deleted Roles",
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/v1/roles/remove-deleted": {
+      "post": {
+        "operationId": "remove_deleted_roles_api_v1_roles_remove_deleted_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Remove Deleted Roles",
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/v1/roles/{role_id}": {
+      "delete": {
+        "operationId": "remove_role_api_v1_roles__role_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "title": "Role Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Role",
         "tags": [
           "roles"
         ]

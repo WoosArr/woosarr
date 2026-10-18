@@ -58,3 +58,6 @@ def seed_discord(db: Database) -> None:
             s.add(DiscordRole(role_id=role_id, name=name, color=color, position=pos))
         for uid, username, display, roles in MEMBERS:
             s.add(DiscordMember(discord_user_id=uid, username=username, display_name=display, role_ids=roles))
+        # A role that was deleted in Discord, so the Roles page can show "Remove".
+        s.add(DiscordRole(role_id="900000000000000099", name="Old Movie Night", color=0x95A5A6, position=0,
+                          deleted=True))

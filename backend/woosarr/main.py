@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from woosarr import __version__
 from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
-from woosarr.api import audit_api
+from woosarr.api import audit_api, requests_api
 from woosarr.api import auth as auth_api
 from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
@@ -34,6 +35,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
+from woosarr.services import media_requests
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -88,17 +90,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plex_service = PlexService(db, secret_store)
         gateway = plex_service.gateway
     sync = SyncService(db, gateway)
+    request_service = media_requests.RequestService(db, secret_store)
     if not settings.demo:
-        discord_service = DiscordService(db, secret_store, sync.trigger, plex_service, sync)
+        discord_service = DiscordService(db, secret_store, sync.trigger, plex_service, sync, request_service)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         sync.start()
         if gateway() is not None:
             sync.trigger(None, "startup", delay=1)
+        poller = None
         if discord_service is not None:
             await discord_service.start()
+            poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_dm),
+                                         name="woosarr-request-poll")
         yield
+        if poller is not None:
+            poller.cancel()
         if discord_service is not None:
             await discord_service.stop()
         sync.stop()
@@ -115,6 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.plex_gateway = gateway
     app.state.plex = plex_service
     app.state.discord = discord_service
+    app.state.requests = request_service
     app.state.plex_status = (
         plex_service.status if plex_service else lambda: {"configured": True, "connected": True, "detail": "demo data"}
     )
@@ -160,7 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
-                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api):
+                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api):
         v1.include_router(module.router)
     v1.include_router(oidc_api.public)
     v1.include_router(oidc_api.admin)

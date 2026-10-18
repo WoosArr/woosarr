@@ -10,6 +10,7 @@ import UsersPage from "./pages/Users";
 import RolesPage from "./pages/Roles";
 import LibrariesPage from "./pages/Libraries";
 import ReactionsPage from "./pages/Reactions";
+import RequestsPage from "./pages/Requests";
 import LogsPage from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
 import SetupPage from "./pages/Setup";
@@ -20,6 +21,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/roles", label: "Roles", icon: "roles" },
   { to: "/libraries", label: "Libraries", icon: "library" },
   { to: "/reactions", label: "Reactions", icon: "check" },
+  { to: "/requests", label: "Requests", icon: "download" },
   { to: "/logs", label: "Logs", icon: "logs" },
   { to: "/settings", label: "Settings", icon: "settings" },
   { to: "/setup", label: "Setup", icon: "setup" },
@@ -80,6 +82,7 @@ function Shell() {
           <Route path="/roles" element={<RolesPage />} />
           <Route path="/libraries" element={<LibrariesPage />} />
           <Route path="/reactions" element={<ReactionsPage />} />
+          <Route path="/requests" element={<RequestsPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/setup" element={<SetupPage />} />

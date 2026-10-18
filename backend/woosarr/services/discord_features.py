@@ -43,8 +43,10 @@ class Feature:
 
 
 FEATURES: tuple[Feature, ...] = (
-    Feature("commands", "/link, /unlink, /invite",
-            "Slash commands with private replies. Needs only the applications.commands scope.", ()),
+    Feature("commands", "/link, /unlink, /invite, /request",
+            "Slash commands with private replies (the request command's name is set in Settings → Requests). "
+            "Needs only the applications.commands scope. Request updates are sent as DMs, which need no permission.",
+            ()),
     Feature("link_roles", "Link-status roles",
             "Give members the Verified / Unverified / Linked roles that match their Plex link.",
             ("manage_roles",), needs_role_hierarchy=True),

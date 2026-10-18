@@ -365,6 +365,40 @@
             "title": "Reconcile Interval Minutes",
             "type": "integer"
           },
+          "request_all_members": {
+            "default": true,
+            "title": "Request All Members",
+            "type": "boolean"
+          },
+          "request_command_name": {
+            "default": "request",
+            "pattern": "^[a-z0-9_-]{1,32}$",
+            "title": "Request Command Name",
+            "type": "string"
+          },
+          "request_import_users": {
+            "default": true,
+            "title": "Request Import Users",
+            "type": "boolean"
+          },
+          "request_notify": {
+            "default": true,
+            "title": "Request Notify",
+            "type": "boolean"
+          },
+          "request_require_verified": {
+            "default": true,
+            "title": "Request Require Verified",
+            "type": "boolean"
+          },
+          "request_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Request Role Ids",
+            "type": "array"
+          },
           "unlink_policy": {
             "default": "drop_role_access",
             "enum": [
@@ -1682,6 +1716,19 @@
         "title": "PlexStatus",
         "type": "object"
       },
+      "PollOut": {
+        "properties": {
+          "notified": {
+            "title": "Notified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "notified"
+        ],
+        "title": "PollOut",
+        "type": "object"
+      },
       "PresetFieldOut": {
         "properties": {
           "hint": {
@@ -2611,6 +2658,115 @@
         "title": "RemovePreview",
         "type": "object"
       },
+      "RequestOut": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "discord_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discord Name"
+          },
+          "discord_user_id": {
+            "title": "Discord User Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "media_type": {
+            "enum": [
+              "movie",
+              "tv"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "plex_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plex Username"
+          },
+          "seasons": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Seasons",
+            "type": "array"
+          },
+          "seerr_request_id": {
+            "title": "Seerr Request Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tmdb_id": {
+            "title": "Tmdb Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "year": {
+            "title": "Year",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "seerr_request_id",
+          "media_type",
+          "tmdb_id",
+          "title",
+          "year",
+          "seasons",
+          "status",
+          "discord_user_id",
+          "discord_name",
+          "plex_username",
+          "created_at",
+          "updated_at",
+          "checked_at"
+        ],
+        "title": "RequestOut",
+        "type": "object"
+      },
       "RestoreIn": {
         "properties": {
           "items": {
@@ -2877,6 +3033,155 @@
           "color"
         ],
         "title": "RoleRef",
+        "type": "object"
+      },
+      "SeerrIn": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "url": {
+            "maxLength": 300,
+            "minLength": 8,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SeerrIn",
+        "type": "object"
+      },
+      "SeerrStatus": {
+        "properties": {
+          "admin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin"
+          },
+          "command_registered": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Registered"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "configured",
+          "connected",
+          "url",
+          "version",
+          "admin",
+          "detail"
+        ],
+        "title": "SeerrStatus",
+        "type": "object"
+      },
+      "SeerrTest": {
+        "properties": {
+          "admin": {
+            "title": "Admin",
+            "type": "string"
+          },
+          "plex_users": {
+            "title": "Plex Users",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "users": {
+            "title": "Users",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "version",
+          "admin",
+          "users",
+          "plex_users"
+        ],
+        "title": "SeerrTest",
         "type": "object"
       },
       "SettingsImpact": {
@@ -5358,6 +5663,198 @@
         "summary": "Publish",
         "tags": [
           "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/requests": {
+      "get": {
+        "operationId": "list_requests_api_v1_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RequestOut"
+                  },
+                  "title": "Response List Requests Api V1 Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Requests",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/requests/poll": {
+      "post": {
+        "description": "Re-read open requests from Seerr now and DM members about changes.",
+        "operationId": "poll_now_api_v1_requests_poll_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PollOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Poll Now",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/requests/seerr": {
+      "delete": {
+        "operationId": "seerr_disconnect_api_v1_requests_seerr_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeerrStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Seerr Disconnect",
+        "tags": [
+          "requests"
+        ]
+      },
+      "get": {
+        "operationId": "seerr_status_api_v1_requests_seerr_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeerrStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Seerr Status",
+        "tags": [
+          "requests"
+        ]
+      },
+      "put": {
+        "operationId": "seerr_save_api_v1_requests_seerr_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeerrIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeerrStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Seerr Save",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/requests/seerr/test": {
+      "post": {
+        "description": "Check the address and key (or the stored key) without saving anything.",
+        "operationId": "seerr_test_api_v1_requests_seerr_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeerrIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeerrTest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Seerr Test",
+        "tags": [
+          "requests"
         ]
       }
     },

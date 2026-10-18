@@ -8,6 +8,7 @@ WooSarr holds a Plex server-owner token and a Discord bot token, and it can chan
 |-------|----------------|-----------------------------|
 | Plex owner token | `secrets` table, Fernet-encrypted | Full control of the Plex account: shares, libraries, friends |
 | Discord bot token | `secrets` table, Fernet-encrypted | Impersonate the bot in the guild (bounded by the bot's permissions) |
+| Seerr API key | `secrets` table, Fernet-encrypted | Seerr admin: approve/decline/delete requests, manage Seerr users and settings |
 | Master key | `/config/secrets/master.key` (0600) or `WOOSARR_MASTER_KEY[_FILE]` | Decrypts the two tokens above |
 | Admin passwords | `admin_users.password_hash` (argon2id) | Offline guessing only |
 | Sessions / API keys | `sessions.id_hash`, `api_keys.key_hash` (sha256 of 256-bit random values) | Useless without the raw value |
@@ -65,6 +66,9 @@ Keys are shown once, stored as sha256, revocable, and scoped: `read` keys can on
 
 ### SSO token forgery / replay (OIDC, D21)
 Authorization code flow with PKCE; `state` is single-use, expires in 10 minutes and must match a cookie set when the sign-in started (login CSRF); `nonce` must match the ID token. ID tokens are verified against the provider's JWKS with asymmetric algorithms only (`none`/HS* refused), and `iss` (the discovered issuer; Entra multi-tenant issuers refused), `aud`/`azp`, `exp`, `iat` (120 s leeway) are checked. Access requires a configured rule (group/role, email, domain); email-based rules require `email_verified` unless the provider is a managed directory. Admins are linked by provider + `sub`, never by email, so changing an email at the provider can't take over another admin. Client secrets are stored encrypted and never returned. Turning off password login needs a working SSO admin (lockout guard).
+
+### Requests made as someone else (Seerr, P13-01)
+Requests run as the Seerr user of the member's linked Plex account (`X-API-User`), so a wrong link means requests (and quota use) in someone else's name. By default only **verified** links may request (`request_require_verified`); a username-only claim can't. Every request, refusal and status change is audited with the Discord id and the Seerr user id. Members can only request (search, details, create): WooSarr never exposes Seerr's approve, decline or delete actions to Discord. The Seerr URL is admin-entered; redirects aren't followed, so the key isn't sent to another host.
 
 ### Plex share mistakes (integrity)
 Plex replaces a user's whole share list on update. WooSarr always computes and writes the **complete** set, re-reads live state right before writing and skips on drift, never touches exempt or unmanaged libraries, and starts in **dry-run**.

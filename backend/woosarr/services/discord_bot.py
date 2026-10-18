@@ -25,7 +25,7 @@ from woosarr.core import app_settings, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, Reaction, ReactionPost, utcnow
 from woosarr.db.session import Database
-from woosarr.services import audit, invites, link_service, reaction_text
+from woosarr.services import audit, discord_requests, invites, link_service, reaction_text
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
 
@@ -110,6 +110,8 @@ class WooSarrBot(discord.Client):
         self.service = service
         self.guild_id = guild_id
         self.tree = app_commands.CommandTree(self)
+        self.request_name: str | None = None  # registered name of the request command
+        self._commands_lock = asyncio.Lock()
         self._register_commands()
 
     def _register_commands(self) -> None:
@@ -131,8 +133,25 @@ class WooSarrBot(discord.Client):
             await self.service.handle_invite_command(interaction, email, member)
 
     async def setup_hook(self) -> None:
-        await self.tree.sync(guild=discord.Object(id=self.guild_id))
-        log.info("discord /link registered in guild %s", self.guild_id)
+        await self.sync_commands(force=True)
+
+    async def sync_commands(self, force: bool = False) -> None:
+        """(Re)register the request command under its configured name (None = Seerr not set up)."""
+        async with self._commands_lock:
+            want = await self.service.run_db(self.service.request_command_name)
+            if want == self.request_name and not force:
+                return
+            guild = discord.Object(id=self.guild_id)
+            if self.request_name:
+                self.tree.remove_command(self.request_name, guild=guild)
+            if want:
+                self.tree.add_command(discord_requests.build_command(self.service, want), guild=guild)
+            before, self.request_name = self.request_name, want
+            await self.tree.sync(guild=guild)
+            names = ["link", "unlink", "invite"] + ([want] if want else [])
+            log.info("discord commands registered in guild %s: %s%s", self.guild_id,
+                     ", ".join(f"/{n}" for n in names),
+                     f" (request command was /{before})" if before and before != want else "")
 
     def _ours(self, guild: discord.Guild | None) -> bool:
         return guild is not None and guild.id == self.guild_id
@@ -574,6 +593,20 @@ class _GuildFeatures:
             if not self._post_again:
                 return edited
 
+    def schedule_command_sync(self) -> None:
+        """Thread-safe: re-register slash commands (request command renamed, Seerr connected or removed)."""
+        loop, client = self._loop, self._client
+        if loop is None or client is None:
+            return
+
+        def start() -> None:
+            if client.is_ready():
+                task = asyncio.create_task(client.sync_commands())
+                task.add_done_callback(lambda t: not t.cancelled() and t.exception() and log.error(
+                    "discord command sync failed: %s", t.exception()))
+
+        loop.call_soon_threadsafe(start)
+
     def schedule_role_sync(self) -> None:
         """Thread-safe: refresh link-status roles soon (coalesces bursts)."""
         loop = self._loop
@@ -651,9 +684,10 @@ class _UnlinkView(discord.ui.View):
         self.stop()
 
 
-class DiscordService(_GuildFeatures):
+class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
-                 sync: Any = None) -> None:
+                 sync: Any = None, requests: Any = None) -> None:
+        self.requests = requests
         self._db = db
         self._secrets = secrets
         self.trigger = trigger

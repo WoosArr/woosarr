@@ -45,7 +45,7 @@ test("first-run setup creates the admin and lands on the dashboard", async ({ pa
 
 test("sidebar navigation reaches every page", async ({ page }) => {
   await login(page);
-  for (const name of ["Users", "Roles", "Libraries", "Reactions", "Logs", "Settings", "Setup", "Dashboard"]) {
+  for (const name of ["Users", "Roles", "Libraries", "Reactions", "Requests", "Logs", "Settings", "Setup", "Dashboard"]) {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }
@@ -206,12 +206,12 @@ test("going live needs confirmation; sign out returns to login", async ({ page }
 });
 
 test("no serious accessibility violations on any page (light and dark)", async ({ page }) => {
-  test.setTimeout(120_000); // 11 pages x 2 themes
+  test.setTimeout(150_000); // 13 pages x 2 themes
   await login(page);
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -222,6 +222,27 @@ test("no serious accessibility violations on any page (light and dark)", async (
     }
   }
   expect(problems).toEqual([]);
+});
+
+test("request command name can be renamed but not to a reserved name", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings?tab=requests");
+  const name = page.getByLabel("Command name");
+  await expect(name).toHaveValue("request");
+  await name.fill("invite");
+  await expect(page.getByText("/invite is already one of WooSarr's commands.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+  await name.fill("my request");
+  await expect(page.getByText(/1–32 characters/)).toBeVisible();
+  await name.fill("plexrequest");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Server Settings → Integrations");
+  await page.getByRole("dialog").getByRole("button", { name: "Rename" }).click();
+  await expect(page.getByText("Saved. Discord shows /plexrequest within a few seconds.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Command name")).toHaveValue("plexrequest");
+  await page.goto("/requests");
+  await expect(page.getByText("Connect Seerr on the")).toBeVisible();
 });
 
 test("mobile layout uses a drawer for navigation", async ({ page }) => {

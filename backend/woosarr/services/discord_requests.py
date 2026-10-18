@@ -1,0 +1,261 @@
+"""The request slash command (default `/request`, name set in Settings) (plan P13-01).
+
+Flow (all replies private): search-as-you-type over Seerr -> pick a title
+(or choose from a menu when the text wasn't picked from the suggestions) ->
+details with poster and status -> seasons for shows -> Request. The request
+is made as the member's own Seerr user (services/media_requests.py).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from typing import TYPE_CHECKING, Any
+
+import discord
+from discord import app_commands
+
+from woosarr.core import app_settings
+from woosarr.services import audit
+from woosarr.services.media_requests import RequestDenied, RequestService
+from woosarr.services.seerr import Details, Hit, SeerrError
+
+if TYPE_CHECKING:
+    from woosarr.services.discord_bot import DiscordService
+
+log = logging.getLogger("woosarr.discord.requests")
+
+AUTOCOMPLETE_SECONDS = 2.5  # Discord drops autocomplete answers after 3 s
+PICK = re.compile(r"^(movie|tv):(\d{1,10})$")
+REQUESTABLE = ("unknown", "deleted")
+STATUS_LINE = {
+    "unknown": "Not on Plex yet",
+    "deleted": "Not on Plex yet",
+    "pending": "Already requested, waiting for approval",
+    "processing": "Already requested, on its way",
+    "partially_available": "Partly available on Plex",
+    "available": "Available on Plex",
+    "blocklisted": "Can't be requested (blocklisted)",
+}
+COLOR = 0x8B5CF6
+
+
+def is_admin(interaction: discord.Interaction) -> bool:
+    perms = getattr(interaction.user, "guild_permissions", None)
+    return bool(perms and (perms.manage_guild or perms.administrator))
+
+
+def embed(item: Details) -> discord.Embed:
+    kind = "Movie" if item.media_type == "movie" else "TV show"
+    title = f"{item.title} ({item.year})" if item.year else item.title
+    overview = item.overview if len(item.overview) <= 400 else item.overview[:399] + "…"
+    e = discord.Embed(title=title[:256], description=overview or None, color=COLOR)
+    e.add_field(name="Type", value=kind)
+    e.add_field(name="Status", value=STATUS_LINE.get(item.status, item.status))
+    if item.seasons:
+        missing = [s.number for s in item.seasons if s.status in REQUESTABLE]
+        e.add_field(name="Seasons", value=f"{len(item.seasons)} ({len(missing)} not on Plex yet)")
+    if item.poster:
+        e.set_thumbnail(url=item.poster)
+    return e
+
+
+def requestable_seasons(item: Details) -> list[int]:
+    return [s.number for s in item.seasons if s.status in REQUESTABLE]
+
+
+def can_request(item: Details) -> bool:
+    if item.media_type == "tv":
+        return bool(requestable_seasons(item)) and item.status != "blocklisted"
+    return item.status in REQUESTABLE
+
+
+class _Owned(discord.ui.View):
+    def __init__(self, owner_id: int, timeout: float = 600) -> None:
+        super().__init__(timeout=timeout)
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("This isn't your request.", ephemeral=True)
+            return False
+        return True
+
+
+class PickView(_Owned):
+    """A menu of search results, for text that wasn't picked from the suggestions."""
+
+    def __init__(self, service: DiscordService, owner_id: int, hits: list[Hit]) -> None:
+        super().__init__(owner_id)
+        self.service = service
+        select = discord.ui.Select(placeholder="Choose a title", min_values=1, max_values=1, options=[
+            discord.SelectOption(label=h.label()[:100], value=h.key, description=(h.overview[:97] + "…")
+                                 if len(h.overview) > 100 else (h.overview or None))
+            for h in hits[:25]])
+        select.callback = self._picked
+        self.select = select
+        self.add_item(select)
+
+    async def _picked(self, interaction: discord.Interaction) -> None:
+        kind, tmdb = self.select.values[0].split(":")
+        await interaction.response.defer()
+        await self.service.show_details(interaction, kind, int(tmdb))
+        self.stop()
+
+
+class RequestView(_Owned):
+    def __init__(self, service: DiscordService, owner_id: int, item: Details) -> None:
+        super().__init__(owner_id)
+        self.service = service
+        self.item = item
+        self.seasons: list[int] = []
+        if item.media_type == "tv":
+            missing = requestable_seasons(item)
+            if 1 < len(missing) <= 25:
+                select = discord.ui.Select(
+                    placeholder="Seasons (leave empty for every missing season)", min_values=0,
+                    max_values=len(missing),
+                    options=[discord.SelectOption(label=f"Season {s.number}", value=str(s.number),
+                                                  description=f"{s.episodes} episodes" if s.episodes else None)
+                             for s in item.seasons if s.number in missing])
+                select.callback = self._seasons
+                self.season_select = select
+                self.add_item(select)
+        button = discord.ui.Button(label=self._label(), style=discord.ButtonStyle.primary,
+                                   disabled=not can_request(item))
+        button.callback = self._request
+        self.button = button
+        self.add_item(button)
+        cancel = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel.callback = self._cancel
+        self.add_item(cancel)
+
+    def _label(self) -> str:
+        if self.item.media_type != "tv":
+            return "Request"
+        if not self.seasons:
+            return "Request all missing seasons"
+        return f"Request {len(self.seasons)} season{'s' if len(self.seasons) != 1 else ''}"
+
+    async def _seasons(self, interaction: discord.Interaction) -> None:
+        self.seasons = sorted(int(v) for v in self.season_select.values)
+        self.button.label = self._label()
+        await interaction.response.edit_message(view=self)
+
+    async def _request(self, interaction: discord.Interaction) -> None:
+        await interaction.response.edit_message(content="Sending the request…", view=None)
+        seasons = self.seasons or None
+        result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id),
+                                         is_admin(interaction), self.item.media_type, self.item.tmdb_id, seasons)
+        await interaction.edit_original_response(content=result.message, view=None)
+        self.stop()
+
+    async def _cancel(self, interaction: discord.Interaction) -> None:
+        await interaction.response.edit_message(content="Nothing requested.", embed=None, view=None)
+        self.stop()
+
+
+def build_command(service: DiscordService, name: str) -> app_commands.Command:
+    @app_commands.describe(title="Movie or TV show; pick one of the suggestions")
+    async def request(interaction: discord.Interaction, title: str) -> None:
+        await service.handle_request_command(interaction, title)
+
+    command = app_commands.Command(name=name, description="Request a movie or TV show for the Plex server",
+                                   callback=request)
+
+    @command.autocomplete("title")
+    async def suggest(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        return await service.request_suggestions(current)
+
+    return command
+
+
+class RequestCommands:
+    """Request handlers of DiscordService (needs .requests, .run_db)."""
+
+    requests: RequestService | None
+
+    def request_command_name(self, session: Any) -> str | None:
+        """The name to register, or None while Seerr isn't set up."""
+        if self.requests is None or not self.requests.configured():
+            return None
+        return app_settings.load(session).request_command_name
+
+    async def request_suggestions(self, current: str) -> list[app_commands.Choice[str]]:
+        if self.requests is None or len(current.strip()) < 2:
+            return []
+        try:
+            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, AUTOCOMPLETE_SECONDS),
+                                          AUTOCOMPLETE_SECONDS)
+        except (TimeoutError, SeerrError) as exc:
+            log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
+            return []
+        return [app_commands.Choice(name=h.label(), value=h.key) for h in hits[:25]]
+
+    async def handle_request_command(self, interaction: discord.Interaction, title: str) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        if self.requests is None:
+            await interaction.followup.send("Requests aren't set up yet. Ask an admin.", ephemeral=True)
+            return
+        uid, admin = str(interaction.user.id), is_admin(interaction)
+
+        def check(s):
+            self.requests.requester(s, uid, admin)
+
+        try:
+            await self.run_db(check)
+        except RequestDenied as exc:
+            reason = str(exc)
+            await self.run_db(lambda s: audit.record(s, f"discord:{uid}", "request_denied", "discord_user", uid,
+                                                     reason=reason))
+            await interaction.followup.send(reason, ephemeral=True)
+            return
+        picked = PICK.match(title.strip())
+        if picked:
+            await self.show_details(interaction, picked.group(1), int(picked.group(2)))
+            return
+        try:
+            hits = await asyncio.to_thread(self.requests.search, title)
+        except SeerrError as exc:
+            await interaction.followup.send(f"Seerr isn't answering right now ({exc}).", ephemeral=True)
+            return
+        if not hits:
+            await interaction.followup.send(f"Nothing found for **{discord.utils.escape_markdown(title[:100])}**.",
+                                            ephemeral=True)
+            return
+        if len(hits) == 1:
+            await self.show_details(interaction, hits[0].media_type, hits[0].tmdb_id)
+            return
+        await interaction.followup.send("Which one?", view=PickView(self, interaction.user.id, hits), ephemeral=True)
+
+    async def show_details(self, interaction: discord.Interaction, media_type: str, tmdb_id: int) -> None:
+        """Answer (or replace the menu) with the title's details and the Request button."""
+        try:
+            item = await asyncio.to_thread(self.requests.details, media_type, tmdb_id)
+        except SeerrError as exc:
+            await interaction.followup.send(f"Couldn't load that title from Seerr ({exc}).", ephemeral=True)
+            return
+        view = RequestView(self, interaction.user.id, item)
+        note = None if can_request(item) else "Nothing left to request for this title."
+        if interaction.message is not None and interaction.type == discord.InteractionType.component:
+            await interaction.edit_original_response(content=note, embed=embed(item), view=view)
+        else:
+            await interaction.followup.send(content=note or "", embed=embed(item), view=view, ephemeral=True)
+
+    async def send_dm(self, discord_user_id: str, text: str) -> bool:
+        client = getattr(self, "_client", None)
+        if client is None or not client.is_ready():
+            log.info("request notice for %s not sent: bot not connected", discord_user_id)
+            return False
+        try:
+            user = client.get_user(int(discord_user_id)) or await client.fetch_user(int(discord_user_id))
+            await user.send(text, allowed_mentions=discord.AllowedMentions.none())
+        except discord.Forbidden:
+            log.info("request notice for %s not sent: member doesn't accept DMs from the bot", discord_user_id)
+            return False
+        except (discord.NotFound, discord.HTTPException) as exc:
+            log.warning("request notice for %s not sent: %s", discord_user_id, exc)
+            return False
+        log.info("request notice sent to %s", discord_user_id)
+        return True

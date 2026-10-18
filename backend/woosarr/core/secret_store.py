@@ -21,7 +21,8 @@ log = logging.getLogger("woosarr.secrets")
 # Known names, so typos don't silently create new secrets.
 PLEX_TOKEN = "plex.token"
 DISCORD_BOT_TOKEN = "discord.bot_token"
-KNOWN = frozenset({PLEX_TOKEN, DISCORD_BOT_TOKEN})
+SEERR_API_KEY = "seerr.api_key"
+KNOWN = frozenset({PLEX_TOKEN, DISCORD_BOT_TOKEN, SEERR_API_KEY})
 OIDC_SECRET_PREFIX = "oidc.client_secret."
 
 

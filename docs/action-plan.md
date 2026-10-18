@@ -62,6 +62,7 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 | D7 | UI auth | DECIDED | First-run wizard creates the initial local admin (argon2id). **SAML 2.0** SSO for an external IdP; local login stays as break-glass unless disabled. |
 | D7a | SAML | DEFERRED | Not needed (user, 2026-10-17); replaced by OIDC (D21). |
 | D21 | Admin SSO | DECIDED | **OpenID Connect**, multiple providers, presets for Okta, Entra ID, Google, ADFS + Custom; code flow + PKCE; access only via per-provider rules; admins linked by (provider, sub); local login is break-glass with a lockout guard (user, 2026-10-17). |
+| D22 | Media requests | DECIDED | Movies/TV through **Seerr** (Overseerr/Jellyseerr compatible) as the member's own Seerr user (`X-API-User`), so Seerr's permissions, quotas and approval apply. Slash command name configurable, default **`/request`** (user, 2026-10-17); verified links only by default; status by polling (no webhook). Ombi, direct *arr, Listenarr later. |
 | D8 | Triggers | DECIDED | Discord gateway events + periodic full reconcile (default 15 min, configurable). |
 | D9 | Library id | DECIDED | Plex section key + server machine identifier. |
 | D10 | Name | DECIDED | **WooSarr** (image `ghcr.io/woosarr/woosarr`, package `woosarr`, appdata `/mnt/user/appdata/woosarr`). |
@@ -267,6 +268,11 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P12-02** `docs/admin-guide.md`: sync rules, triggers, leave policy, verified links, dry-run, troubleshooting, admins, env vars.
 - [x] **P12-03** Backup/restore and master key in `docs/admin-guide.md`; startup survives an unreadable secret (logs an error, admin re-enters it). *Verify:* `tests/test_recovery.py`.
 - [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` released (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (HUMAN, forum).
+
+### Phase 13 — Requests
+- [~] **P13-01** Seerr requests (D22): client `services/seerr.py` (strict query encoding, request-as-user, import from Plex), `services/media_requests.py` (Plex-id → email → username mapping, role/verified gating, submit, 5-min status poll + DMs), Discord flow `services/discord_requests.py` (autocomplete within 3 s, pick menu, details card, season select), command registered under `request_command_name` (default `request`; re-registered on rename or Seerr connect/disconnect), API `api/requests_api.py`, migration 0007, Setup card, Settings → Requests, Requests page, `docs/requests.md`. *Verify:* `pytest tests/test_requests.py` (fake Seerr from Seerr's source), Playwright `request command name…` + axe on the new pages. *Remaining:* **LIVE** connect a real Seerr, request from Discord, see it in Seerr under the member, get the DM.
+- [ ] **P13-02** Ombi as a second request provider.
+- [ ] **P13-03** Audiobooks via Listenarr (research its API first).
 
 ## 10. Risks and open questions
 

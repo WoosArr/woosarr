@@ -281,6 +281,29 @@ class Reaction(Base):
     reacted_at: Mapped[datetime] = mapped_column(default=utcnow)
 
 
+class MediaRequest(Base):
+    """A movie/TV request a member made with the request command, mirrored from Seerr
+    so WooSarr can tell the member when it is approved, declined or available."""
+
+    __tablename__ = "media_requests"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seerr_request_id: Mapped[int] = mapped_column(Integer, unique=True)
+    discord_user_id: Mapped[str] = mapped_column(String(32), index=True)
+    plex_user_id: Mapped[str | None] = mapped_column(String(64))
+    seerr_user_id: Mapped[int] = mapped_column(Integer)
+    media_type: Mapped[str] = mapped_column(String(8))  # movie | tv
+    tmdb_id: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(300))
+    year: Mapped[str] = mapped_column(String(4), default="")
+    seasons: Mapped[list[Any]] = mapped_column(JSON, default=list)  # [] = whole movie / all seasons
+    # pending | approved | declined | failed | partially_available | available | deleted
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    notified_status: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    checked_at: Mapped[datetime | None]
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

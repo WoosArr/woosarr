@@ -7,10 +7,12 @@ import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
 import { useDiscordFeatures } from "../features";
 import SsoSettings from "./Sso";
+import { RequestSettings } from "./Requests";
 import { ImpactList, type UserChange } from "../Impact";
 
 const TABS = [
   ["general", "General"],
+  ["requests", "Requests"],
   ["appearance", "Appearance"],
   ["account", "My account"],
   ["admins", "Admins"],
@@ -30,6 +32,7 @@ export default function SettingsPage() {
         ))}
       </div>
       {tab === "general" ? <General /> : null}
+      {tab === "requests" ? <RequestSettings /> : null}
       {tab === "appearance" ? <Appearance /> : null}
       {tab === "account" ? <Account /> : null}
       {tab === "admins" ? <Admins /> : null}

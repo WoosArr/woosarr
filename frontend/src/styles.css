@@ -204,6 +204,7 @@ code, .mono { font-family: var(--mono); font-size: 0.875em; }
 }
 .banner.warn { color: var(--warn); background: var(--warn-soft); }
 .banner.info { color: var(--info); background: var(--info-soft); }
+.banner.ok { color: var(--ok); background: var(--ok-soft); }
 .banner.danger { color: var(--danger); background: var(--danger-soft); }
 .banner > div { color: var(--text); }
 

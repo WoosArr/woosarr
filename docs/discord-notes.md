@@ -7,7 +7,7 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | Feature | What it does | Permissions | Also needs |
 |---------|--------------|-------------|------------|
 | **Core** (always) | Read roles and members, react to role changes | *(none)* | **Server Members Intent** (privileged, Developer Portal → Bot) |
-| **/link, /unlink, /invite** | Slash commands with private replies | *(none)* | `applications.commands` scope (in the invite link) |
+| **/link, /unlink, /invite, /request** | Slash commands with private replies; request status DMs | *(none)* | `applications.commands` scope (in the invite link). `/request` is only registered while Seerr is connected; its name is set in Settings → Requests ([requests.md](requests.md)) |
 | **Link-status roles** | Give/remove the Verified, Unverified and Linked roles | **Manage Roles** | The bot's highest role must be **above** those roles (Server Settings → Roles, drag the bot's role up) |
 | **Create roles** | Create link-status roles and per-library roles from WooSarr | **Manage Roles** | New roles are created at the bottom, below the bot's role |
 | **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |

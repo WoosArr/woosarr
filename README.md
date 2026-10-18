@@ -9,6 +9,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - Users link themselves with `/link` (Plex username, or Plex sign-in for a verified link; no Plex tokens are stored)
 - Starts in **dry-run**: see exactly what would change before anything does
 - Web UI on port **31337**: light/dark themes, colour-blind palettes, live logs and an audit trail
+- Members request movies and shows with `/request` (name configurable) through **Seerr**, as their own Seerr user, and get a DM when it's available ([docs/requests.md](docs/requests.md))
 - Admin single sign-on with OpenID Connect: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md))
 - One Docker container, with an Unraid template in `unraid/`
 
@@ -96,6 +97,8 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 **Someone linked the wrong Plex account.** Unlink them on the Users page. A Plex sign-in (verified) link replaces a typed-username (unverified) claim. You can also ignore unverified links entirely in Settings.
 
 **Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token and the bot token are stored, encrypted.
+
+**Another bot already has `/request`.** Both work; Discord shows each with its bot's name. Rename WooSarr's in *Settings → Requests* or hide the other bot's under *Server Settings → Integrations* ([docs/requests.md](docs/requests.md#another-bot-already-has-request)).
 
 **Can I try it without connecting anything?** Yes: `WOOSARR_DEMO=true` uses a fake Plex server and Discord data. Don't use it on a real install.
 

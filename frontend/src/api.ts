@@ -41,6 +41,9 @@ export type PresetsOut = Schemas["PresetsOut"];
 export type DiscoveryOut = Schemas["DiscoveryOut"];
 export type TestResult = Schemas["TestResult"];
 export type PublicProvider = Schemas["PublicProvider"];
+export type SeerrStatus = Schemas["SeerrStatus"];
+export type SeerrTest = Schemas["SeerrTest"];
+export type RequestOut = Schemas["RequestOut"];
 
 export interface Health {
   status: string;

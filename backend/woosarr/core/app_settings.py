@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import Setting
 
 KEY = "app"
+# Slash commands WooSarr always registers; the request command can't reuse these names.
+FIXED_COMMANDS = frozenset({"link", "unlink", "invite"})
 
 
 class AppSettings(BaseModel):
@@ -46,6 +48,25 @@ class AppSettings(BaseModel):
     # Public address of WooSarr (e.g. https://woosarr.example.com) for SSO redirect
     # URIs; empty = the address the browser used.
     public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
+    # Requests through Seerr (P13-01). Name of the slash command, without the "/";
+    # change it if another bot in the server already has /request.
+    request_command_name: str = Field("request", pattern=r"^[a-z0-9_-]{1,32}$")
+    # Linked members may request; restrict to roles by turning request_all_members off.
+    request_all_members: bool = True
+    request_role_ids: list[str] = Field(default_factory=list, max_length=50)
+    # Only members whose link is verified (Plex sign-in) may request as their Seerr user.
+    request_require_verified: bool = True
+    # Create the member's Seerr user from Plex when it doesn't exist yet.
+    request_import_users: bool = True
+    # DM the member when their request is approved, declined or becomes available.
+    request_notify: bool = True
+
+    @field_validator("request_command_name")
+    @classmethod
+    def _not_a_fixed_command(cls, v: str) -> str:
+        if v in FIXED_COMMANDS:
+            raise ValueError(f"/{v} is already one of WooSarr's commands")
+        return v
 
 
 def load(session: Session) -> AppSettings:

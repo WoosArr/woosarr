@@ -13,6 +13,7 @@ import {
 } from "../api";
 import { Icon } from "../icons";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, useConfirm, useLoad, useToast } from "../ui";
+import { SeerrCard } from "./Requests";
 
 export default function SetupPage() {
   const [params] = useSearchParams();
@@ -24,6 +25,7 @@ export default function SetupPage() {
       <div className="grid cols-2">
         <PlexCard />
         <DiscordCard />
+        <SeerrCard />
       </div>
       <p className="small muted" style={{ marginTop: 16 }}>
         WooSarr stays in dry-run until you turn it off in <Link to="/settings">Settings</Link>, so you can check the
@@ -349,7 +351,7 @@ function DiscordCard() {
             <dt className="muted">Server</dt><dd style={{ margin: 0 }}><strong>{String(s.guild.name ?? s.guild.id)}</strong></dd>
           </dl>
           <Detail text={s.detail} />
-          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code> and <code>/invite</code> in your server.</p>
+          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code> and <code>/invite</code> in your server (and the request command once Seerr is connected).</p>
           <BotFeatures status={s} />
           <div className="row">
             <button className="btn sm" onClick={() => void act(() => api.post<DiscordStatus>("/api/v1/discord/restart"), "Bot restarted.")}><Icon name="refresh" size={14} /> Restart bot</button>

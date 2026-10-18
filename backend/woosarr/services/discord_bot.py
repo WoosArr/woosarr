@@ -338,7 +338,9 @@ class _GuildFeatures:
         for ch in guild.text_channels:
             p = ch.permissions_for(me)
             out.append({"id": str(ch.id), "name": ch.name, "category": ch.category.name if ch.category else "",
-                        "can_post": bool(p.view_channel and p.send_messages and p.add_reactions)})
+                        "can_post": bool(p.view_channel and p.send_messages and p.add_reactions),
+                        "can_post_requests": bool(p.view_channel and p.send_messages and getattr(p, "embed_links", False)
+                                                  and getattr(p, "read_message_history", False))})
         return out
 
     async def publish_post(self, post_id: int, new_channel_name: str | None = None) -> dict:

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type AppSettings, type RequestOut, type RoleOut, type SeerrStatus, type SeerrTest } from "../api";
+import { api, ApiError, type AppSettings, type ChannelOut, type RequestOut, type RoleOut, type SeerrStatus, type SeerrTest } from "../api";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast, type Tone } from "../ui";
 
@@ -49,7 +49,7 @@ export default function RequestsPage() {
         <p className="small muted">
           {name ? <>Members request with <code>/{name}</code>. </> : <>The request command registers when the bot is connected. </>}
           Who may request and the command's name are in <Link to="/settings?tab=requests">Settings → Requests</Link>.
-          Status is checked every 5 minutes.
+          Status is checked every 5 minutes; members are told by DM, or by a reply in the requests channel for public requests.
         </p>
       ) : null}
       {!list.data ? <Spinner /> : list.data.length === 0 ? (
@@ -75,7 +75,7 @@ export default function RequestsPage() {
                       {r.discord_name ?? r.discord_user_id}
                       {r.plex_username ? <div className="small muted">Plex: {r.plex_username}</div> : null}
                     </td>
-                    <td><Badge tone={tone}>{label}</Badge></td>
+                    <td><Badge tone={tone}>{label}</Badge>{r.public ? <div className="small muted">Posted publicly</div> : null}</td>
                     <td className="small">{ago(r.created_at)}</td>
                     <td className="small">{ago(r.checked_at)}</td>
                   </tr>
@@ -203,6 +203,7 @@ const RESERVED = ["link", "unlink", "invite"];
 export function RequestSettings() {
   const s = useLoad(() => api.get<AppSettings>("/api/v1/settings"));
   const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
+  const channels = useLoad(() => api.get<ChannelOut[]>("/api/v1/discord/channels"));
   const [draft, setDraft] = useState<Partial<AppSettings>>({});
   const toast = useToast();
   const confirm = useConfirm();
@@ -214,6 +215,8 @@ export function RequestSettings() {
   const nameError = !NAME.test(name)
     ? "1–32 characters: lowercase letters, numbers, - and _ (no spaces or /)."
     : RESERVED.includes(name) ? `/${name} is already one of WooSarr's commands.` : null;
+  const isPublic = v.request_visibility === "public";
+  const channelError = isPublic && !v.request_channel_id ? "Choose the channel for public requests." : null;
   const renamed = draft.request_command_name !== undefined && draft.request_command_name !== s.data.request_command_name;
   const save = async () => {
     if (renamed && !(await confirm({
@@ -266,11 +269,38 @@ export function RequestSettings() {
           })}
         </div>
       </fieldset>
+      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend className="small" style={{ fontWeight: 600 }}>Visibility</legend>
+        <label className="check" style={{ marginBottom: 6 }}>
+          <input type="radio" name="request-visibility" checked={!isPublic} onChange={() => set({ request_visibility: "private" })} />
+          <span><strong>Private</strong> <span className="muted small">— only the member sees their request; status updates come by DM</span></span>
+        </label>
+        <label className="check">
+          <input type="radio" name="request-visibility" checked={isPublic} onChange={() => set({ request_visibility: "public" })} />
+          <span><strong>Public</strong> <span className="muted small">— each request is posted in a channel mentioning the member; status updates are replies there</span></span>
+        </label>
+      </fieldset>
+      {isPublic ? (
+        <>
+          <Field label="Requests channel" hint="The bot needs View Channels, Send Messages, Embed Links and Read Message History there. Searching and picking a title stay private to the member." error={channelError ?? undefined}>
+            <select value={v.request_channel_id ?? ""} onChange={(e) => set({ request_channel_id: e.target.value || null })} style={{ maxWidth: 420 }}>
+              <option value="">Choose a channel…</option>
+              {(channels.data ?? []).map((c) => (
+                <option key={c.id} value={c.id} disabled={!c.can_post_requests && c.id !== v.request_channel_id}>
+                  #{c.name}{c.category ? ` (${c.category})` : ""}{c.can_post_requests ? "" : " — bot can't post here"}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {channels.error ? <ErrorBanner error={channels.error} /> : null}
+          <Switch checked={!!v.request_channel_only} onChange={(x) => set({ request_channel_only: x })} label={<><strong>Only in this channel</strong> <span className="muted small">— <code>/{name}</code> used anywhere else tells the member to use the requests channel</span></>} />
+        </>
+      ) : null}
       <Switch checked={!!v.request_require_verified} onChange={(x) => set({ request_require_verified: x })} label={<><strong>Verified links only</strong> <span className="muted small">— members who linked by typing a username can't request as that Plex account</span></>} />
       <Switch checked={!!v.request_import_users} onChange={(x) => set({ request_import_users: x })} label={<><strong>Create missing Seerr users</strong> <span className="muted small">— import the member's Plex account into Seerr on their first request (Seerr's default permissions)</span></>} />
-      <Switch checked={!!v.request_notify} onChange={(x) => set({ request_notify: x })} label={<><strong>Notify members</strong> <span className="muted small">— DM them when a request is approved, declined or available</span></>} />
+      <Switch checked={!!v.request_notify} onChange={(x) => set({ request_notify: x })} label={<><strong>Notify members</strong> <span className="muted small">— {isPublic ? "reply to the request's post, mentioning them," : "DM them"} when a request is approved, declined or available</span></>} />
       <div className="row">
-        <button className="btn primary" disabled={!Object.keys(draft).length || !!nameError} onClick={() => void save()}>Save</button>
+        <button className="btn primary" disabled={!Object.keys(draft).length || !!nameError || !!channelError} onClick={() => void save()}>Save</button>
         <button className="btn" disabled={!Object.keys(draft).length} onClick={() => setDraft({})}>Discard</button>
       </div>
     </div>

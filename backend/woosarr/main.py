@@ -102,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         poller = None
         if discord_service is not None:
             await discord_service.start()
-            poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_dm),
+            poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
         if poller is not None:

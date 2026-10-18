@@ -326,7 +326,8 @@ class ChannelOut(BaseModel):
     id: str
     name: str
     category: str
-    can_post: bool
+    can_post: bool  # reaction posts
+    can_post_requests: bool = False  # public requests
 
 
 @router.get("/discord/channels", response_model=list[ChannelOut])

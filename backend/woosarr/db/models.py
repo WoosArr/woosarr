@@ -299,6 +299,9 @@ class MediaRequest(Base):
     # pending | approved | declined | failed | partially_available | available | deleted
     status: Mapped[str] = mapped_column(String(20), default="pending")
     notified_status: Mapped[str | None] = mapped_column(String(20))
+    # Public requests: the post in the requests channel (status updates reply to it).
+    channel_id: Mapped[str | None] = mapped_column(String(32))
+    message_id: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
     checked_at: Mapped[datetime | None]

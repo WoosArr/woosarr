@@ -18,7 +18,7 @@ from discord import app_commands
 
 from woosarr.core import app_settings
 from woosarr.services import audit
-from woosarr.services.media_requests import RequestDenied, RequestService
+from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
 from woosarr.services.seerr import Details, Hit, SeerrError
 
 if TYPE_CHECKING:
@@ -59,6 +59,27 @@ def embed(item: Details) -> discord.Embed:
     if item.poster:
         e.set_thumbnail(url=item.poster)
     return e
+
+
+def link_view(item: Details) -> discord.ui.View:
+    """Only link buttons: safe to leave on a public post (nothing reaches the bot)."""
+    view = discord.ui.View(timeout=None)
+    for label, url in item.links():
+        view.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
+    return view
+
+
+def status_text(state: str) -> str:
+    text = STATE_TEXT.get(state, state)
+    return text[:1].upper() + text[1:]
+
+
+def set_status(e: discord.Embed, state: str) -> discord.Embed:
+    for i, f in enumerate(e.fields):
+        if f.name == "Status":
+            e.set_field_at(i, name="Status", value=status_text(state), inline=f.inline)
+            return e
+    return e.add_field(name="Status", value=status_text(state))
 
 
 def requestable_seasons(item: Details) -> list[int]:
@@ -158,7 +179,13 @@ class RequestView(_Owned):
         seasons = self.seasons or None
         result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id),
                                          is_admin(interaction), self.item.media_type, self.item.tmdb_id, seasons)
-        await interaction.edit_original_response(content=result.message, view=None)
+        message = result.message
+        if result.ok and result.row_id is not None:
+            where = await self.service.announce_request(interaction.user.id, self.item, result.state or "pending",
+                                                        result.row_id, seasons)
+            if where:
+                message += f" Posted in <#{where}>."
+        await interaction.edit_original_response(content=message, view=None)
         self.stop()
 
     async def _cancel(self, interaction: discord.Interaction) -> None:
@@ -209,6 +236,14 @@ class RequestCommands:
             await interaction.followup.send("Requests aren't set up yet. Ask an admin.", ephemeral=True)
             return
         uid, admin = str(interaction.user.id), is_admin(interaction)
+        settings = await self.run_db(app_settings.load)
+        if (settings.request_visibility == "public" and settings.request_channel_only
+                and str(interaction.channel_id) != settings.request_channel_id):
+            log.info("request by %s refused: used in channel %s, not %s", uid, interaction.channel_id,
+                     settings.request_channel_id)
+            await interaction.followup.send(f"Please make requests in <#{settings.request_channel_id}>.",
+                                            ephemeral=True)
+            return
 
         def check(s):
             self.requests.requester(s, uid, admin)
@@ -253,6 +288,72 @@ class RequestCommands:
             await interaction.edit_original_response(content=note, embed=embed(item), view=view)
         else:
             await interaction.followup.send(content=note or "", embed=embed(item), view=view, ephemeral=True)
+
+    def _request_channel(self, channel_id: str | None) -> discord.TextChannel | None:
+        """The requests channel if the bot can post (and edit/reply) there, else None (logged)."""
+        client = getattr(self, "_client", None)
+        if not channel_id or client is None or not client.is_ready():
+            return None
+        guild = client.get_guild(client.guild_id)
+        channel = guild.get_channel(int(channel_id)) if guild else None
+        if not isinstance(channel, discord.TextChannel):
+            log.warning("requests channel %s not found; set it again in Settings → Requests", channel_id)
+            return None
+        p = channel.permissions_for(guild.me)
+        missing = [n for n in ("view_channel", "send_messages", "embed_links", "read_message_history")
+                   if not getattr(p, n, False)]
+        if missing:
+            log.warning("bot can't post requests in #%s: missing %s", channel.name, ", ".join(missing))
+            return None
+        return channel
+
+    async def announce_request(self, user_id: int, item: Details, state: str, row_id: int,
+                               seasons: list[int] | None) -> str | None:
+        """Public requests: post in the requests channel mentioning the member. Returns the channel id."""
+        settings = await self.run_db(app_settings.load)
+        if settings.request_visibility != "public":
+            return None
+        channel = self._request_channel(settings.request_channel_id)
+        if channel is None:
+            return None
+        what = f"**{discord.utils.escape_markdown(item.title)}**" + (f" ({item.year})" if item.year else "")
+        if item.media_type == "tv":
+            what += f", seasons {', '.join(map(str, seasons))}" if seasons else ", all missing seasons"
+        e = set_status(embed(item), state)
+        try:
+            msg = await channel.send(f"<@{user_id}> requested {what}", embed=e, view=link_view(item),
+                                     allowed_mentions=discord.AllowedMentions(users=[discord.Object(user_id)],
+                                                                              everyone=False, roles=False))
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            log.warning("public request post in #%s failed: %s", channel.name, exc)
+            return None
+        await asyncio.to_thread(self.requests.set_post, row_id, str(channel.id), str(msg.id))
+        log.info("request %s posted in #%s (message %s)", row_id, channel.name, msg.id)
+        return str(channel.id)
+
+    async def send_notice(self, notice: Notice) -> bool:
+        """Status change: reply to the public post (mentioning the member) and update its
+        Status line; private requests (or a missing post/channel) get a DM instead."""
+        if notice.channel_id and notice.message_id:
+            channel = self._request_channel(notice.channel_id)
+            if channel is not None:
+                try:
+                    post = await channel.fetch_message(int(notice.message_id))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+                    log.info("request post %s gone (%s); replying without it", notice.message_id, exc)
+                    post = None
+                mention = discord.AllowedMentions(users=[discord.Object(int(notice.discord_user_id))],
+                                                  everyone=False, roles=False)
+                try:
+                    if post is not None and post.embeds:
+                        await post.edit(embed=set_status(post.embeds[0], notice.state))
+                    await channel.send(f"<@{notice.discord_user_id}> {notice.text}", allowed_mentions=mention,
+                                       reference=post.to_reference(fail_if_not_exists=False) if post else None)
+                    log.info("request notice for %s posted in #%s", notice.discord_user_id, channel.name)
+                    return True
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    log.warning("request notice in #%s failed (%s); sending a DM", channel.name, exc)
+        return await self.send_dm(notice.discord_user_id, notice.text)
 
     async def send_dm(self, discord_user_id: str, text: str) -> bool:
         client = getattr(self, "_client", None)

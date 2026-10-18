@@ -370,6 +370,23 @@
             "title": "Request All Members",
             "type": "boolean"
           },
+          "request_channel_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Channel Id"
+          },
+          "request_channel_only": {
+            "default": false,
+            "title": "Request Channel Only",
+            "type": "boolean"
+          },
           "request_command_name": {
             "default": "request",
             "pattern": "^[a-z0-9_-]{1,32}$",
@@ -398,6 +415,15 @@
             "maxItems": 50,
             "title": "Request Role Ids",
             "type": "array"
+          },
+          "request_visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Request Visibility",
+            "type": "string"
           },
           "unlink_policy": {
             "default": "drop_role_access",
@@ -581,6 +607,11 @@
         "properties": {
           "can_post": {
             "title": "Can Post",
+            "type": "boolean"
+          },
+          "can_post_requests": {
+            "default": false,
+            "title": "Can Post Requests",
             "type": "boolean"
           },
           "category": {
@@ -2714,6 +2745,11 @@
               }
             ],
             "title": "Plex Username"
+          },
+          "public": {
+            "default": false,
+            "title": "Public",
+            "type": "boolean"
           },
           "seasons": {
             "items": {

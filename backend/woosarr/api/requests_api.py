@@ -53,6 +53,7 @@ class RequestOut(BaseModel):
     discord_user_id: str
     discord_name: str | None
     plex_username: str | None
+    public: bool = False  # posted in the requests channel
     created_at: datetime
     updated_at: datetime
     checked_at: datetime | None
@@ -122,7 +123,7 @@ async def poll_now(request: Request) -> PollOut:
     notes = await asyncio.to_thread(_svc(request).poll)
     discord = request.app.state.discord
     sent = 0
-    for uid, text in notes:
-        if discord is not None and await discord.send_dm(uid, text):
+    for notice in notes:
+        if discord is not None and await discord.send_notice(notice):
             sent += 1
     return PollOut(notified=sent)

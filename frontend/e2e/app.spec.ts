@@ -241,6 +241,14 @@ test("request command name can be renamed but not to a reserved name", async ({ 
   await expect(page.getByText("Saved. Discord shows /plexrequest within a few seconds.")).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("Command name")).toHaveValue("plexrequest");
+  // Public requests need a channel before they can be saved.
+  await page.getByLabel(/^Public/).check();
+  await expect(page.getByText("Choose the channel for public requests.")).toBeVisible();
+  await expect(page.getByLabel("Requests channel", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+  await expect(page.getByText("Only in this channel")).toBeVisible();
+  await page.getByLabel(/^Private/).check();
+  await expect(page.getByLabel("Requests channel", { exact: true })).toHaveCount(0);
   await page.goto("/requests");
   await expect(page.getByText("Connect Seerr on the")).toBeVisible();
 });

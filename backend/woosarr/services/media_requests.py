@@ -71,6 +71,18 @@ class Outcome:
     ok: bool
     message: str
     state: str | None = None
+    row_id: int | None = None
+
+
+@dataclass(frozen=True)
+class Notice:
+    """A status change to tell a member about: as a reply to the public post, or by DM."""
+
+    discord_user_id: str
+    text: str
+    state: str
+    channel_id: str | None = None
+    message_id: str | None = None
 
 
 class RequestDenied(Exception):
@@ -311,23 +323,33 @@ class RequestService:
             return Outcome(False, f"Every season of **{item.title}** is already requested or available.")
         state = request_state(req)
         with self._db.session() as s:
-            s.add(MediaRequest(seerr_request_id=int(req["id"]), discord_user_id=discord_user_id,
+            row = MediaRequest(seerr_request_id=int(req["id"]), discord_user_id=discord_user_id,
                                plex_user_id=who.plex_user_id, seerr_user_id=who.seerr_user_id,
                                media_type=media_type, tmdb_id=int(tmdb_id), title=item.title[:300], year=item.year,
                                seasons=sorted(seasons or []), status=state, notified_status=state,
-                               checked_at=utcnow()))
+                               checked_at=utcnow())
+            s.add(row)
+            s.flush()
+            row_id = row.id
             audit.record(s, actor, "request_created", "media_request", str(req["id"]), media_type=media_type,
                          tmdb_id=tmdb_id, title=item.title, seasons=sorted(seasons or []), state=state,
                          seerr_user_id=who.seerr_user_id, plex_user=who.plex_username)
         log.info("request %s created for discord %s as seerr user %s: %s %s (%s)", req["id"], discord_user_id,
                  who.seerr_user_id, media_type, item.title, state)
         what = f"**{item.title}**" + (f" ({item.year})" if item.year else "")
-        return Outcome(True, f"Requested {what}: {STATE_TEXT.get(state, state)}.", state)
+        return Outcome(True, f"Requested {what}: {STATE_TEXT.get(state, state)}.", state, row_id)
+
+    def set_post(self, row_id: int, channel_id: str, message_id: str) -> None:
+        """Remember where a public request was posted (status updates reply to it)."""
+        with self._db.session() as s:
+            row = s.get(MediaRequest, row_id)
+            if row is not None:
+                row.channel_id, row.message_id = channel_id, message_id
 
     # ---- status updates ---------------------------------------------------------------
 
-    def poll(self) -> list[tuple[str, str]]:
-        """Re-read open requests from Seerr. Returns (discord_user_id, message) to notify."""
+    def poll(self) -> list[Notice]:
+        """Re-read open requests from Seerr. Returns the status changes to tell members about."""
         client = self.client()
         if client is None:
             return []
@@ -336,7 +358,7 @@ class RequestService:
             rows = [(r.id, r.seerr_request_id) for r in s.scalars(select(MediaRequest).where(
                 MediaRequest.status.in_(OPEN_STATES),
                 MediaRequest.created_at >= utcnow() - timedelta(days=TRACK_DAYS)))]
-        out: list[tuple[str, str]] = []
+        out: list[Notice] = []
         changed = 0
         for row_id, request_id in rows:
             try:
@@ -361,7 +383,8 @@ class RequestService:
                 if notify and state in NOTIFY_STATES and row.notified_status != state:
                     row.notified_status = state
                     what = f"**{row.title}**" + (f" ({row.year})" if row.year else "")
-                    out.append((row.discord_user_id, f"Your request for {what} is {STATE_TEXT[state]}."))
+                    out.append(Notice(row.discord_user_id, f"Your request for {what} is {STATE_TEXT[state]}.", state,
+                                      row.channel_id, row.message_id))
         if rows:
             log.info("request poll: %s open, %s changed, %s to notify", len(rows), changed, len(out))
         return out
@@ -378,18 +401,19 @@ def recent(session: Session, limit: int = 200) -> list[dict[str, Any]]:
              "discord_user_id": r.discord_user_id,
              "discord_name": (members[r.discord_user_id].display_name or members[r.discord_user_id].username)
              if r.discord_user_id in members else None,
-             "plex_username": plex.get(r.plex_user_id or ""), "created_at": r.created_at, "updated_at": r.updated_at,
+             "plex_username": plex.get(r.plex_user_id or ""), "public": r.message_id is not None,
+             "created_at": r.created_at, "updated_at": r.updated_at,
              "checked_at": r.checked_at} for r in rows]
 
 
 async def run_poller(service: RequestService, send: Any, interval: float = POLL_SECONDS,
                      first: float = 60) -> None:
-    """Forever: poll open requests and DM members about changes (send = async (uid, text))."""
+    """Forever: poll open requests and tell members about changes (send = async (Notice) -> bool)."""
     await asyncio.sleep(first)
     while True:
         try:
-            for discord_user_id, text in await asyncio.to_thread(service.poll):
-                await send(discord_user_id, text)
+            for notice in await asyncio.to_thread(service.poll):
+                await send(notice)
         except asyncio.CancelledError:
             raise
         except Exception:

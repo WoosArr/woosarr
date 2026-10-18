@@ -110,6 +110,14 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaises(ValidationError, msg=bad):
                 app_settings.AppSettings(request_command_name=bad)
 
+    def test_public_needs_a_channel(self):
+        self.assertEqual(app_settings.AppSettings().request_visibility, "private")
+        with self.assertRaises(ValidationError):
+            app_settings.AppSettings(request_visibility="public")
+        s = app_settings.AppSettings(request_visibility="public", request_channel_id="123456789",
+                                     request_channel_only=True)
+        self.assertTrue(s.request_channel_only)
+
 
 class ConnectionTests(Base):
     def test_save_stores_key_encrypted_and_status(self):
@@ -253,10 +261,11 @@ class PollTests(Base):
         self.assertEqual(self.svc.poll(), [])
         self.seerr.set_request_status(self.rid, status=2, media_status=3)
         notes = self.svc.poll()
-        self.assertEqual(notes, [("501", "Your request for **Inception** (2010) is approved, on its way.")])
+        self.assertEqual([(n.discord_user_id, n.text, n.state, n.channel_id) for n in notes],
+                         [("501", "Your request for **Inception** (2010) is approved, on its way.", "approved", None)])
         self.assertEqual(self.svc.poll(), [])
         self.seerr.set_request_status(self.rid, media_status=5)
-        self.assertIn("available on Plex", self.svc.poll()[0][1])
+        self.assertIn("available on Plex", self.svc.poll()[0].text)
         self.seerr.set_request_status(self.rid, media_status=3)
         self.assertEqual(self.svc.poll(), [])  # closed requests aren't polled again
         with self.db.session() as s:
@@ -306,6 +315,7 @@ class FakeInteraction:
         self.response = FakeResponse(self.log)
         self.followup = FakeFollowup(self.log)
         self.type = discord.InteractionType.component if component else discord.InteractionType.application_command
+        self.channel_id = 1
         self.message = object() if component else None
 
     async def edit_original_response(self, **kw):
@@ -421,6 +431,128 @@ class DiscordTests(Base):
         self.assertTrue(self.run_async(self.discord.send_dm("501", "hi")))
 
 
+class FakeMessage:
+    def __init__(self, mid, content, embed):
+        self.id, self.content, self.embeds, self.edits = mid, content, [embed] if embed else [], []
+
+    async def edit(self, embed=None, **_kw):
+        self.edits.append(embed)
+        self.embeds = [embed]
+
+    def to_reference(self, fail_if_not_exists=True):
+        return ("ref", self.id)
+
+
+class FakeChannel:
+    def __init__(self, cid=424242424242, name="requests", **perms):
+        self.id, self.name, self.sent = cid, name, []
+        self.perms = {"view_channel": True, "send_messages": True, "embed_links": True,
+                      "read_message_history": True} | perms
+
+    def permissions_for(self, _member):
+        return SimpleNamespace(**self.perms)
+
+    async def send(self, content=None, embed=None, view=None, allowed_mentions=None, reference=None):
+        msg = FakeMessage(9000 + len(self.sent), content, embed)
+        self.sent.append({"content": content, "embed": embed, "view": view, "mentions": allowed_mentions,
+                          "reference": reference, "message": msg})
+        return msg
+
+    async def fetch_message(self, mid):
+        return next(x["message"] for x in self.sent if x["message"].id == mid)
+
+
+class PublicTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.discord = DiscordService(self.db, self.secrets, lambda *a, **k: None, plex=None, requests=self.svc)
+        patcher = mock.patch("discord.TextChannel", FakeChannel)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.channel = FakeChannel()
+        guild = SimpleNamespace(me=object(), get_channel=lambda cid: self.channel if cid == self.channel.id else None)
+        self.dms = []
+        user = SimpleNamespace(send=mock.AsyncMock(side_effect=lambda text, **_k: self.dms.append(text)))
+        self.discord._client = SimpleNamespace(is_ready=lambda: True, guild_id=GUILD, get_guild=lambda _g: guild,
+                                               get_user=lambda _i: user)
+        self.connect()
+        self.settings(request_visibility="public", request_channel_id=str(self.channel.id))
+
+    def run_async(self, coro):
+        return asyncio.run(coro)
+
+    def request_inception(self):
+        view = discord_requests.RequestView(self.discord, 501, self.svc.details("movie", 27205))
+        press = FakeInteraction()
+        self.run_async(view._request(press))
+        return press.log[-1][1]["content"]
+
+    def test_request_posted_in_channel_mentioning_member(self):
+        reply = self.request_inception()
+        self.assertIn(f"Posted in <#{self.channel.id}>.", reply)
+        post = self.channel.sent[0]
+        self.assertEqual(post["content"], "<@501> requested **Inception** (2010)")
+        self.assertEqual([u.id for u in post["mentions"].users], [501])
+        self.assertFalse(post["mentions"].everyone)
+        status = next(f for f in post["embed"].fields if f.name == "Status")
+        self.assertEqual(status.value, "Waiting for approval")
+        self.assertEqual([b.label for b in post["view"].children], ["TMDB", "IMDb"])  # link buttons only
+        with self.db.session() as s:
+            row = s.scalars(select(MediaRequest)).one()
+            self.assertEqual((row.channel_id, row.message_id), (str(self.channel.id), "9000"))
+        self.assertTrue(self.c_list()[0]["public"])
+
+    def c_list(self):
+        from woosarr.services import media_requests
+        with self.db.session() as s:
+            return media_requests.recent(s)
+
+    def test_status_change_replies_to_post_and_updates_it(self):
+        self.request_inception()
+        self.seerr.set_request_status(max(self.seerr.requests), status=2, media_status=5)
+        notice = self.svc.poll()[0]
+        self.assertTrue(self.run_async(self.discord.send_notice(notice)))
+        reply = self.channel.sent[1]
+        self.assertEqual(reply["content"], "<@501> Your request for **Inception** (2010) is available on Plex.")
+        self.assertEqual(reply["reference"], ("ref", 9000))
+        edited = self.channel.sent[0]["message"].edits[0]
+        self.assertEqual(next(f for f in edited.fields if f.name == "Status").value, "Available on Plex")
+        self.assertEqual(self.dms, [])
+
+    def test_private_requests_and_unusable_channel_fall_back(self):
+        self.settings(request_visibility="private")
+        self.assertNotIn("Posted in", self.request_inception())
+        self.assertEqual(self.channel.sent, [])
+        self.seerr.set_request_status(max(self.seerr.requests), status=3)
+        self.run_async(self.discord.send_notice(self.svc.poll()[0]))
+        self.assertEqual(len(self.dms), 1)  # private -> DM
+        self.settings(request_visibility="public")
+        self.channel.perms["embed_links"] = False
+        self.assertNotIn("Posted in", self.request_interstellar())  # can't embed: request still made
+
+    def request_interstellar(self):
+        view = discord_requests.RequestView(self.discord, 501, self.svc.details("movie", 157336))
+        press = FakeInteraction()
+        self.run_async(view._request(press))
+        return press.log[-1][1]["content"]
+
+    def test_channel_only(self):
+        self.settings(request_channel_only=True)
+        it = FakeInteraction()
+        it.channel_id = 1
+        self.run_async(self.discord.handle_request_command(it, "movie:27205"))
+        self.assertEqual(it.log[-1][1], f"Please make requests in <#{self.channel.id}>.")
+        ok = FakeInteraction()
+        ok.channel_id = self.channel.id
+        self.run_async(self.discord.handle_request_command(ok, "movie:27205"))
+        self.assertIsInstance(ok.log[-1][2]["view"], discord_requests.RequestView)
+        self.settings(request_channel_only=False)
+        anywhere = FakeInteraction()
+        anywhere.channel_id = 1
+        self.run_async(self.discord.handle_request_command(anywhere, "movie:27205"))
+        self.assertIsInstance(anywhere.log[-1][2]["view"], discord_requests.RequestView)
+
+
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.h = AppHarness()
@@ -450,6 +582,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.c.get("/api/v1/requests").json(), [])
         self.assertEqual(self.c.post("/api/v1/requests/poll").json(), {"notified": 0})
         self.assertFalse(self.c.delete("/api/v1/requests/seerr").json()["configured"])
+
+    def test_public_without_channel_rejected(self):
+        self.assertEqual(self.c.patch("/api/v1/settings", json={"request_visibility": "public"}).status_code, 422)
+        r = self.c.patch("/api/v1/settings", json={"request_visibility": "public", "request_channel_id": "123456789",
+                                                   "request_channel_only": True})
+        self.assertEqual(r.status_code, 200, r.text)
 
     def test_settings_reject_reserved_command_name(self):
         r = self.c.patch("/api/v1/settings", json={"request_command_name": "invite"})

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import Setting
@@ -60,6 +60,18 @@ class AppSettings(BaseModel):
     request_import_users: bool = True
     # DM the member when their request is approved, declined or becomes available.
     request_notify: bool = True
+    # private: only the member sees the request (status by DM). public: the request is
+    # posted in request_channel_id mentioning the member, and status updates are replies there.
+    request_visibility: Literal["private", "public"] = "private"
+    request_channel_id: str | None = Field(None, pattern=r"^\d{5,25}$")
+    # Public only: the request command works only in request_channel_id.
+    request_channel_only: bool = False
+
+    @model_validator(mode="after")
+    def _public_needs_channel(self) -> AppSettings:
+        if self.request_visibility == "public" and not self.request_channel_id:
+            raise ValueError("public requests need a channel (request_channel_id)")
+        return self
 
     @field_validator("request_command_name")
     @classmethod

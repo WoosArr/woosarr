@@ -20,6 +20,18 @@ Members request movies and TV shows from Discord with a slash command (default *
 
 All replies are ephemeral (only the member sees them).
 
+## Private or public (Settings → Requests → Visibility)
+
+Searching, the "Which one?" list and the details card are always private to the member (they're personal menus). What happens after **Request** depends on the visibility:
+
+| | Private (default) | Public |
+|---|---|---|
+| The request | Only the member sees the confirmation | Also posted in the **requests channel**: "@member requested **Title** (year)" with the poster card, a *Status* line and TMDB/TVDB/IMDb link buttons. Only the requester is mentioned (no @everyone or role pings). |
+| Status changes | DM to the member | Reply to that post mentioning the member, and the post's *Status* line is updated. Falls back to a DM if the channel or post is gone or the bot can't post there. |
+| **Only in this channel** | n/a | Optional. `/request` used anywhere else answers "Please make requests in #channel" (privately). To also hide the command in other channels, use *Server Settings → Integrations → WooSarr → /request → Channels*. A bot can't set that itself. |
+
+Public needs a channel. The bot needs **View Channels, Send Messages, Embed Links and Read Message History** there (*Public requests* in Setup → Bot features); the channel list marks channels where it can't post. If it can't post, the request is still made and the problem is logged (`bot can't post requests in #… missing …`). Whether a request was public is decided when it's made, so switching later doesn't move existing requests' updates.
+
 ## Who may request (Settings → Requests)
 
 | Setting | Default | Meaning |
@@ -64,6 +76,9 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 | `request suggestions … unavailable: timeout` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
 | `request notice for … not sent: member doesn't accept DMs` | The member has DMs from server members turned off. |
 | `request poll: N open, M changed, K to notify` | Periodic status check. |
+| `request <id> posted in #channel` / `request notice for … posted in #channel` | Public request post and status reply. |
+| `bot can't post requests in #… missing …` | Give the bot those permissions in the requests channel. |
+| `request by … refused: used in channel …` | *Only in this channel* is on and the member used another channel. |
 
 ## API details used (Seerr develop, 2026-10)
 

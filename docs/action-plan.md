@@ -271,6 +271,7 @@ remove_all       = target empty and current non-empty                # use the r
 
 ### Phase 13 — Requests
 - [~] **P13-01** Seerr requests (D22): client `services/seerr.py` (strict query encoding, request-as-user, import from Plex), `services/media_requests.py` (Plex-id → email → username mapping, role/verified gating, submit, 5-min status poll + DMs), Discord flow `services/discord_requests.py` (autocomplete within 3 s, pick menu, details card, season select), command registered under `request_command_name` (default `request`; re-registered on rename or Seerr connect/disconnect), API `api/requests_api.py`, migration 0007, Setup card, Settings → Requests, Requests page, `docs/requests.md`. *Verify:* `pytest tests/test_requests.py` (fake Seerr from Seerr's source), Playwright `request command name…` + axe on the new pages. *Remaining:* **LIVE** connect a real Seerr, request from Discord, see it in Seerr under the member, get the DM.
+- [~] **P13-04** Public requests: `request_visibility` private/public, `request_channel_id`, `request_channel_only`; post with member mention (only that user pingable), status replies + post status edit, DM fallback; migration 0008; feature `request_posts`. *Verify:* `tests/test_requests.py::PublicTests`, Playwright `request command name…`. *Remaining:* **LIVE** post in a real channel.
 - [ ] **P13-02** Ombi as a second request provider.
 - [ ] **P13-03** Audiobooks via Listenarr (research its API first).
 

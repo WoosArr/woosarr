@@ -75,13 +75,18 @@ class Hit:
     def tmdb_url(self) -> str:
         return TMDB.format(kind=self.media_type, id=self.tmdb_id)
 
-    def label(self) -> str:
-        icon = "\N{CLAPPER BOARD}" if self.media_type == "movie" else "\N{TELEVISION}"
+    def label(self, limit: int = 100) -> str:
+        """"🍿 Title (year) · available" within `limit` characters (Discord's 100 for
+        suggestions and menu options). Long titles are shortened; the note is kept."""
+        icon = "\N{POPCORN}" if self.media_type == "movie" else "\N{TELEVISION}"
         year = f" ({self.year})" if self.year else ""
         note = {"available": " · available", "partially_available": " · partly available",
                 "pending": " · requested", "processing": " · requested"}.get(self.status, "")
-        text = f"{icon} {self.title}{year}{note}"
-        return text if len(text) <= 100 else text[:99] + "…"
+        title = self.title
+        room = limit - len(icon) - 1 - len(year) - len(note)
+        if len(title) > room:
+            title = title[: max(room - 1, 1)].rstrip() + "…"
+        return f"{icon} {title}{year}{note}"
 
 
 @dataclass(frozen=True)

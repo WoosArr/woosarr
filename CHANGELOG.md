@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- `/request` suggestions and menus mark movies with 🍿 (was 🎬, too close to 📺 for shows); long titles are shortened so the "available" / "partly available" / "requested" note always stays visible.
 - Requests can be **public**: each request is posted in an admin-chosen channel mentioning the member, and status changes reply to that post and update its status (private requests keep DMs). Optional "only in this channel" for `/request`. New bot feature *Public requests* (View Channels, Send Messages, Embed Links, Read Message History in that channel).
 - `/request`: the "Which one?" list links each title to TMDB (choosing stays in the menu), and the details card links to TMDB, TVDB (shows) and IMDb.
 - Requests through Seerr (Overseerr/Jellyseerr compatible): members search and request movies and TV shows from Discord with `/request` (suggestions as they type, poster card, season picker), made as their own Seerr user so Seerr's permissions, quotas and auto-approval apply; DM when approved, declined or available; Setup card with connection test, Settings → Requests (command name, roles, verified links only, create missing Seerr users, notifications), Requests page. The command's name can be changed when another bot already has `/request`. See docs/requests.md.

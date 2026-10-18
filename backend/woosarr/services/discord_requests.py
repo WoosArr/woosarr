@@ -111,7 +111,7 @@ class PickView(_Owned):
         super().__init__(owner_id)
         self.service = service
         select = discord.ui.Select(placeholder="Choose a title", min_values=1, max_values=1, options=[
-            discord.SelectOption(label=f"{n}. {h.label()}"[:100], value=h.key,
+            discord.SelectOption(label=f"{n}. {h.label(100 - len(f'{n}. '))}", value=h.key,
                                  description=(h.overview[:97] + "…") if len(h.overview) > 100 else (h.overview or None))
             for n, h in enumerate(hits[:25], 1)])
         select.callback = self._picked

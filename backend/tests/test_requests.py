@@ -92,6 +92,19 @@ class ClientTests(unittest.TestCase):
         with self.assertRaisesRegex(SeerrError, "Can't reach Seerr"):
             SeerrClient(URL, KEY, session=fake).server_status()
 
+    def test_label_keeps_status_note_when_shortening(self):
+        from woosarr.services.seerr import Hit
+
+        long = Hit("movie", 1, "A" * 150, "2020", "", None, "partially_available")
+        label = long.label()
+        self.assertEqual(len(label), 100)
+        self.assertTrue(label.startswith("\N{POPCORN} AAA"))
+        self.assertTrue(label.endswith("… (2020) · partly available"))
+        self.assertEqual(len(long.label(97)), 97)
+        self.assertTrue(long.label(97).endswith("· partly available"))
+        show = Hit("tv", 2, "Short", "", "", None, "available")
+        self.assertEqual(show.label(), "\N{TELEVISION} Short · available")
+
     def test_request_state(self):
         self.assertEqual(request_state({"status": 1, "media": {"status": 2}}), "pending")
         self.assertEqual(request_state({"status": 2, "media": {"status": 3}}), "approved")
@@ -355,7 +368,7 @@ class DiscordTests(Base):
     def test_suggestions(self):
         self.connect()
         choices = self.run_async(self.discord.request_suggestions("inter"))
-        self.assertEqual([(c.name, c.value) for c in choices], [("\N{CLAPPER BOARD} Interstellar (2014)",
+        self.assertEqual([(c.name, c.value) for c in choices], [("\N{POPCORN} Interstellar (2014)",
                                                                  "movie:157336")])
         self.assertEqual(self.run_async(self.discord.request_suggestions("i")), [])
         self.svc._forget()
@@ -397,7 +410,7 @@ class DiscordTests(Base):
         self.assertIsInstance(kw["view"], discord_requests.PickView)
         # Numbered TMDB links above the menu; menu options are numbered to match and carry no links.
         listing = kw["embed"].description.splitlines()
-        self.assertEqual(listing[0], "1. [\N{CLAPPER BOARD} Inception (2010)](https://www.themoviedb.org/movie/27205)")
+        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception (2010)](https://www.themoviedb.org/movie/27205)")
         self.assertTrue(any("(https://www.themoviedb.org/tv/1396)" in line for line in listing))
         labels = [o.label for o in kw["view"].select.options]
         self.assertTrue(labels[0].startswith("1. "))

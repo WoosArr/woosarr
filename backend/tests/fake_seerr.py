@@ -113,13 +113,17 @@ class FakeSeerr:
             return FakeResponse(200, {"page": 1, "totalPages": 1, "totalResults": len(results), "results": results})
         if path.startswith("/movie/"):
             tmdb = int(path.rsplit("/", 1)[1])
-            return FakeResponse(200, self._movie(tmdb)) if tmdb in MOVIES else FakeResponse(404, {"message": "Not found"})
+            if tmdb not in MOVIES:
+                return FakeResponse(404, {"message": "Not found"})
+            # Details (not search results) carry externalIds.
+            return FakeResponse(200, dict(self._movie(tmdb), externalIds={"imdbId": f"tt{tmdb:07d}"}))
         if path.startswith("/tv/"):
             tmdb = int(path.rsplit("/", 1)[1])
             if tmdb not in SHOWS:
                 return FakeResponse(404, {"message": "Not found"})
             show = self._show(tmdb)
             show["seasons"] = [{"seasonNumber": n, "episodeCount": 10} for n in SHOWS[tmdb]["seasons"]]
+            show["externalIds"] = {"tvdbId": 81189, "imdbId": "tt0903747"}
             return FakeResponse(200, show)
         if path == "/request" and method == "POST":
             return self._create(user, json or {})

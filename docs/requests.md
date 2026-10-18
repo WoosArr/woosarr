@@ -13,8 +13,8 @@ Members request movies and TV shows from Discord with a slash command (default *
 
 ## What members see
 
-- `/request title:` suggests matching movies and shows as they type (up to 25, with year and "available" / "requested" notes). Picking a suggestion opens it directly; typing something and sending it shows a menu of matches.
-- A private card with poster, overview, type and status. Shows get a season menu: leave it empty for every season that isn't on Plex yet, or pick seasons. Specials (season 0) aren't offered.
+- `/request title:` suggests matching movies and shows as they type (up to 25, with year and "available" / "requested" notes; plain text, as Discord allows no links there). Picking a suggestion opens it directly; typing something and sending it shows a numbered list of matches linking to TMDB, with a menu (numbered the same) to choose from. Clicking a link only opens the page; it never selects the title.
+- A private card with poster, overview, type and status. The title links to TMDB, and link buttons open TMDB, TVDB (shows) and IMDb; link buttons open the browser and never send a request. Shows get a season menu: leave it empty for every season that isn't on Plex yet, or pick seasons. Specials (season 0) aren't offered.
 - **Request** sends it to Seerr; the reply says whether it's waiting for approval or already approved. Titles that are available or already requested have the button disabled.
 - When the request is approved, declined, fails, or becomes (partly) available, the member gets a DM from the bot. Members who don't accept DMs from server members just don't get it; the Requests page still shows the status.
 

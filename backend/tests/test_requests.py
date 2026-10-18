@@ -370,6 +370,7 @@ class DiscordTests(Base):
         kind, _content, kw = it.log[-1]
         self.assertEqual(kind, "followup")
         self.assertEqual(kw["embed"].title, "Inception (2010)")
+        self.assertEqual(kw["embed"].url, "https://www.themoviedb.org/movie/27205")
         view = kw["view"]
         self.assertIsInstance(view, discord_requests.RequestView)
         self.assertFalse(view.button.disabled)
@@ -382,8 +383,15 @@ class DiscordTests(Base):
         it = FakeInteraction()
         self.run_async(self.discord.handle_request_command(it, "in"))
         _kind, content, kw = it.log[-1]
-        self.assertEqual(content, "Which one?")
+        self.assertEqual(content, "Which one? Titles link to TMDB; choose in the menu.")
         self.assertIsInstance(kw["view"], discord_requests.PickView)
+        # Numbered TMDB links above the menu; menu options are numbered to match and carry no links.
+        listing = kw["embed"].description.splitlines()
+        self.assertEqual(listing[0], "1. [\N{CLAPPER BOARD} Inception (2010)](https://www.themoviedb.org/movie/27205)")
+        self.assertTrue(any("(https://www.themoviedb.org/tv/1396)" in line for line in listing))
+        labels = [o.label for o in kw["view"].select.options]
+        self.assertTrue(labels[0].startswith("1. "))
+        self.assertEqual(len(labels), len(listing))
         nobody = FakeInteraction(user_id=999)
         self.run_async(self.discord.handle_request_command(nobody, "inception"))
         self.assertIn("/link", nobody.log[-1][1])
@@ -394,6 +402,13 @@ class DiscordTests(Base):
         view = discord_requests.RequestView(self.discord, 501, item)
         self.assertEqual(len(view.season_select.options), 5)
         self.assertEqual(view.button.label, "Request all missing seasons")
+        links = {b.label: b.url for b in view.children if isinstance(b, discord.ui.Button) and b.url}
+        self.assertEqual(links, {"TMDB": "https://www.themoviedb.org/tv/1396",
+                                 "TVDB": "https://thetvdb.com/?tab=series&id=81189",
+                                 "IMDb": "https://www.imdb.com/title/tt0903747/"})
+        movie = discord_requests.RequestView(self.discord, 501, self.svc.details("movie", 27205))
+        self.assertEqual([b.label for b in movie.children if isinstance(b, discord.ui.Button) and b.url],
+                         ["TMDB", "IMDb"])  # no TVDB for movies
         self.seerr.media[("movie", 27205)] = {"status": 5}
         self.assertFalse(discord_requests.can_request(self.svc.details("movie", 27205)))
 

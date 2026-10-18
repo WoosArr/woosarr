@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- `/request`: the "Which one?" list links each title to TMDB (choosing stays in the menu), and the details card links to TMDB, TVDB (shows) and IMDb.
 - Requests through Seerr (Overseerr/Jellyseerr compatible): members search and request movies and TV shows from Discord with `/request` (suggestions as they type, poster card, season picker), made as their own Seerr user so Seerr's permissions, quotas and auto-approval apply; DM when approved, declined or available; Setup card with connection test, Settings → Requests (command name, roles, verified links only, create missing Seerr users, notifications), Requests page. The command's name can be changed when another bot already has `/request`. See docs/requests.md.
 - Admin single sign-on with OpenID Connect: multiple providers, presets for Okta, Microsoft Entra ID, Google and ADFS plus Custom; setup wizard with requirements and step-by-step instructions; test sign-in showing the claims and decision; access rules by group/role, email or domain; admins created on first sign-in and linked by subject; password login can be turned off once SSO works (lockout guard). See docs/sso.md.
 

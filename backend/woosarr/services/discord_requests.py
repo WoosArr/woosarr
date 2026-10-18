@@ -50,7 +50,7 @@ def embed(item: Details) -> discord.Embed:
     kind = "Movie" if item.media_type == "movie" else "TV show"
     title = f"{item.title} ({item.year})" if item.year else item.title
     overview = item.overview if len(item.overview) <= 400 else item.overview[:399] + "…"
-    e = discord.Embed(title=title[:256], description=overview or None, color=COLOR)
+    e = discord.Embed(title=title[:256], url=item.tmdb_url, description=overview or None, color=COLOR)
     e.add_field(name="Type", value=kind)
     e.add_field(name="Status", value=STATUS_LINE.get(item.status, item.status))
     if item.seasons:
@@ -90,9 +90,9 @@ class PickView(_Owned):
         super().__init__(owner_id)
         self.service = service
         select = discord.ui.Select(placeholder="Choose a title", min_values=1, max_values=1, options=[
-            discord.SelectOption(label=h.label()[:100], value=h.key, description=(h.overview[:97] + "…")
-                                 if len(h.overview) > 100 else (h.overview or None))
-            for h in hits[:25]])
+            discord.SelectOption(label=f"{n}. {h.label()}"[:100], value=h.key,
+                                 description=(h.overview[:97] + "…") if len(h.overview) > 100 else (h.overview or None))
+            for n, h in enumerate(hits[:25], 1)])
         select.callback = self._picked
         self.select = select
         self.add_item(select)
@@ -102,6 +102,13 @@ class PickView(_Owned):
         await interaction.response.defer()
         await self.service.show_details(interaction, kind, int(tmdb))
         self.stop()
+
+
+def pick_list(hits: list[Hit]) -> discord.Embed:
+    """Numbered titles linking to TMDB, shown above the pick menu. Links only open the
+    page; choosing still happens in the menu (menu options can't hold links)."""
+    lines = [f"{n}. [{discord.utils.escape_markdown(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
+    return discord.Embed(description="\n".join(lines)[:4096], color=COLOR)
 
 
 class RequestView(_Owned):
@@ -130,6 +137,9 @@ class RequestView(_Owned):
         cancel = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel.callback = self._cancel
         self.add_item(cancel)
+        # Link buttons open the page in a browser; they never reach the bot.
+        for label, url in item.links():
+            self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link, row=4))
 
     def _label(self) -> str:
         if self.item.media_type != "tv":
@@ -227,7 +237,8 @@ class RequestCommands:
         if len(hits) == 1:
             await self.show_details(interaction, hits[0].media_type, hits[0].tmdb_id)
             return
-        await interaction.followup.send("Which one?", view=PickView(self, interaction.user.id, hits), ephemeral=True)
+        await interaction.followup.send("Which one? Titles link to TMDB; choose in the menu.", embed=pick_list(hits),
+                                        view=PickView(self, interaction.user.id, hits), ephemeral=True)
 
     async def show_details(self, interaction: discord.Interaction, media_type: str, tmdb_id: int) -> None:
         """Answer (or replace the menu) with the title's details and the Request button."""

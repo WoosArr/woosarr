@@ -29,6 +29,9 @@ log = logging.getLogger("woosarr.seerr")
 
 TIMEOUT = 15
 POSTER = "https://image.tmdb.org/t/p/w342{path}"
+TMDB = "https://www.themoviedb.org/{kind}/{id}"
+TVDB = "https://thetvdb.com/?tab=series&id={id}"
+IMDB = "https://www.imdb.com/title/{id}/"
 
 # MediaRequestStatus / MediaStatus in server/constants/media.ts
 REQUEST_STATUS = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
@@ -68,6 +71,10 @@ class Hit:
     def key(self) -> str:
         return f"{self.media_type}:{self.tmdb_id}"
 
+    @property
+    def tmdb_url(self) -> str:
+        return TMDB.format(kind=self.media_type, id=self.tmdb_id)
+
     def label(self) -> str:
         icon = "\N{CLAPPER BOARD}" if self.media_type == "movie" else "\N{TELEVISION}"
         year = f" ({self.year})" if self.year else ""
@@ -87,6 +94,17 @@ class Season:
 @dataclass(frozen=True)
 class Details(Hit):
     seasons: tuple[Season, ...] = field(default=())
+    tvdb_id: int | None = None
+    imdb_id: str | None = None
+
+    def links(self) -> list[tuple[str, str]]:
+        """(label, url) for the title's pages on TMDB, TVDB (shows) and IMDb."""
+        out = [("TMDB", self.tmdb_url)]
+        if self.tvdb_id:
+            out.append(("TVDB", TVDB.format(id=self.tvdb_id)))
+        if self.imdb_id:
+            out.append(("IMDb", IMDB.format(id=self.imdb_id)))
+        return out
 
 
 def _media_status(info: dict | None) -> str:
@@ -203,7 +221,11 @@ class SeerrClient:
             seasons = tuple(Season(int(s["seasonNumber"]), int(s.get("episodeCount") or 0),
                                    state.get(int(s["seasonNumber"]), "unknown"))
                             for s in (data or {}).get("seasons") or [] if int(s.get("seasonNumber", 0)) > 0)
-        return Details(**hit.__dict__, seasons=seasons)
+        ext = (data or {}).get("externalIds") or {}
+        tvdb = ext.get("tvdbId") or ((data or {}).get("mediaInfo") or {}).get("tvdbId")
+        imdb = ext.get("imdbId") or (data or {}).get("imdbId")
+        return Details(**hit.__dict__, seasons=seasons, tvdb_id=int(tvdb) if tvdb and media_type == "tv" else None,
+                       imdb_id=str(imdb) if imdb and str(imdb).startswith("tt") else None)
 
     # ---- requests -------------------------------------------------------------------
 

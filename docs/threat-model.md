@@ -70,11 +70,20 @@ Authorization code flow with PKCE; `state` is single-use, expires in 10 minutes 
 ### Requests made as someone else (Seerr, P13-01)
 Requests run as the Seerr user of the member's linked Plex account (`X-API-User`), so a wrong link means requests (and quota use) in someone else's name. By default only **verified** links may request (`request_require_verified`); a username-only claim can't. Every request, refusal and status change is audited with the Discord id and the Seerr user id. Members can only request (search, details, create): WooSarr never exposes Seerr's approve, decline or delete actions to Discord. The Seerr URL is admin-entered; redirects aren't followed, so the key isn't sent to another host.
 
+### Untrusted media metadata in Discord (security assessment 2026-10-18)
+Titles and overviews come from TMDB through Seerr, and anyone can edit TMDB. Before they go into a Discord message (pick list, details card, public post, status replies, DMs) they pass through `services/discord_text.safe()`: markdown and `[]()` are escaped (discord.py's escaper alone misses fragments like `](https://x) [`), `<` is escaped so mention syntax shows as text, `@everyone`/`@here` are broken with a zero-width joiner, and newlines are collapsed. Mentions are also limited by `allowed_mentions` (only the requester on public posts, none in DMs). Values that go into URLs are pattern-checked: poster paths, IMDb ids (`tt` + digits), TVDB ids (digits), years (digits). Covered by `tests/test_requests.py::UntrustedTextTests`.
+
+### Search abuse via /request
+Every suggestion is a Seerr → TMDB search. Suggestions are only computed for members who may request (roles, link, verified, channel), with no Seerr call for anyone else, and each member gets 30 uncached searches per minute (`RequestService.search_limiter`); cached results don't count.
+
+### Admin-entered service URLs (accepted)
+The Seerr address is entered by an admin and WooSarr connects to it (Test/Save), so an admin can make WooSarr probe hosts on its network. Admins are trusted (out of scope); redirects aren't followed, so the API key is only sent to that host.
+
 ### Plex share mistakes (integrity)
 Plex replaces a user's whole share list on update. WooSarr always computes and writes the **complete** set, re-reads live state right before writing and skips on drift, never touches exempt or unmanaged libraries, and starts in **dry-run**.
 
 ### Supply chain
-Pinned Python versions (`backend/constraints.txt`), npm lockfile, `pip-audit` and `npm audit --omit=dev` in CI, gitleaks on the repo history, Trivy secret scan of the image before publishing. Known accepted: `npm audit` dev-only findings for the Vite dev server (not in the image).
+Pinned Python versions (`backend/constraints.txt`), npm lockfile, `pip-audit` and `npm audit --omit=dev` in CI, gitleaks on the repo history, Trivy secret scan of the image before publishing. `npm audit` (including dev dependencies) is clean since the 2026-10-18 assessment (vite 8, vitest 5).
 
 ## Out of scope
 

@@ -347,3 +347,14 @@ class DocsTests(unittest.TestCase):
 
         doc = Path(__file__).resolve().parents[2] / "docs" / "sso.md"
         self.assertEqual(doc.read_text(), markdown(), "docs/sso.md is stale: run `make sso-docs`")
+
+
+class SafeNextTests(unittest.TestCase):
+    def test_only_same_site_paths(self):
+        from woosarr.api.oidc import _safe_next
+
+        for ok in ("/", "/settings?tab=sso", "/users#x"):
+            self.assertEqual(_safe_next(ok), ok)
+        for bad in (None, "", "https://evil.example", "//evil.example", "/\\evil.example", "/\t/evil.example",
+                    "/\n/evil.example", "/\r/evil", "/\x7f", "x/y", "/" + "a" * 600):
+            self.assertEqual(_safe_next(bad), "/", repr(bad))

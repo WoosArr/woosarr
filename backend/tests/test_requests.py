@@ -2,6 +2,7 @@
 the configurable command name, the Discord flow and the admin API."""
 
 import asyncio
+import re
 import tempfile
 import time
 import unittest
@@ -112,6 +113,42 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(request_state({"status": 2, "media": {"status": 4}}), "partially_available")
         self.assertEqual(request_state({"status": 5, "media": {"status": 5}}), "available")
         self.assertEqual(request_state({"status": 4}), "failed")
+
+
+class UntrustedTextTests(unittest.TestCase):
+    """TMDB titles/overviews (editable by anyone on TMDB) must not form links or mentions."""
+
+    def test_safe_neutralizes_links_mentions_and_markdown(self):
+        from woosarr.services.discord_text import safe
+
+        for hostile in ("](https://evil.example) [x", "[free](https://evil.example)", "<@&123> @everyone @here",
+                        "**bold** __u__ ~~s~~ `c` ||spoiler||", "line1\n# Heading\n> quote"):
+            out = safe(hostile)
+            self.assertNotRegex(out, r"(?<!\\)[\[\]()<]", hostile)  # every bracket and < escaped
+            self.assertNotIn("\n", out)
+            self.assertNotIn("@everyone", out)
+            self.assertNotIn("@here", out)
+            for ch in "*_~`|":
+                self.assertNotRegex(out, rf"(?<!\\){re.escape(ch)}", hostile)
+        self.assertEqual(safe("x" * 50, 10), "xxxxxxxxx…")
+
+    def test_hostile_title_in_pick_list_and_notices(self):
+        from woosarr.services.seerr import Hit
+
+        evil = Hit("movie", 1, "Fine](https://evil.example) [x", "2020", "[click](https://evil.example)", None,
+                   "unknown")
+        line = discord_requests.pick_list([evil]).description
+        self.assertTrue(line.endswith("](https://www.themoviedb.org/movie/1)"))
+        self.assertIn("\\]\\(https://evil.example\\)", line)  # inert text, not a second link
+
+    def test_urls_from_seerr_validated(self):
+        from woosarr.services.seerr import _hit
+
+        ok = _hit({"mediaType": "movie", "id": 1, "title": "x", "posterPath": "/abc_DEF-1.jpg", "releaseDate": "2020-01-01"})
+        self.assertEqual(ok.poster, "https://image.tmdb.org/t/p/w342/abc_DEF-1.jpg")
+        for bad in ("@evil.example/x.jpg", "/../../x.jpg", "//evil.example/x.jpg", "/x.jpg?y", "/x.svg"):
+            self.assertIsNone(_hit({"mediaType": "movie", "id": 1, "title": "x", "posterPath": bad}).poster, bad)
+        self.assertEqual(_hit({"mediaType": "movie", "id": 1, "title": "x", "releaseDate": "](x"}).year, "")
 
 
 class SettingsTests(unittest.TestCase):
@@ -375,6 +412,31 @@ class DiscordTests(Base):
         self.seerr.down = True
         self.assertEqual(self.run_async(self.discord.request_suggestions("inter")), [])
 
+    def test_suggestions_only_for_members_who_may_request(self):
+        self.connect()
+        linked, unlinked, unverified = FakeInteraction(501), FakeInteraction(999), FakeInteraction(502)
+        self.assertTrue(self.run_async(self.discord.request_suggestions("inter", linked)))
+        searches = sum(1 for c in self.seerr.calls if c[1] == "/search")
+        self.svc._forget()
+        self.assertEqual(self.run_async(self.discord.request_suggestions("inter", unlinked)), [])
+        self.assertEqual(self.run_async(self.discord.request_suggestions("inter", unverified)), [])
+        self.assertEqual(sum(1 for c in self.seerr.calls if c[1] == "/search"), searches)  # no Seerr call
+
+    def test_search_rate_limit_per_member(self):
+        self.connect()
+        from woosarr.services import media_requests
+
+        for i in range(media_requests.SEARCHES_PER_WINDOW):
+            self.svc.search(f"query {i}", member="501")
+        with self.assertRaises(SeerrError) as caught:
+            self.svc.search("one more", member="501")
+        self.assertEqual(caught.exception.status, 429)
+        self.svc.search("cached is free", member="503")  # other members have their own budget
+        self.svc.search("query 0", member="501")  # cached results don't count
+        it = FakeInteraction(501)
+        self.run_async(self.discord.handle_request_command(it, "brand new text"))
+        self.assertEqual(it.log[-1][1], "Too many searches; wait a minute and try again.")
+
     def test_slow_search_gives_no_suggestions(self):
         self.connect()
 
@@ -410,7 +472,8 @@ class DiscordTests(Base):
         self.assertIsInstance(kw["view"], discord_requests.PickView)
         # Numbered TMDB links above the menu; menu options are numbered to match and carry no links.
         listing = kw["embed"].description.splitlines()
-        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception (2010)](https://www.themoviedb.org/movie/27205)")
+        # Brackets are escaped inside the link text (Discord shows "\(" as "(").
+        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception \\(2010\\)](https://www.themoviedb.org/movie/27205)")
         self.assertTrue(any("(https://www.themoviedb.org/tv/1396)" in line for line in listing))
         labels = [o.label for o in kw["view"].select.options]
         self.assertTrue(labels[0].startswith("1. "))

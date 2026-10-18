@@ -6,7 +6,7 @@ import logging
 import threading
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from woosarr.api.auth import LoginOut, admin_out, start_session
@@ -27,7 +27,7 @@ _claim_lock = threading.Lock()
 class SetupAdminIn(BaseModel):
     username: Username
     password: Password
-    setup_code: str | None = None
+    setup_code: str | None = Field(None, max_length=64)
 
 
 def _gone() -> HTTPException:

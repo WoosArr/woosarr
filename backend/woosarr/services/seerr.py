@@ -18,6 +18,7 @@ Findings from Seerr's source and `seerr-api.yml` (develop, 2026-10):
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,6 +33,9 @@ POSTER = "https://image.tmdb.org/t/p/w342{path}"
 TMDB = "https://www.themoviedb.org/{kind}/{id}"
 TVDB = "https://thetvdb.com/?tab=series&id={id}"
 IMDB = "https://www.imdb.com/title/{id}/"
+# Values from Seerr/TMDB that end up in URLs must match these exactly.
+POSTER_PATH = re.compile(r"^/[A-Za-z0-9_-]{1,100}\.(?:jpg|jpeg|png|webp)$")
+IMDB_ID = re.compile(r"^tt\d{5,10}$")
 
 # MediaRequestStatus / MediaStatus in server/constants/media.ts
 REQUEST_STATUS = {1: "pending", 2: "approved", 3: "declined", 4: "failed", 5: "completed"}
@@ -121,10 +125,11 @@ def _hit(item: dict) -> Hit | None:
     if kind not in ("movie", "tv") or not item.get("id"):
         return None
     title = item.get("title") if kind == "movie" else item.get("name")
-    date = (item.get("releaseDate") if kind == "movie" else item.get("firstAirDate")) or ""
-    poster = item.get("posterPath")
-    return Hit(kind, int(item["id"]), str(title or "?"), date[:4], str(item.get("overview") or ""),
-               POSTER.format(path=poster) if poster else None, _media_status(item.get("mediaInfo")))
+    date = str((item.get("releaseDate") if kind == "movie" else item.get("firstAirDate")) or "")
+    year = date[:4] if date[:4].isdigit() else ""
+    poster = str(item.get("posterPath") or "")
+    return Hit(kind, int(item["id"]), str(title or "?"), year, str(item.get("overview") or ""),
+               POSTER.format(path=poster) if POSTER_PATH.match(poster) else None, _media_status(item.get("mediaInfo")))
 
 
 class SeerrClient:
@@ -228,9 +233,10 @@ class SeerrClient:
                             for s in (data or {}).get("seasons") or [] if int(s.get("seasonNumber", 0)) > 0)
         ext = (data or {}).get("externalIds") or {}
         tvdb = ext.get("tvdbId") or ((data or {}).get("mediaInfo") or {}).get("tvdbId")
+        tvdb = tvdb if isinstance(tvdb, int) or (isinstance(tvdb, str) and tvdb.isdigit()) else None
         imdb = ext.get("imdbId") or (data or {}).get("imdbId")
         return Details(**hit.__dict__, seasons=seasons, tvdb_id=int(tvdb) if tvdb and media_type == "tv" else None,
-                       imdb_id=str(imdb) if imdb and str(imdb).startswith("tt") else None)
+                       imdb_id=str(imdb) if imdb and IMDB_ID.match(str(imdb)) else None)
 
     # ---- requests -------------------------------------------------------------------
 

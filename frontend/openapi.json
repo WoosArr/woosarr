@@ -3258,6 +3258,7 @@
           "setup_code": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "type": "string"
               },
               {

@@ -4,6 +4,13 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Security
+- Discord messages escape titles, overviews and Seerr messages fully (TMDB data could otherwise inject masked links, e.g. `](https://…) [`, into the pick list, public request posts and status replies); URL parts from Seerr (poster path, IMDb/TVDB ids, year) are validated.
+- `/request` suggestions only search for members who may request (and in the right channel); per-member search limit (30 per minute).
+- SSO return path refuses control characters (`/\t/host` would become `//host` in browsers) and very long values; first-run setup code input capped at 64 characters.
+- Container: `umask 027`, so the database and logs aren't readable by other host users; warning when `PUID=0`.
+- Frontend toolchain upgraded to vite 8.3.4, vitest 5.0.5 and @vitejs/plugin-react 6.1.2 (tinypool RCE and vite/esbuild dev-server advisories; dev only, nothing in the image was affected). `npm audit` is clean including dev dependencies.
+
 ### Added
 - `/request` suggestions and menus mark movies with 🍿 (was 🎬, too close to 📺 for shows); long titles are shortened so the "available" / "partly available" / "requested" note always stays visible.
 - Requests can be **public**: each request is posted in an admin-chosen channel mentioning the member, and status changes reply to that post and update its status (private requests keep DMs). Optional "only in this channel" for `/request`. New bot feature *Public requests* (View Channels, Send Messages, Embed Links, Read Message History in that channel).

@@ -69,7 +69,10 @@ def enabled_providers(db: DbDep) -> list[PublicProvider]:
 
 
 def _safe_next(path: str | None) -> str:
-    if not path or not path.startswith("/") or path.startswith("//") or "\\" in path:
+    """A same-site path to return to after sign-in, else "/". Browsers drop tabs and
+    newlines from URLs ("/\t/evil" becomes "//evil"), so control characters are refused."""
+    if (not path or len(path) > 512 or not path.startswith("/") or path.startswith("//") or "\\" in path
+            or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path)):
         return "/"
     return path
 

@@ -23,11 +23,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from woosarr.core import app_settings, kv
+from woosarr.core import app_settings, auth, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, DiscordMember, MediaRequest, PlexUser, utcnow
 from woosarr.db.session import Database
 from woosarr.services import audit
+from woosarr.services.discord_text import safe
 from woosarr.services.seerr import (
     Details,
     Hit,
@@ -45,6 +46,8 @@ SEARCH_CACHE_SECONDS = 60
 OPEN_STATES = ("pending", "approved", "partially_available")
 NOTIFY_STATES = ("approved", "declined", "failed", "partially_available", "available")
 TRACK_DAYS = 60
+# Seerr searches (suggestions + /request text) per member: each one is a TMDB call.
+SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS = 30, 60
 POLL_SECONDS = 300
 
 STATE_TEXT = {
@@ -99,6 +102,7 @@ class RequestService:
         self._search: dict[str, tuple[float, list[Hit]]] = {}
         self.last_error: str | None = None
         self.last_ok_at: float | None = None
+        self.search_limiter = auth.RateLimiter(SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS)
 
     # ---- configuration ----------------------------------------------------------------
 
@@ -184,12 +188,9 @@ class RequestService:
 
     # ---- who may request --------------------------------------------------------------
 
-    def requester(self, session: Session, discord_user_id: str, is_admin: bool) -> tuple[SeerrClient, Requester]:
-        """The Seerr client and the member's Seerr user, or RequestDenied."""
+    def may_request(self, session: Session, discord_user_id: str, is_admin: bool) -> PlexUser:
+        """WooSarr's own checks (no Seerr calls): roles, link, verified. The linked Plex user, or RequestDenied."""
         settings = app_settings.load(session)
-        client = self.client()
-        if client is None:
-            raise RequestDenied("Requests aren't set up yet. Ask an admin.")
         if not is_admin and not settings.request_all_members:
             member = session.get(DiscordMember, discord_user_id)
             allowed = set(settings.request_role_ids)
@@ -203,6 +204,15 @@ class RequestService:
         plex = session.get(PlexUser, link.plex_user_id)
         if plex is None or plex.removed:
             raise RequestDenied("Your linked Plex account isn't on this server anymore. Ask an admin.")
+        return plex
+
+    def requester(self, session: Session, discord_user_id: str, is_admin: bool) -> tuple[SeerrClient, Requester]:
+        """The Seerr client and the member's Seerr user, or RequestDenied."""
+        client = self.client()
+        if client is None:
+            raise RequestDenied("Requests aren't set up yet. Ask an admin.")
+        plex = self.may_request(session, discord_user_id, is_admin)
+        settings = app_settings.load(session)
         seerr_id = self._seerr_user(client, plex, settings.request_import_users)
         if seerr_id is None:
             raise RequestDenied("You don't have a Seerr account yet. Ask an admin to import you in Seerr "
@@ -247,7 +257,7 @@ class RequestService:
         except SeerrError as exc:
             self._failed(exc)
             log.warning("seerr user lookup for plex %s failed: %s", plex.plex_user_id, exc)
-            raise RequestDenied(f"Seerr isn't answering right now ({exc}). Try again later.") from None
+            raise RequestDenied(f"Seerr isn't answering right now ({safe(str(exc), 200)}). Try again later.") from None
         self._ok()
         if found is None:
             log.warning("no seerr user for plex %s (%s); import %s", plex.username, plex.plex_user_id,
@@ -256,7 +266,8 @@ class RequestService:
 
     # ---- search / details -------------------------------------------------------------
 
-    def search(self, query: str, timeout: float | None = None) -> list[Hit]:
+    def search(self, query: str, timeout: float | None = None, member: str | None = None) -> list[Hit]:
+        """Seerr search (cached a minute). member: count it against that member's search limit."""
         query = " ".join(query.split())[:100]
         if len(query) < 2:
             return []
@@ -265,6 +276,10 @@ class RequestService:
             cached = self._search.get(key)
         if cached and time.monotonic() - cached[0] < SEARCH_CACHE_SECONDS:
             return cached[1]
+        if member is not None and not self.search_limiter.hit(member):
+            log.warning("request searches by discord %s over the limit (%s per %s s)", member, SEARCHES_PER_WINDOW,
+                        SEARCH_WINDOW_SECONDS)
+            raise SeerrError("Too many searches; wait a minute and try again.", 429)
         client = self.client()
         if client is None:
             return []
@@ -308,9 +323,10 @@ class RequestService:
             code, req = client.create_request(who.seerr_user_id, media_type, tmdb_id, seasons)
         except SeerrError as exc:
             self._failed(exc)
-            title = f"**{item.title}**" if item else "That title"
-            message = {403: f"Seerr refused: {exc}", 409: f"{title} is already requested."}.get(
-                exc.status or 0, f"Seerr couldn't take the request: {exc}")
+            title = f"**{safe(item.title, 200)}**" if item else "That title"
+            reason = safe(str(exc), 200)  # Seerr's message
+            message = {403: f"Seerr refused: {reason}", 409: f"{title} is already requested."}.get(
+                exc.status or 0, f"Seerr couldn't take the request: {reason}")
             with self._db.session() as s:
                 audit.record(s, actor, "request_failed", "discord_user", discord_user_id, media_type=media_type,
                              tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=exc.status, error=str(exc)[:200])
@@ -320,7 +336,7 @@ class RequestService:
             with self._db.session() as s:
                 audit.record(s, actor, "request_failed", "discord_user", discord_user_id, media_type=media_type,
                              tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=code, error="nothing to request")
-            return Outcome(False, f"Every season of **{item.title}** is already requested or available.")
+            return Outcome(False, f"Every season of **{safe(item.title, 200)}** is already requested or available.")
         state = request_state(req)
         with self._db.session() as s:
             row = MediaRequest(seerr_request_id=int(req["id"]), discord_user_id=discord_user_id,
@@ -336,7 +352,7 @@ class RequestService:
                          seerr_user_id=who.seerr_user_id, plex_user=who.plex_username)
         log.info("request %s created for discord %s as seerr user %s: %s %s (%s)", req["id"], discord_user_id,
                  who.seerr_user_id, media_type, item.title, state)
-        what = f"**{item.title}**" + (f" ({item.year})" if item.year else "")
+        what = f"**{safe(item.title, 200)}**" + (f" ({item.year})" if item.year else "")
         return Outcome(True, f"Requested {what}: {STATE_TEXT.get(state, state)}.", state, row_id)
 
     def set_post(self, row_id: int, channel_id: str, message_id: str) -> None:
@@ -382,7 +398,7 @@ class RequestService:
                 row.status = state
                 if notify and state in NOTIFY_STATES and row.notified_status != state:
                     row.notified_status = state
-                    what = f"**{row.title}**" + (f" ({row.year})" if row.year else "")
+                    what = f"**{safe(row.title, 200)}**" + (f" ({row.year})" if row.year else "")
                     out.append(Notice(row.discord_user_id, f"Your request for {what} is {STATE_TEXT[state]}.", state,
                                       row.channel_id, row.message_id))
         if rows:

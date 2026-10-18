@@ -18,6 +18,7 @@ from discord import app_commands
 
 from woosarr.core import app_settings
 from woosarr.services import audit
+from woosarr.services.discord_text import safe
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
 from woosarr.services.seerr import Details, Hit, SeerrError
 
@@ -49,7 +50,7 @@ def is_admin(interaction: discord.Interaction) -> bool:
 def embed(item: Details) -> discord.Embed:
     kind = "Movie" if item.media_type == "movie" else "TV show"
     title = f"{item.title} ({item.year})" if item.year else item.title
-    overview = item.overview if len(item.overview) <= 400 else item.overview[:399] + "…"
+    overview = safe(item.overview, 400)  # TMDB text: description renders markdown links
     e = discord.Embed(title=title[:256], url=item.tmdb_url, description=overview or None, color=COLOR)
     e.add_field(name="Type", value=kind)
     e.add_field(name="Status", value=STATUS_LINE.get(item.status, item.status))
@@ -128,7 +129,7 @@ class PickView(_Owned):
 def pick_list(hits: list[Hit]) -> discord.Embed:
     """Numbered titles linking to TMDB, shown above the pick menu. Links only open the
     page; choosing still happens in the menu (menu options can't hold links)."""
-    lines = [f"{n}. [{discord.utils.escape_markdown(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
+    lines = [f"{n}. [{safe(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
     return discord.Embed(description="\n".join(lines)[:4096], color=COLOR)
 
 
@@ -203,7 +204,7 @@ def build_command(service: DiscordService, name: str) -> app_commands.Command:
 
     @command.autocomplete("title")
     async def suggest(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        return await service.request_suggestions(current)
+        return await service.request_suggestions(current, interaction)
 
     return command
 
@@ -219,12 +220,31 @@ class RequestCommands:
             return None
         return app_settings.load(session).request_command_name
 
-    async def request_suggestions(self, current: str) -> list[app_commands.Choice[str]]:
+    async def request_suggestions(self, current: str, interaction: discord.Interaction | None = None
+                                  ) -> list[app_commands.Choice[str]]:
+        """Suggestions only for members who may request here (each search is a Seerr/TMDB call)."""
         if self.requests is None or len(current.strip()) < 2:
             return []
+        member = None
+        if interaction is not None:
+            member, admin = str(interaction.user.id), is_admin(interaction)
+
+            def allowed(s) -> bool:
+                st = app_settings.load(s)
+                if (st.request_visibility == "public" and st.request_channel_only
+                        and str(interaction.channel_id) != st.request_channel_id):
+                    return False
+                try:
+                    self.requests.may_request(s, member, admin)
+                except RequestDenied:
+                    return False
+                return True
+
+            if not await self.run_db(allowed):
+                return []
         try:
-            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, AUTOCOMPLETE_SECONDS),
-                                          AUTOCOMPLETE_SECONDS)
+            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, AUTOCOMPLETE_SECONDS,
+                                                            member), AUTOCOMPLETE_SECONDS)
         except (TimeoutError, SeerrError) as exc:
             log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
             return []
@@ -261,12 +281,13 @@ class RequestCommands:
             await self.show_details(interaction, picked.group(1), int(picked.group(2)))
             return
         try:
-            hits = await asyncio.to_thread(self.requests.search, title)
+            hits = await asyncio.to_thread(self.requests.search, title, None, uid)
         except SeerrError as exc:
-            await interaction.followup.send(f"Seerr isn't answering right now ({exc}).", ephemeral=True)
+            text = str(exc) if exc.status == 429 else f"Seerr isn't answering right now ({safe(str(exc), 200)})."
+            await interaction.followup.send(text, ephemeral=True)
             return
         if not hits:
-            await interaction.followup.send(f"Nothing found for **{discord.utils.escape_markdown(title[:100])}**.",
+            await interaction.followup.send(f"Nothing found for **{safe(title, 100)}**.",
                                             ephemeral=True)
             return
         if len(hits) == 1:
@@ -280,7 +301,8 @@ class RequestCommands:
         try:
             item = await asyncio.to_thread(self.requests.details, media_type, tmdb_id)
         except SeerrError as exc:
-            await interaction.followup.send(f"Couldn't load that title from Seerr ({exc}).", ephemeral=True)
+            await interaction.followup.send(f"Couldn't load that title from Seerr ({safe(str(exc), 200)}).",
+                                            ephemeral=True)
             return
         view = RequestView(self, interaction.user.id, item)
         note = None if can_request(item) else "Nothing left to request for this title."
@@ -316,7 +338,7 @@ class RequestCommands:
         channel = self._request_channel(settings.request_channel_id)
         if channel is None:
             return None
-        what = f"**{discord.utils.escape_markdown(item.title)}**" + (f" ({item.year})" if item.year else "")
+        what = f"**{safe(item.title, 200)}**" + (f" ({item.year})" if item.year else "")
         if item.media_type == "tv":
             what += f", seasons {', '.join(map(str, seasons))}" if seasons else ", all missing seasons"
         e = set_status(embed(item), state)

@@ -6,12 +6,13 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs
+.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs icons
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
 	@echo "check    lint + tests, backend and frontend (what CI runs)"
 	@echo "openapi  refresh frontend/openapi.json after changing API models"
+	@echo "icons    render favicons, app and Unraid icons from assets/brand/woosarr.svg"
 	@echo "e2e      Playwright UI tests against a demo backend"
 	@echo "demo     run on :$(PORT) with fake Plex/Discord data (WOOSARR_DEMO)"
 	@echo "dev      run the backend on :$(PORT) with ./config and the built UI"
@@ -64,6 +65,9 @@ lock:
 	  echo "# Used by the Dockerfile and CI: pip install -c constraints.txt ."; \
 	  .lockvenv/bin/pip freeze --exclude-editable | grep -viE "^woosarr" ) > backend/constraints.txt
 	rm -rf .lockvenv
+
+icons:
+	node scripts/build_icons.mjs
 
 audit:
 	cd backend && .venv/bin/pip-audit --skip-editable

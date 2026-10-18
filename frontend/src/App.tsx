@@ -55,7 +55,7 @@ function Shell() {
       {open ? <div className="scrim" onClick={() => setOpen(false)} aria-hidden="true" /> : null}
       <nav className={`sidebar${open ? " open" : ""}`} aria-label="Main">
         <div className="brand">
-          <img src="/favicon.png" alt="" />
+          <img src="/logo-64.webp" alt="" width={30} height={30} />
           WooSarr
         </div>
         {NAV.map((n) => (

@@ -7,7 +7,7 @@ import { ErrorBanner, Field } from "../ui";
 function Brand() {
   return (
     <div className="brand">
-      <img src="/favicon.png" alt="" />
+      <img src="/logo-192.webp" alt="" width={96} height={96} />
       WooSarr
     </div>
   );

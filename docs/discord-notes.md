@@ -28,6 +28,7 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 1. Developer Portal → New Application → **Bot**.
 2. **Privileged Gateway Intents → Server Members Intent: on.** WooSarr checks this before saving the token: `GET /applications/@me` → `flags` must contain `GATEWAY_GUILD_MEMBERS` (1<<14) or `GATEWAY_GUILD_MEMBERS_LIMITED` (1<<15).
 3. **Reset Token** and paste it into WooSarr. It's validated with `GET /users/@me`, stored encrypted as `discord.bot_token`, and never shown again.
+   Optional: upload WooSarr's icon as the bot's **Icon** (Bot page). The Setup page links a 512 px PNG (`/icon-512.png`; Discord accepts PNG/JPG/GIF, not SVG). WooSarr doesn't change the avatar itself.
 4. Invite with the generated URL: `scope=bot applications.commands`, `permissions=0`. The bot needs no channel permissions: it only reads roles and members (intent) and answers `/link` with ephemeral replies.
 5. Pick the server (`GET /users/@me/guilds`). One guild in v1 (D11).
 

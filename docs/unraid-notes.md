@@ -8,6 +8,7 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 |-------|-------|-----|
 | Repository | `ghcr.io/woosarr/woosarr:latest` | Anonymous pull needs the GHCR package to be public (P2-06). |
 | Network | `bridge` | One HTTP port; Plex and Discord are outbound only. |
+| Icon | `unraid/icon.png` (raw GitHub URL) | 256 px PNG rendered from `assets/brand/woosarr.svg` (`make icons`); CA wants a square PNG. |
 | WebUI | `http://[IP]:[PORT:31337]/` | `[PORT:31337]` is replaced with whatever host port the user mapped to container port 31337. |
 | Port | container `31337`/tcp, host default `31337` | Users may change the host side; the container side stays 31337. |
 | Path | `/config` → `/mnt/user/appdata/woosarr` | Database, logs, `secrets/master.key`. Covered by appdata backup plugins. |

@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/woosarr.svg" width="128" height="128" alt="WooSarr: a raven over a purple moon"></p>
+
 # WooSarr
 
 Automatically grants and removes **Plex library access** based on **Discord roles**.

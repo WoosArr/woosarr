@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 import sys
 from contextlib import asynccontextmanager
 
@@ -42,6 +43,10 @@ from woosarr.services.plex import PlexService
 from woosarr.services.sync import SyncService
 
 log = logging.getLogger("woosarr.app")
+
+# Served from the UI's static folder; not in every Python's mimetypes table.
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 API_VERSION = "v1"
 
@@ -164,7 +169,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/docs", include_in_schema=False, dependencies=[Depends(require_admin)])
     def swagger_ui() -> HTMLResponse:
-        return get_swagger_ui_html(openapi_url="/api/openapi.json", title="WooSarr API")
+        return get_swagger_ui_html(openapi_url="/api/openapi.json", title="WooSarr API",
+                                   swagger_favicon_url="/favicon.svg")
 
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])

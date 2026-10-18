@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Changed
+- New WooSarr icon (raven over a purple moon) everywhere: browser tab (SVG + ICO), iOS/Android home screen and web manifest, sidebar and sign-in screen, API docs page, Unraid template, README; a 512 px PNG to use as the Discord bot's avatar is linked from the Setup page. All sizes are rendered from `assets/brand/woosarr.svg` with `make icons`.
+
 ### Security
 - Discord messages escape titles, overviews and Seerr messages fully (TMDB data could otherwise inject masked links, e.g. `](https://…) [`, into the pick list, public request posts and status replies); URL parts from Seerr (poster path, IMDb/TVDB ids, year) are validated.
 - `/request` suggestions only search for members who may request (and in the right channel); per-member search limit (30 per minute).

@@ -18,6 +18,8 @@ class AppTests(unittest.TestCase):
         (static / "assets").mkdir(parents=True)
         (static / "index.html").write_text("<html>spa</html>")
         (static / "assets" / "app.js").write_text("console.log(1)")
+        (static / "logo-64.webp").write_bytes(b"RIFF\x00\x00\x00\x00WEBP")
+        (static / "site.webmanifest").write_text('{"name": "WooSarr"}')
         (root / "outside.txt").write_text("nope")
         self.h = AppHarness(static_dir=static)
         self.app = self.h.app
@@ -82,6 +84,10 @@ class AppTests(unittest.TestCase):
         self.assertIn("console", self.client.get("/assets/app.js").text)
         self.assertNotIn("nope", self.client.get("/../outside.txt").text)
         self.assertNotIn("nope", self.client.get("/%2e%2e/outside.txt").text)
+
+    def test_icon_and_manifest_content_types(self):
+        self.assertEqual(self.client.get("/logo-64.webp").headers["content-type"], "image/webp")
+        self.assertEqual(self.client.get("/site.webmanifest").headers["content-type"], "application/manifest+json")
 
     def test_missing_files_404_instead_of_spa(self):
         self.assertEqual(self.client.get("/favicon.ico").status_code, 404)

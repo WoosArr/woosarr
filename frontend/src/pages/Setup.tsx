@@ -393,6 +393,7 @@ function DiscordToken({ onDone, onCancel }: { onDone: (s: DiscordStatus) => void
         <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer">Discord Developer Portal</a>, create an application and open <strong>Bot</strong>.</li>
         <li>Under <strong>Privileged Gateway Intents</strong>, turn on <strong>Server Members Intent</strong> and save.</li>
         <li>Press <strong>Reset Token</strong>, copy the token and paste it below.</li>
+        <li className="muted">Optional: give the bot WooSarr's icon. <a href="/icon-512.png" download="woosarr-icon-512.png">Download it (512 px PNG)</a> and upload it as the bot's <strong>Icon</strong> on the same Bot page.</li>
       </ol>
       <ErrorBanner error={error instanceof ApiError ? new Error(error.message) : error} />
       <Field label="Bot token" hint="Checked with Discord, then stored encrypted. It's never shown again.">

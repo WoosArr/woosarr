@@ -67,8 +67,10 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: woosarr:smoke
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Separate cache scopes: one shared scope was overwritten by this amd64-only build,
+          # so the multi-arch build below never found its arm64 layers (rebuilt under QEMU).
+          cache-from: type=gha,scope=smoke-amd64
+          cache-to: type=gha,mode=max,scope=smoke-amd64
 
       - name: Smoke test (health, healthy status, /config persistence, graceful stop)
         run: scripts/smoke-test.sh woosarr:smoke 31337
@@ -99,5 +101,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=release-multiarch
+            type=gha,scope=smoke-amd64
+          cache-to: type=gha,mode=max,scope=release-multiarch

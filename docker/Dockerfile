@@ -31,9 +31,13 @@ WORKDIR /app
 # set (P10-05, `make lock`), so this layer stays cached until a dependency changes. Code
 # changes then rebuild only the small layer below, which matters most for the arm64 image
 # (built under QEMU, where installing every dependency takes minutes).
-COPY backend/constraints.txt ./
-RUN pip install --no-cache-dir -r constraints.txt
-COPY backend/pyproject.toml ./
+# The list comes from pyproject.toml and the pins from constraints.txt as constraints (-c),
+# so pins that don't apply to this Python (e.g. audioop-lts, only needed on 3.13+) are ignored.
+COPY backend/pyproject.toml backend/constraints.txt ./
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml', 'rb'))['project']['dependencies']))" \
+        > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt -c constraints.txt \
+    && rm /tmp/requirements.txt
 COPY backend/woosarr ./woosarr
 RUN pip install --no-cache-dir --no-deps . && pip check
 

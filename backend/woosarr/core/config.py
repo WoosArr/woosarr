@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     log_buffer_size: int = 5000
     log_file_max_bytes: int = 5 * 1024 * 1024
     log_file_backups: int = 5
+    # Warnings and errors only, so they outlive the busy main log; the dashboard's
+    # Alerts are reloaded from it at startup.
+    alerts_file_max_bytes: int = 2 * 1024 * 1024
+    alerts_file_backups: int = 2
     # Sessions (P6-01)
     session_idle_hours: int = 12
     session_max_days: int = 7
@@ -53,3 +57,7 @@ class Settings(BaseSettings):
     @property
     def log_file(self) -> Path:
         return self.log_dir / "woosarr.log"
+
+    @property
+    def alerts_file(self) -> Path:
+        return self.log_dir / "alerts.log"

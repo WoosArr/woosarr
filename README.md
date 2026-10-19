@@ -81,7 +81,10 @@ Don't expose port 31337 directly to the internet.
   ```bash
   curl -H "Authorization: Bearer wsk_…" "http://<host>:31337/api/v1/logs?level=WARNING&limit=200"
   curl -H "Authorization: Bearer wsk_…" -o woosarr.log "http://<host>:31337/api/v1/logs/file"
+  curl -H "Authorization: Bearer wsk_…" -o alerts.log "http://<host>:31337/api/v1/logs/file?name=alerts"
   ```
+
+  Log files live in `/config/logs`: `woosarr.log` (everything, 5 MB × 6 files) and `alerts.log` (warnings and errors only, 2 MB × 3 files, so they're kept much longer).
 
 - Set the log level to DEBUG in *Settings → General* (or `WOOSARR_LOG_LEVEL=DEBUG`). Secrets are always redacted.
 - Forgot the admin password: `python -m woosarr.admin reset-password <user> --generate` in the container console.

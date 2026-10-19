@@ -5596,8 +5596,24 @@
     },
     "/api/v1/logs/file": {
       "get": {
-        "description": "The current rotating log file (JSON lines), including entries from before a restart.",
+        "description": "The current rotating log file (JSON lines), including entries from before a restart.\n\nname=alerts: only warnings and errors, kept much longer than the main log.",
         "operationId": "download_log_file_api_v1_logs_file_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "default": "woosarr",
+              "enum": [
+                "woosarr",
+                "alerts"
+              ],
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5608,6 +5624,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Download Log File",

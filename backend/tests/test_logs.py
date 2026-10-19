@@ -39,12 +39,20 @@ class LoggingTests(unittest.TestCase):
         self.log.warning("disk nearly full on %s", "/config")
         self.log.error("plex unreachable")
         self._flush()
+        self.settings.log_file.write_text("")  # the main log rotated away; alerts.log still has them
         ring = logs.configure_logging(self.settings)  # what a container restart does
         problems, _ = ring.query(min_level=logging.WARNING)
         self.assertEqual([e.message for e in problems], ["disk nearly full on /config", "plex unreachable"])
         self.assertEqual([e.seq for e in problems], [1, 2])
         self.log.warning("after restart")
         self.assertEqual(ring.query(min_level=logging.WARNING)[0][-1].seq, 4)  # after the reload notice (INFO)
+
+    def test_first_start_with_alerts_file_reloads_from_main_log(self):
+        self.log.warning("from before the upgrade")
+        self._flush()
+        self.settings.alerts_file.unlink()  # an install from before alerts.log existed
+        ring = logs.configure_logging(self.settings)
+        self.assertEqual([e.message for e in ring.query(min_level=logging.WARNING)[0]], ["from before the upgrade"])
 
     def test_canary_never_reaches_any_sink(self):
         self.log.info("token is %s", self.secret)
@@ -65,6 +73,9 @@ class LoggingTests(unittest.TestCase):
         self.assertIn("ValueError", text)
         for line in text.splitlines():
             json.loads(line)  # file sink is JSON lines
+        alerts = self.settings.alerts_file.read_text()
+        self.assertNotIn(self.secret, alerts)
+        self.assertEqual([json.loads(line)["level"] for line in alerts.splitlines()], ["ERROR"])  # warnings and up only
 
     def test_library_loggers_are_routed_and_redacted(self):
         logging.getLogger("uvicorn.access").info("GET /x?token=%s", self.secret)

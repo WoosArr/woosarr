@@ -73,6 +73,14 @@ class AppTests(unittest.TestCase):
         r = self.client.get("/api/v1/logs/file")
         self.assertEqual(r.status_code, 200)
         self.assertIn("persisted line", r.text)
+        logging.getLogger("woosarr.test").warning("lasting warning")
+        for h in logs._state.handlers:
+            h.flush()
+        r = self.client.get("/api/v1/logs/file", params={"name": "alerts"})
+        self.assertIn("lasting warning", r.text)
+        self.assertNotIn("persisted line", r.text)
+        self.assertIn('filename="alerts.log"', r.headers["content-disposition"])
+        self.assertEqual(self.client.get("/api/v1/logs/file", params={"name": "../app.db"}).status_code, 422)
 
     def test_unknown_api_path_is_404_not_spa(self):
         self.assertEqual(self.client.get("/api/v1/nope").status_code, 404)

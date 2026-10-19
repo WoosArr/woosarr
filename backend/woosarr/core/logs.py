@@ -202,12 +202,23 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
         encoding="utf-8",
     )
     file_handler.setFormatter(JsonFormatter())
+    first_alerts_file = not settings.alerts_file.exists()
+    alerts_handler = logging.handlers.RotatingFileHandler(
+        settings.alerts_file,
+        maxBytes=settings.alerts_file_max_bytes,
+        backupCount=settings.alerts_file_backups,
+        encoding="utf-8",
+    )
+    alerts_handler.setLevel(logging.WARNING)
+    alerts_handler.setFormatter(JsonFormatter())
 
     ring = RingBufferHandler(settings.log_buffer_size)
-    earlier = read_problems(settings.log_file, settings.log_file_backups)
+    # Alerts come back from their own file; before it existed (upgrade), from the main log.
+    earlier = (read_problems(settings.log_file, settings.log_file_backups) if first_alerts_file
+               else read_problems(settings.alerts_file, settings.alerts_file_backups))
     ring.preload(earlier)
 
-    handlers: list[logging.Handler] = [stream, file_handler, ring]
+    handlers: list[logging.Handler] = [stream, file_handler, alerts_handler, ring]
     for handler in handlers:
         redaction.install(handler)
         root.addHandler(handler)
@@ -224,6 +235,7 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     _state.handlers = handlers
     _state.buffer = ring
     if earlier:
-        logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from the log files for Alerts",
-                                               min(len(earlier), ring.PROBLEMS_CAPACITY))
+        logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from %s for Alerts",
+                                               min(len(earlier), ring.PROBLEMS_CAPACITY),
+                                               settings.log_file.name if first_alerts_file else settings.alerts_file.name)
     return ring

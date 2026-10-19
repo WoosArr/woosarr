@@ -50,14 +50,19 @@ def read_logs(
 
 
 @router.get("/file", response_class=PlainTextResponse)
-def download_log_file(request: Request) -> PlainTextResponse:
-    """The current rotating log file (JSON lines), including entries from before a restart."""
-    path = request.app.state.settings.log_file
+def download_log_file(request: Request,
+                      name: Annotated[Literal["woosarr", "alerts"], Query()] = "woosarr") -> PlainTextResponse:
+    """The current rotating log file (JSON lines), including entries from before a restart.
+
+    name=alerts: only warnings and errors, kept much longer than the main log.
+    """
+    settings = request.app.state.settings
+    path = settings.alerts_file if name == "alerts" else settings.log_file
     # Snapshot instead of streaming: the file keeps growing while it is being
     # sent, which breaks a Content-Length taken from stat(). Size is capped by
     # log_file_max_bytes.
     data = path.read_bytes() if path.exists() else b""
     return PlainTextResponse(
         data.decode("utf-8", errors="replace"),
-        headers={"Content-Disposition": 'attachment; filename="woosarr.log"'},
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
     )

@@ -90,7 +90,8 @@ def _apply(session: Session, discord_user_id: str, plex: PlexUser, method: Metho
         audit.record(session, actor, "link_self", "plex_user", plex.plex_user_id, outcome="unchanged", method=method.value)
         return LinkResult(True, f"You're already linked to **{plex.username}**.", plex.plex_user_id)
     link = decision.link
-    assert link is not None
+    if link is None:  # every outcome that gets here carries a link; never strip this check (python -O)
+        raise RuntimeError(f"link decision {decision.outcome} without a link")
     displaced = set(decision.displaced_discord_user_ids)
     for row in others:
         if row.discord_user_id in displaced:

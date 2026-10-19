@@ -69,6 +69,7 @@ docker run -d --name woosarr \
   -p 31337:31337 \
   -v /path/to/appdata/woosarr:/config \
   -e PUID=99 -e PGID=100 \
+  --security-opt no-new-privileges:true \
   ghcr.io/woosarr/woosarr:latest
 ```
 

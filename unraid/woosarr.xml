@@ -17,7 +17,7 @@
   <Category>MediaApp:Other Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:31337]/</WebUI>
   <Icon>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png</Icon>
-  <ExtraParams>--health-start-period=20s</ExtraParams>
+  <ExtraParams>--health-start-period=20s --security-opt no-new-privileges:true</ExtraParams>
   <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png</Screenshot>

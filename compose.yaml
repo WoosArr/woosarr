@@ -27,6 +27,18 @@ services:
       # WOOSARR_COOKIE_SECURE: "always"
     # The image's health check polls /api/health; WooSarr stops within a few seconds.
     stop_grace_period: 10s
+    # Hardening: the entrypoint starts as root only to fix /config ownership and the PUID/PGID
+    # user, then drops to that user for good (gosu). It needs just these capabilities, and
+    # nothing can regain privileges afterwards. CI starts and restarts this stack.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN         # chown /config to PUID:PGID
+      - DAC_OVERRIDE  # walk /config folders that already belong to PUID
+      - SETUID        # gosu: switch to the WooSarr user
+      - SETGID
     labels:
       # Shown by Unraid's Docker page (WebUI link and icon) when run as a Compose stack.
       net.unraid.docker.webui: "http://[IP]:[PORT:31337]/"

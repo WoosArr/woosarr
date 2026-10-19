@@ -19,7 +19,8 @@ fail() {
     exit 1
 }
 
-docker run -d --name "$NAME" -p "$PORT:31337" -v "$CONF:/config" \
+# Same hardening the Unraid template sets (ExtraParams): no privilege re-escalation after gosu.
+docker run -d --name "$NAME" -p "$PORT:31337" -v "$CONF:/config" --security-opt no-new-privileges:true \
     --health-interval=2s --health-start-period=5s "$IMAGE" >/dev/null
 
 echo "waiting for /api/health on :$PORT"

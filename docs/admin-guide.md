@@ -31,9 +31,9 @@ The rules:
 
 - `/help`: lists the commands below with their options (only the asker sees it; `/request` appears only when Seerr is set up).
 - `/link`: link your Plex account (Plex sign-in = verified, or typed username). *Settings → Linking → Who may link by typing a Plex username* can limit the typed-username option to chosen roles; everyone else only sees Plex sign-in, and a typed username from them is refused (audited as `link_failed`, reason `username_link_not_allowed`).
-- `/unlink`: remove your own link. What happens to access is set under *Settings → General → When a member unlinks themselves*.
+- `/unlink`: remove your own link. What happens to access is set under *Settings → Linking → When a member unlinks themselves*.
 - `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).
-- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Invites → Roles allowed to /invite*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
+- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Linking → Plex Invites*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
 
 ### Discord roles managed by WooSarr
 
@@ -46,7 +46,7 @@ Users page → select users → **Remove libraries**. Each library shows what th
 
 ### Members who leave the Discord server
 
-Default: their role-granted libraries are removed; manual grants and exempt libraries stay. Change this under *Settings → General*.
+Default: their role-granted libraries are removed; manual grants and exempt libraries stay. Change this under *Settings → Linking*.
 
 ### Verified and unverified links
 

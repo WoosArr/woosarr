@@ -203,10 +203,11 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   const saved = await (await page.request.get("/api/v1/settings")).json();
   expect(saved.username_link_all_members).toBe(false);
   expect(saved.username_link_role_ids).toHaveLength(1);
-  await page.getByRole("tab", { name: "Logging" }).click();
+  await expect(page.getByRole("group", { name: "Plex Invites" })).toBeVisible();
+  await expect(page.getByLabel("When a member unlinks themselves")).toBeVisible();
+  await page.goto("/settings?tab=logging");  // merged into General; old links still work
+  await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Log level")).toBeVisible();
-  await page.getByRole("tab", { name: "Invites" }).click();
-  await expect(page.getByRole("group", { name: /allowed to \/invite/ })).toBeVisible();
 });
 
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {
@@ -228,7 +229,7 @@ test("no serious accessibility violations on any page (light and dark)", async (
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=invites", "/settings?tab=logging", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");

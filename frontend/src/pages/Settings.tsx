@@ -13,19 +13,20 @@ import { ImpactList, type UserChange } from "../Impact";
 const TABS = [
   ["general", "General"],
   ["linking", "Linking"],
-  ["invites", "Invites"],
   ["requests", "Requests"],
   ["appearance", "Appearance"],
   ["account", "My account"],
   ["admins", "Admins"],
   ["sso", "Single sign-on"],
   ["keys", "API keys"],
-  ["logging", "Logging"],
 ] as const;
+// Tabs that were merged into others; old links still land in the right place.
+const MOVED: Record<string, string> = { invites: "linking", logging: "general" };
 
 export default function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = TABS.some(([k]) => k === params.get("tab")) ? params.get("tab")! : "general";
+  const asked = params.get("tab") ?? "";
+  const tab = TABS.some(([k]) => k === asked) ? asked : MOVED[asked] ?? "general";
   return (
     <>
       <PageHead title="Settings" />
@@ -36,14 +37,12 @@ export default function SettingsPage() {
       </div>
       {tab === "general" ? <General /> : null}
       {tab === "linking" ? <Linking /> : null}
-      {tab === "invites" ? <Invites /> : null}
       {tab === "requests" ? <RequestSettings /> : null}
       {tab === "appearance" ? <Appearance /> : null}
       {tab === "account" ? <Account /> : null}
       {tab === "admins" ? <Admins /> : null}
       {tab === "sso" ? <SsoSettings /> : null}
       {tab === "keys" ? <ApiKeys /> : null}
-      {tab === "logging" ? <Logging /> : null}
     </>
   );
 }
@@ -111,12 +110,10 @@ function RolePicker({ legend, hint, all, allHint, roles, value, onAll, onChange 
   );
 }
 
-function General() {
-  const f = useSettingsDraft();
-  const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
+/** Live preview of whose access the unsaved access-affecting settings would change. */
+function useImpact(draft: Partial<AppSettings>) {
   const [impact, setImpact] = useState<SettingsImpact | null>(null);
-  const accessDraft = Object.fromEntries(Object.entries(f.draft).filter(([k]) => (ACCESS_SETTINGS as readonly string[]).includes(k)));
-  const accessKey = JSON.stringify(accessDraft);
+  const accessKey = JSON.stringify(Object.fromEntries(Object.entries(draft).filter(([k]) => (ACCESS_SETTINGS as readonly string[]).includes(k))));
   useEffect(() => {
     if (accessKey === "{}") {
       setImpact(null);
@@ -128,7 +125,32 @@ function General() {
     }, 250);
     return () => { live = false; clearTimeout(t); };
   }, [accessKey]);
+  return { impact, changed: accessKey !== "{}" };
+}
+
+function ImpactCard({ impact }: { impact: SettingsImpact | null }) {
+  const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
+  return (
+    <div className="card flat" aria-live="polite">
+      <h3>Impact of these changes</h3>
+      {!impact ? <Spinner label="Calculating" /> : (
+        <ImpactList titles={titles} changes={impact.users} empty="No linked user's access changes." />
+      )}
+    </div>
+  );
+}
+
+const POLICY_OPTIONS = (
+  <>
+    <option value="drop_role_access">Remove role-granted libraries (keep manual and exempt)</option>
+    <option value="keep_all">Leave their access as it is</option>
+  </>
+);
+
+function General() {
+  const f = useSettingsDraft();
+  const { impact, changed } = useImpact(f.draft);
   const confirm = useConfirm();
   if (f.s.error) return <ErrorBanner error={f.s.error} />;
   const v = f.v;
@@ -160,29 +182,17 @@ function General() {
       <Field label="Full reconcile every (minutes)" hint="Discord events trigger syncs right away; the reconcile catches anything missed. 5–1440.">
         <input type="number" min={5} max={1440} value={v.reconcile_interval_minutes} onChange={(e) => set({ reconcile_interval_minutes: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </Field>
-      <label className="field">
-        When a linked member leaves the Discord server
-        <select value={v.leave_policy} onChange={(e) => set({ leave_policy: e.target.value as AppSettings["leave_policy"] })} style={{ maxWidth: 420 }}>
-          <option value="drop_role_access">Remove role-granted libraries (keep manual and exempt)</option>
-          <option value="keep_all">Leave their access as it is</option>
-        </select>
-      </label>
-      <label className="field">
-        When a member unlinks themselves (<code>/unlink</code>)
-        <select value={v.unlink_policy} onChange={(e) => set({ unlink_policy: e.target.value as AppSettings["unlink_policy"] })} style={{ maxWidth: 420 }}>
-          <option value="drop_role_access">Remove role-granted libraries (keep manual and exempt)</option>
-          <option value="keep_all">Leave their access as it is</option>
-        </select>
-      </label>
       <Switch checked={v.ignore_unverified_links} onChange={(x) => set({ ignore_unverified_links: x })} label={<><strong>Ignore unverified links</strong> <span className="muted small">— only manage users who proved their Plex account</span></>} />
-      {accessKey !== "{}" ? (
-        <div className="card flat" aria-live="polite">
-          <h3>Impact of these changes</h3>
-          {!impact ? <Spinner label="Calculating" /> : (
-            <ImpactList titles={titles} changes={impact.users} empty="No linked user's access changes." />
-          )}
-        </div>
-      ) : null}
+      <Field label="Log level" hint="DEBUG shows every Plex/Discord call. Applies immediately.">
+        <select value={v.log_level ?? ""} onChange={(e) => set({ log_level: (e.target.value || null) as AppSettings["log_level"] })} style={{ maxWidth: 220 }}>
+          <option value="">Default (container setting)</option>
+          {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+      </Field>
+      <Field label="Keep audit entries for (days)" hint="Older audit entries are deleted. 7–3650.">
+        <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
+      </Field>
+      {changed ? <ImpactCard impact={impact} /> : null}
       <SaveRow dirty={f.dirty} onSave={() => void save()} onDiscard={f.discard} />
     </div>
   );
@@ -191,6 +201,7 @@ function General() {
 function Linking() {
   const f = useSettingsDraft();
   const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
+  const { impact, changed } = useImpact(f.draft);
   if (f.s.error) return <ErrorBanner error={f.s.error} />;
   const v = f.v;
   if (!v) return <Spinner />;
@@ -205,48 +216,23 @@ function Linking() {
       <Field label={<><code>/link</code> cooldown (seconds)</>} hint="How long a member waits between link attempts. 0 = no wait.">
         <input type="number" min={0} max={86400} value={v.link_cooldown_seconds} onChange={(e) => f.set({ link_cooldown_seconds: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </Field>
+      <label className="field">
+        When a linked member leaves the Discord server
+        <select value={v.leave_policy} onChange={(e) => f.set({ leave_policy: e.target.value as AppSettings["leave_policy"] })} style={{ maxWidth: 420 }}>{POLICY_OPTIONS}</select>
+      </label>
+      <label className="field">
+        When a member unlinks themselves
+        <select value={v.unlink_policy} onChange={(e) => f.set({ unlink_policy: e.target.value as AppSettings["unlink_policy"] })} style={{ maxWidth: 420 }}>{POLICY_OPTIONS}</select>
+      </label>
       <LinkRoles roles={roles.data ?? []} value={v} set={f.set} onCreated={() => void roles.reload()} />
-      <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
-    </div>
-  );
-}
-
-function Invites() {
-  const f = useSettingsDraft();
-  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
-  if (f.s.error) return <ErrorBanner error={f.s.error} />;
-  const v = f.v;
-  if (!v) return <Spinner />;
-  return (
-    <div className="card settings" style={{ maxWidth: 720 }}>
       <RolePicker
-        legend={<>Roles allowed to <code>/invite</code> themselves</>}
-        hint={<>Members with one of these roles can invite their own Plex account; their roles decide the libraries.
+        legend="Plex Invites"
+        hint={<>Members with one of these roles can <code>/invite</code> their own Plex account; their roles decide the libraries.
           Discord admins (Manage Server) can always invite for any member. None selected = admins only.</>}
         all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.invite_role_ids ?? []}
         onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
-      <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
-    </div>
-  );
-}
-
-function Logging() {
-  const f = useSettingsDraft();
-  if (f.s.error) return <ErrorBanner error={f.s.error} />;
-  const v = f.v;
-  if (!v) return <Spinner />;
-  return (
-    <div className="card settings" style={{ maxWidth: 720 }}>
-      <Field label="Log level" hint="DEBUG shows every Plex/Discord call. Applies immediately.">
-        <select value={v.log_level ?? ""} onChange={(e) => f.set({ log_level: (e.target.value || null) as AppSettings["log_level"] })} style={{ maxWidth: 220 }}>
-          <option value="">Default (container setting)</option>
-          {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-      </Field>
-      <Field label="Keep audit entries for (days)" hint="Older audit entries are deleted. 7–3650.">
-        <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => f.set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
-      </Field>
+      {changed ? <ImpactCard impact={impact} /> : null}
       <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
     </div>
   );

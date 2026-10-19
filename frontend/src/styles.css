@@ -235,6 +235,7 @@ fieldset.plain > legend + * { clear: both; }
 
 label.field, div.field > label { display: block; font-weight: 600; font-size: 0.88rem; }
 .field .hint { display: block; font-weight: 400; font-size: 0.88rem; color: var(--text-muted); }
+label.field > select { display: block; }
 input[type="text"], input[type="password"], input[type="search"], input[type="number"], select, textarea {
   font: inherit; color: var(--text); background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 7px 10px; width: 100%;

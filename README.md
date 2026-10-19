@@ -16,7 +16,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
 - **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs.
 - **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
-- One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template.
+- One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
 
 > **Status:** in use on a real Plex server and Discord server; installing from the Unraid template works. Still to do: the Community Applications listing (until then, install from the template as below). See [docs/action-plan.md](docs/action-plan.md).
 
@@ -41,6 +41,27 @@ All screenshots use WooSarr's demo mode (a fake Plex server and Discord guild); 
 2. Docker tab → **Add Container** → choose **woosarr** → **Apply**.
 3. Open the WebUI. Details: [docs/unraid-notes.md](docs/unraid-notes.md).
 
+Prefer Compose (the *Docker Compose Manager* plugin today, built into Unraid 8)? Use [`compose.yaml`](compose.yaml) with `WOOSARR_CONFIG=/mnt/user/appdata/woosarr`; see [Unraid notes → Docker Compose](docs/unraid-notes.md#docker-compose).
+
+### Docker Compose
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/WoosArr/woosarr/main/compose.yaml
+docker compose up -d
+docker compose logs woosarr   # the first-run setup code
+```
+
+Data goes to `./config` next to the file. Change the folder, host port, `PUID`/`PGID` or log level by editing [`compose.yaml`](compose.yaml) or with a `.env` file beside it, for example:
+
+```bash
+WOOSARR_CONFIG=/srv/appdata/woosarr
+WOOSARR_HOST_PORT=31337
+PUID=1000
+PGID=1000
+```
+
+Update with `docker compose pull && docker compose up -d`.
+
 ### Docker
 
 ```bash
@@ -55,7 +76,7 @@ Images are published for `linux/amd64` and `linux/arm64`.
 
 ## First run
 
-1. Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**):
+1. Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):
 
    ```
    ================================================================
@@ -155,7 +176,7 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Pushes to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test and secret-scan the image, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Pushes to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 

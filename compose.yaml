@@ -1,0 +1,33 @@
+# WooSarr with Docker Compose: `docker compose up -d`, then open http://<host>:31337
+# and enter the setup code from `docker compose logs woosarr`.
+#
+# Change the values below directly, or set them in a `.env` file next to this one:
+#   WOOSARR_CONFIG     host folder for the database, logs and secrets   (default ./config;
+#                      on Unraid: /mnt/user/appdata/woosarr)
+#   WOOSARR_HOST_PORT  port on the host                                 (default 31337)
+#   PUID / PGID        owner of the files in WOOSARR_CONFIG            (default 99 / 100, Unraid's nobody:users)
+#   WOOSARR_LOG_LEVEL  INFO, or DEBUG to troubleshoot                   (default INFO)
+# More settings: docs/admin-guide.md → Environment variables.
+
+services:
+  woosarr:
+    image: ${WOOSARR_IMAGE:-ghcr.io/woosarr/woosarr:latest}
+    container_name: woosarr
+    restart: unless-stopped
+    ports:
+      - "${WOOSARR_HOST_PORT:-31337}:31337"
+    volumes:
+      - "${WOOSARR_CONFIG:-./config}:/config"
+    environment:
+      PUID: "${PUID:-99}"
+      PGID: "${PGID:-100}"
+      WOOSARR_LOG_LEVEL: "${WOOSARR_LOG_LEVEL:-INFO}"
+      # Behind an HTTPS reverse proxy (see README → HTTPS and reverse proxies):
+      # WOOSARR_FORWARDED_ALLOW_IPS: "172.18.0.2"
+      # WOOSARR_COOKIE_SECURE: "always"
+    # The image's health check polls /api/health; WooSarr stops within a few seconds.
+    stop_grace_period: 10s
+    labels:
+      # Shown by Unraid's Docker page (WebUI link and icon) when run as a Compose stack.
+      net.unraid.docker.webui: "http://[IP]:[PORT:31337]/"
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png"

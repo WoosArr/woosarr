@@ -73,6 +73,17 @@ jobs:
       - name: Smoke test (health, healthy status, /config persistence, graceful stop)
         run: scripts/smoke-test.sh woosarr:smoke 31337
 
+      - name: Compose smoke test (compose.yaml starts the image and it becomes healthy)
+        run: |
+          conf="$RUNNER_TEMP/woosarr-compose-config"
+          mkdir -p "$conf"
+          export WOOSARR_IMAGE=woosarr:smoke WOOSARR_CONFIG="$conf" WOOSARR_HOST_PORT=31339
+          docker compose -p woosarr-ci config -q
+          docker compose -p woosarr-ci up -d --wait --wait-timeout 120 || { docker compose -p woosarr-ci logs; exit 1; }
+          curl -fsS http://127.0.0.1:31339/api/health; echo
+          sudo test -f "$conf/app.db"  # /config is owned by PUID (umask 027)
+          docker compose -p woosarr-ci down
+
       - name: Scan image for secrets (fails) and vulnerabilities (report)
         run: |
           trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.75.0 "$@"; }

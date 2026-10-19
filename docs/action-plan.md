@@ -157,7 +157,7 @@ remove_all       = target empty and current non-empty                # use the r
 | Discord application/bot + test guild | Bot token entered via Setup → Discord | P4-04 (live), P9-01, P11-04 |
 | ~~SAML IdP~~ | deferred (D7a) | — |
 | GitHub settings | Package visibility (public), Actions permissions, branch protection | P2-06 |
-| Unraid box | Template install test (done), Community Apps submission | P2-03, P11-06, P12-06 |
+| Unraid box | Template install test (done), Community Apps submission, Unraid 8 beta check | P2-03, P11-06, P12-06, P2-07 |
 
 ## 9. Tasks
 
@@ -188,6 +188,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-04** Workflows: CI + gated publish + image smoke test + secret scan; `v0.1.0` tag published `0.1.0`, `0.1` and `latest` (2026-10-17). *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
 - [x] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. First multi-arch publish green (`e09ed1c`). *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
 - [x] **P2-06** GHCR package is public (anonymous manifest fetch → 200); README documents `docker run` and Unraid install.
+- [x] **P2-07a** `compose.yaml` (root): `${WOOSARR_IMAGE}`, `${WOOSARR_CONFIG:-./config}`, `${WOOSARR_HOST_PORT:-31337}`, `PUID`/`PGID`, log level, `restart: unless-stopped`, Unraid `net.unraid.docker.webui`/`icon` labels. CI (`docker-publish.yml`) runs a compose smoke test on the built image (`config -q`, `up --wait` until healthy, `/api/health`, `app.db` created) before pushing. Docs: README (Docker Compose install), unraid-notes (Compose on Unraid, Unraid 8). *Verify:* the *Compose smoke test* step in CI (no Docker on the dev Mac).
+- [ ] **P2-07** **HUMAN** Unraid 8 (announced 2026-08, beta, Fedora/uCore base, native Compose): once the open beta is out, install from `unraid/woosarr.xml` and from `compose.yaml`, open the WebUI, restart and update. Nothing in the image or template is version-specific (no `MinVer`/`MaxVer`). *Verify:* both installs reach the dashboard on Unraid 8.
 
 ### Phase 3 — Plex integration (all gated by P0-03)
 - [x] **P3-00** `PlexApiGateway` passes the shared `GatewayContract` (fake plex.tv) and the live write check.

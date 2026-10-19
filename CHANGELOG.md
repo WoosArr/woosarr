@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
+- `compose.yaml`: run WooSarr with Docker Compose (data folder, port, `PUID`/`PGID` and log level via `.env`; Unraid WebUI/icon labels for Compose stacks). CI starts the built image through it before publishing.
 - **Shared Plex accounts (families):** several Discord members can be linked to one Plex account, which gets the libraries all their roles give. Admins add members on the Users page (**Add member**); *Settings → Linking → Shared Plex accounts* can also let members join by signing in with that Plex account (typing a username never joins). Leaving or unlinking follows the existing policies per member; under "leave as it is", a departing member's libraries become manual grants.
 - **Alerts** (was *Warnings and errors*): no 24-hour limit, and **Account** alerts from the audit log naming everyone involved: attempts to link an account someone else holds, takeovers of unverified links by Plex sign-in, members joining shared accounts, and admins adding members.
 - Warnings and errors are also written to `/config/logs/alerts.log` (2 MB × 3) and reloaded at startup, so alerts survive restarts; `GET /api/v1/logs/file?name=alerts` downloads it.

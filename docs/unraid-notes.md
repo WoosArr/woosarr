@@ -1,6 +1,6 @@
 # Unraid notes (P0-06)
 
-How WooSarr fits Unraid's Docker manager and Community Applications (CA). The template is `unraid/woosarr.xml`.
+How WooSarr fits Unraid's Docker manager and Community Applications (CA). The template is `unraid/woosarr.xml`; a Compose file (`compose.yaml`) is there too.
 
 ## Template fields
 
@@ -30,6 +30,20 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 
 1. Copy `unraid/woosarr.xml` to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml` on the Unraid box.
 2. Docker tab → Add Container → choose the *woosarr* template → Apply.
+
+## Docker Compose
+
+[`compose.yaml`](../compose.yaml) in the repo root runs the same image with the same settings as the template. On Unraid today that's the *Docker Compose Manager* plugin (Apps); Unraid 8 builds Compose into the Docker page and Community Apps.
+
+1. Create a stack named `woosarr` and paste `compose.yaml` (or point the plugin at the raw URL).
+2. Set the data folder: change `./config` to `/mnt/user/appdata/woosarr`, or add `WOOSARR_CONFIG=/mnt/user/appdata/woosarr` to the stack's `.env`.
+3. **Compose Up**. The `net.unraid.docker.webui` / `net.unraid.docker.icon` labels give the container its WebUI link and icon on the Docker page.
+
+Template and Compose installs are interchangeable: both keep everything in the same `/config` folder, so you can switch by stopping one and starting the other on the same folder. CI starts the freshly built image through `compose.yaml` before anything is published.
+
+## Unraid 8
+
+Unraid 8 was announced in August 2026 (Fedora/uCore base, native Docker Compose, built-in backups); it's in beta with no release date. WooSarr has nothing Unraid-version-specific: a standard multi-arch image, one port, one `/config` folder, `PUID`/`PGID`, no plugin, no privileged mode or host devices, and the template sets no `MinVer`/`MaxVer`. It should run unchanged as a template app or a Compose stack. **To verify** once the open beta is out (plan P2-07): install from the template and from `compose.yaml`, open the WebUI, restart, update.
 
 ## Community Applications (P12-06)
 

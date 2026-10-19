@@ -283,6 +283,15 @@
             "title": "Dry Run",
             "type": "boolean"
           },
+          "family_link_mode": {
+            "default": "admin",
+            "enum": [
+              "admin",
+              "verified"
+            ],
+            "title": "Family Link Mode",
+            "type": "string"
+          },
           "ignore_unverified_links": {
             "default": false,
             "title": "Ignore Unverified Links",
@@ -3938,6 +3947,13 @@
               }
             ]
           },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LinkOut"
+            },
+            "title": "Links",
+            "type": "array"
+          },
           "manual_library_ids": {
             "items": {
               "type": "string"
@@ -3973,6 +3989,7 @@
           "is_owner",
           "removed",
           "link",
+          "links",
           "roles",
           "libraries",
           "manual_library_ids"
@@ -7387,6 +7404,7 @@
     },
     "/api/v1/users/{plex_user_id}/link": {
       "delete": {
+        "description": "Unlink a member. With several members (a shared account), name the one to remove; the\naccount keeps what the others' roles give, and under unlink_policy keep_all the libraries\nonly this member's roles gave stay as manual grants.",
         "operationId": "admin_unlink_api_v1_users__plex_user_id__link_delete",
         "parameters": [
           {
@@ -7396,6 +7414,23 @@
             "schema": {
               "title": "Plex User Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "discord_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^\\d{5,25}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Discord User Id"
             }
           }
         ],
@@ -7427,6 +7462,7 @@
         ]
       },
       "put": {
+        "description": "Link a Discord member to this Plex account (verified). If other members are already linked,\nthis adds one more: a family sharing the account gets the union of their roles.",
         "operationId": "admin_link_api_v1_users__plex_user_id__link_put",
         "parameters": [
           {

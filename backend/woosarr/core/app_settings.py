@@ -42,6 +42,10 @@ class AppSettings(BaseModel):
     # Who may /link by typing a Plex username (unverified). Plex sign-in is always offered.
     username_link_all_members: bool = True
     username_link_role_ids: list[str] = Field(default_factory=list, max_length=50)
+    # A Plex account shared by a family can have several linked members; its libraries are
+    # the union of their roles. Who may add a member to an account someone is already
+    # verified on: admins only, or also a member who signs in with that Plex account.
+    family_link_mode: Literal["admin", "verified"] = "admin"
     link_cooldown_seconds: int = Field(300, ge=0, le=86400)
     # None = use WOOSARR_LOG_LEVEL.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None

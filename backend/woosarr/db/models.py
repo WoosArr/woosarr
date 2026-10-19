@@ -153,10 +153,13 @@ class PlexUser(Base):
 
 
 class DiscordLink(Base):
+    """One Discord member <-> one Plex account. A Plex account may have several
+    members (a family sharing it); a Discord member has at most one link."""
+
     __tablename__ = "discord_links"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     plex_user_id: Mapped[str] = mapped_column(
-        ForeignKey("plex_users.plex_user_id", ondelete="CASCADE"), unique=True
+        ForeignKey("plex_users.plex_user_id", ondelete="CASCADE"), index=True
     )
     discord_user_id: Mapped[str] = mapped_column(String(32), unique=True)
     method: Mapped[str] = mapped_column(String(10))  # username | oauth | admin

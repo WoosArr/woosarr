@@ -21,7 +21,7 @@ from woosarr.db.models import (
     PlexUser,
     utcnow,
 )
-from woosarr.services import audit, impact
+from woosarr.services import audit, impact, link_service
 from woosarr.services.access import library_sources, load_snapshot, user_state
 
 router = APIRouter(tags=["users"], dependencies=[Depends(require_admin)])
@@ -58,10 +58,24 @@ class UserOut(BaseModel):
     is_managed: bool
     is_owner: bool
     removed: bool
-    link: LinkOut | None
-    roles: list[RoleRef]
+    link: LinkOut | None  # the main member: the first verified one, else the first
+    links: list[LinkOut]  # every linked member (several when a family shares the Plex account)
+    roles: list[RoleRef]  # union of the roles of members in the Discord server
     libraries: list[LibraryAccess]
     manual_library_ids: list[str]
+
+
+def _link_out(link: DiscordLink, member: DiscordMember | None) -> LinkOut:
+    return LinkOut(
+        discord_user_id=link.discord_user_id,
+        discord_username=member.username if member else None,
+        discord_display_name=member.display_name if member else None,
+        in_guild=bool(member and member.in_guild),
+        method=link.method,
+        verified=link.verified,
+        linked_at=link.linked_at,
+        linked_by=link.linked_by,
+    )
 
 
 def _users(db, only: str | None = None) -> list[UserOut]:
@@ -75,8 +89,14 @@ def _users(db, only: str | None = None) -> list[UserOut]:
     out = []
     for user in db.scalars(stmt):
         current = snap.cached_shares.get(user.plex_user_id, frozenset())
-        link = snap.links.get(user.plex_user_id)
-        member = snap.members.get(link.discord_user_id) if link else None
+        links = snap.links.get(user.plex_user_id, [])
+        link_outs = [_link_out(x, snap.members.get(x.discord_user_id)) for x in links]
+        main = next((x for x in link_outs if x.verified), link_outs[0] if link_outs else None)
+        member_roles: list[str] = []
+        for x in links:
+            member = snap.members.get(x.discord_user_id)
+            if member and member.in_guild:
+                member_roles += [r for r in member.role_ids if r not in member_roles]
         state = user_state(snap, user.plex_user_id, settings, current)
         sources = library_sources(snap, state, current)
         out.append(
@@ -87,21 +107,11 @@ def _users(db, only: str | None = None) -> list[UserOut]:
                 is_managed=user.is_managed,
                 is_owner=user.is_owner,
                 removed=user.removed,
-                link=LinkOut(
-                    discord_user_id=link.discord_user_id,
-                    discord_username=member.username if member else None,
-                    discord_display_name=member.display_name if member else None,
-                    in_guild=bool(member and member.in_guild),
-                    method=link.method,
-                    verified=link.verified,
-                    linked_at=link.linked_at,
-                    linked_by=link.linked_by,
-                )
-                if link
-                else None,
+                link=main,
+                links=link_outs,
                 roles=[
                     RoleRef(role_id=r, name=roles[r].name, color=roles[r].color)
-                    for r in (member.role_ids if member and member.in_guild else [])
+                    for r in member_roles
                     if r in roles and not roles[r].deleted
                 ],
                 libraries=[
@@ -272,36 +282,55 @@ class AdminLinkIn(BaseModel):
 
 @router.put("/users/{plex_user_id}/link", response_model=UserOut)
 def admin_link(plex_user_id: str, body: AdminLinkIn, request: Request, db: DbDep, principal: AdminDep) -> UserOut:
+    """Link a Discord member to this Plex account (verified). If other members are already linked,
+    this adds one more: a family sharing the account gets the union of their roles."""
     if db.get(PlexUser, plex_user_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Plex user not found")
     by_discord = db.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == body.discord_user_id))
     if by_discord and by_discord.plex_user_id != plex_user_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "that Discord account is linked to another Plex user; unlink it first")
-    link = db.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == plex_user_id))
-    previous = link.discord_user_id if link else None
-    if link is None:
-        link = DiscordLink(plex_user_id=plex_user_id, discord_user_id=body.discord_user_id,
-                           method="admin", verified=True, linked_by=principal.actor)
-        db.add(link)
+    others = [x.discord_user_id for x in db.scalars(select(DiscordLink).where(
+        DiscordLink.plex_user_id == plex_user_id, DiscordLink.discord_user_id != body.discord_user_id))]
+    if by_discord is None:
+        db.add(DiscordLink(plex_user_id=plex_user_id, discord_user_id=body.discord_user_id,
+                           method="admin", verified=True, linked_by=principal.actor))
     else:
-        link.discord_user_id, link.method, link.verified, link.linked_by = body.discord_user_id, "admin", True, principal.actor
+        by_discord.method, by_discord.verified, by_discord.linked_by = "admin", True, principal.actor
     db.flush()
     audit.record(db, principal.actor, "link_admin", "plex_user", plex_user_id,
-                 discord_user_id=body.discord_user_id, previous_discord_user_id=previous)
+                 discord_user_id=body.discord_user_id, other_discord_user_ids=others or None)
     request.app.state.sync.trigger([plex_user_id], f"linked by {principal.actor}")
     return _users(db, plex_user_id)[0]
 
 
 @router.delete("/users/{plex_user_id}/link", response_model=UserOut)
-def admin_unlink(plex_user_id: str, request: Request, db: DbDep, principal: AdminDep) -> UserOut:
-    link = db.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == plex_user_id))
-    if link is None:
+def admin_unlink(plex_user_id: str, request: Request, db: DbDep, principal: AdminDep,
+                 discord_user_id: Annotated[str | None, Query(pattern=r"^\d{5,25}$")] = None) -> UserOut:
+    """Unlink a member. With several members (a shared account), name the one to remove; the
+    account keeps what the others' roles give, and under unlink_policy keep_all the libraries
+    only this member's roles gave stay as manual grants."""
+    links = list(db.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == plex_user_id)))
+    if not links:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "user is not linked")
+    if discord_user_id is None:
+        if len(links) > 1:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "several members share this account; say which one (discord_user_id)")
+        link = links[0]
+    else:
+        link = next((x for x in links if x.discord_user_id == discord_user_id), None)
+        if link is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "that member isn't linked to this Plex user")
     discord_id = link.discord_user_id
+    kept: list[str] = []
+    if len(links) > 1 and app_settings.load(db).unlink_policy == "keep_all":
+        kept = link_service.keep_member_libraries(db, plex_user_id, discord_id, principal.actor)
     db.delete(link)
     db.flush()
-    audit.record(db, principal.actor, "unlink_admin", "plex_user", plex_user_id, discord_user_id=discord_id)
-    # Unlinked users are no longer managed (N5); the reconcile refreshes their observed state.
+    remaining = [x.discord_user_id for x in links if x.discord_user_id != discord_id]
+    audit.record(db, principal.actor, "unlink_admin", "plex_user", plex_user_id, discord_user_id=discord_id,
+                 remaining_discord_user_ids=remaining or None, kept_library_ids=kept or None)
+    # The last member gone: no longer managed (N5); otherwise the others' roles decide.
     request.app.state.sync.trigger([plex_user_id], f"unlinked by {principal.actor}")
     return _users(db, plex_user_id)[0]
 

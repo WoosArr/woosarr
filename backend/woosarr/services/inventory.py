@@ -78,13 +78,17 @@ def rekey_user(session: Session, old_id: str, new_id: str) -> None:
         session.add(new)
         session.flush()
 
-    old_link = session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == old_id))
-    if old_link is not None:
-        if session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == new_id)) is None:
-            old_link.plex_user_id = new_id
-        else:
-            log.warning("plex user %s and %s both linked; keeping the link on %s", old_id, new_id, new_id)
+    # Members move along (an account may be shared; a Discord member has one link only, so nobody
+    # ends up linked twice). If the other record already has members, only verified links join
+    # them, as with /link: an unverified claim can't attach itself to someone else's account.
+    target_has_members = session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == new_id)) is not None
+    for old_link in list(session.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == old_id))):
+        if target_has_members and not old_link.verified:
+            log.warning("plex user %s and %s both linked; dropping the unverified link of discord %s on %s",
+                        old_id, new_id, old_link.discord_user_id, old_id)
             session.delete(old_link)
+        else:
+            old_link.plex_user_id = new_id
     for grant in list(session.scalars(select(ManualGrant).where(ManualGrant.plex_user_id == old_id))):
         if session.get(ManualGrant, (new_id, grant.library_id)) is None:
             session.add(ManualGrant(plex_user_id=new_id, library_id=grant.library_id, granted_by=grant.granted_by,

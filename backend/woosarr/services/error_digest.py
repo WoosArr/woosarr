@@ -5,9 +5,9 @@ Two sources, no time window:
   files at startup). Repeats of the same problem are grouped by a fingerprint:
   level + logger + the message with numbers, ids and quoted values normalised.
 - Account alerts from the audit log: someone tried to link a Plex account that is
-  linked to another Discord member, took over an unverified claim by signing in
-  with Plex, or an admin moved a link to a different member. Grouped per kind,
-  Plex account and Discord member.
+  linked to another Discord member, took over unverified claims or joined a shared
+  (family) account by signing in with Plex, or an admin added a member to an account
+  others are linked to. Grouped per kind, Plex account and Discord member.
 
 Resolving a group hides its occurrences up to 24 h after the resolve time from the
 dashboard (the Logs page still shows everything); if it happens again after that,
@@ -78,6 +78,14 @@ ACCOUNT_LOGGER = "woosarr.accounts"
 _METHOD = {"username": "by typing its username", "oauth": "by signing in with Plex", "invite": "through an invite"}
 
 
+def _ids(d: dict, many: str, one: str) -> list[str]:
+    """A list of Discord ids from audit details (newer rows store a list, older ones a single id)."""
+    value = d.get(many)
+    if value:
+        return [str(x) for x in value]
+    return [str(d[one])] if d.get(one) else []
+
+
 def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
     """(fingerprint key, ISO timestamp, message) for each account-takeover event in the audit log, oldest first."""
     rows = session.scalars(select(AuditLog).where(AuditLog.action.in_(("link_failed", "link_self", "link_admin")))
@@ -87,23 +95,30 @@ def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
         d = row.details or {}
         taken = d.get("reason") == "plex_account_taken"
         # A member who already has a link tried someone else's Plex account.
-        grab = d.get("reason") == "discord_already_linked" and bool(d.get("holder_discord_user_id"))
+        grab = d.get("reason") == "discord_already_linked" and bool(_ids(d, "holder_discord_user_ids",
+                                                                         "holder_discord_user_id"))
         if row.action == "link_failed" and (taken or grab):
             events.append((row, "attempt"))
         elif row.action == "link_self" and d.get("outcome") == "replaced":
             events.append((row, "takeover"))
+        elif row.action == "link_self" and d.get("outcome") == "joined":
+            events.append((row, "joined"))
+        elif row.action == "link_admin" and d.get("other_discord_user_ids"):
+            events.append((row, "added"))
         elif (row.action == "link_admin" and d.get("previous_discord_user_id")
               and d.get("previous_discord_user_id") != d.get("discord_user_id")):
-            events.append((row, "moved"))
+            events.append((row, "moved"))  # before shared accounts, an admin link replaced the old one
     if not events:
         return []
     discord_ids = set()
     plex_ids = set()
     for row, _kind in events:
         d = row.details or {}
-        discord_ids.update(x for x in (row.actor.removeprefix("discord:"), d.get("holder_discord_user_id"),
-                                       d.get("displaced_discord_user_id"), d.get("previous_discord_user_id"),
-                                       d.get("discord_user_id")) if x)
+        discord_ids.add(row.actor.removeprefix("discord:"))
+        discord_ids.update(_ids(d, "holder_discord_user_ids", "holder_discord_user_id"))
+        discord_ids.update(_ids(d, "displaced_discord_user_ids", "displaced_discord_user_id"))
+        discord_ids.update(_ids(d, "other_discord_user_ids", "previous_discord_user_id"))
+        discord_ids.update(x for x in (d.get("discord_user_id"),) if x)
         plex_ids.update(x for x in (row.target_id, d.get("plex_user_id"), d.get("own_plex_user_id")) if x)
     members = {m.discord_user_id: m for m in session.scalars(
         select(DiscordMember).where(DiscordMember.discord_user_id.in_(discord_ids)))}
@@ -117,28 +132,46 @@ def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
         name = (m.display_name or m.username) if m else None
         return f"{name} (Discord {discord_id})" if name else f"Discord member {discord_id}"
 
+    def whos(ids: list[str]) -> str:
+        names = [who(x) for x in ids] or [who(None)]
+        return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
     def account(plex_id: str | None) -> str:
         return f"Plex account {plex.get(plex_id, plex_id or '?')}"
+
+    def removed(ids: list[str]) -> str:
+        if not ids:
+            return ""
+        return f" The unverified link{'s' if len(ids) > 1 else ''} of {whos(ids)} {'were' if len(ids) > 1 else 'was'} removed."
 
     out = []
     for row, kind in events:
         d = row.details or {}
         ts = row.ts.isoformat(timespec="milliseconds")
+        member = row.actor.removeprefix("discord:")
         if kind == "attempt":
-            member = row.actor.removeprefix("discord:")
             target = d.get("plex_user_id") or row.target_id
-            holder = d.get("holder_discord_user_id")
-            held_by = (f"which is linked to {who(holder)}" + (" (verified)" if d.get("holder_verified") else "")
-                       if holder else "which is linked to another member")
+            holders = _ids(d, "holder_discord_user_ids", "holder_discord_user_id")
+            held_by = (f"which is linked to {whos(holders)}" + (" (verified)" if d.get("holder_verified") else "")
+                       if holders else "which is linked to another member")
             how = f" {_METHOD[d['method']]}" if d.get("method") in _METHOD else ""
             own = f", whose own link is to {account(d['own_plex_user_id'])}," if d.get("own_plex_user_id") else ""
             msg = f"{who(member)}{own} tried to link {account(target)}{how}, {held_by}. Refused."
             out.append((f"attempt|{target}|{member}", ts, msg))
         elif kind == "takeover":
-            member = row.actor.removeprefix("discord:")
-            msg = (f"{who(member)} took over {account(row.target_id)} by signing in with Plex. "
-                   f"The unverified link of {who(d.get('displaced_discord_user_id'))} was removed.")
+            displaced = _ids(d, "displaced_discord_user_ids", "displaced_discord_user_id")
+            msg = f"{who(member)} took over {account(row.target_id)} by signing in with Plex.{removed(displaced)}"
             out.append((f"takeover|{row.target_id}|{member}", ts, msg))
+        elif kind == "joined":
+            displaced = _ids(d, "displaced_discord_user_ids", "displaced_discord_user_id")
+            msg = (f"{who(member)} joined {account(row.target_id)} by signing in with Plex; it's shared with "
+                   f"{whos(_ids(d, 'other_discord_user_ids', ''))}.{removed(displaced)}")
+            out.append((f"joined|{row.target_id}|{member}", ts, msg))
+        elif kind == "added":
+            admin = row.actor.removeprefix("admin:")
+            msg = (f"Admin {admin} added {who(d.get('discord_user_id'))} to {account(row.target_id)}, "
+                   f"which is also linked to {whos(_ids(d, 'other_discord_user_ids', ''))}.")
+            out.append((f"added|{row.target_id}|{d.get('discord_user_id')}", ts, msg))
         else:
             admin = row.actor.removeprefix("admin:")
             msg = (f"Admin {admin} moved {account(row.target_id)} from {who(d.get('previous_discord_user_id'))} "

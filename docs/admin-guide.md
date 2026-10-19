@@ -54,6 +54,18 @@ Default: their role-granted libraries are removed; manual grants and exempt libr
 - **Unverified**: the user typed a Plex username. It isn't proven. A verified link to the same Plex account replaces it.
 - Turn on *Ignore unverified links* to manage only verified users.
 
+### Shared Plex accounts (families)
+
+Several Discord members can be linked to one Plex account, for example a family that shares a login. A Discord member still has only one link.
+
+- **Access** is the union: the account gets every library any of its members' roles give (plus manual grants and exempt libraries, as always). The Users page shows *Shared by N*, each member with their own unlink button, and the roles of all members.
+- **Adding a member** (*Settings → Linking → Shared Plex accounts*):
+  - *Admins only* (default): **Add member** on the Users page.
+  - *Admins, or members who sign in with that Plex account*: also `/link` → **Sign in with Plex**. Typing the username is never enough to join someone else's account.
+  - Either way, signing in with Plex replaces links other members made by typing the username (they're unproven), and every new member on an account others are linked to shows up in **Alerts**.
+- **A member leaves the Discord server** (*When a linked member leaves the Discord server*): *Remove role-granted libraries* drops what only their roles gave and keeps what the others' roles give; *Leave their access as it is* keeps counting their last known roles. If every member has left, it works as for a single member.
+- **A member unlinks** (`/unlink`, or the unlink button on the Users page): the account stays linked to the others. *Remove role-granted libraries* drops what only their roles gave; *Leave their access as it is* turns those libraries into manual grants (audited as `manual_grant_kept`), so nothing is taken away and an admin can remove them later. The last member unlinking works as for a single member.
+
 ## Dashboard
 
 The dashboard is made of widgets on an 8-column grid. **Customize** lets each admin move (↑/↓), resize (**eighth**, **quarter**, **half** or **full** width; 4 columns on tablets, 2 on phones) and hide widgets, choose how chartable widgets are drawn (their usual form, a **Circle** or **Bars**), and add hidden ones back from *More widgets*; **Save layout** stores it for your admin account, **Reset to default** brings back WooSarr's layout.

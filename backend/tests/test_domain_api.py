@@ -57,6 +57,21 @@ class DomainApiTests(unittest.TestCase):
         self.assertEqual(titles, sorted(titles, key=str.lower))
         self.assertLess(titles.index("anime"), titles.index("Zoo"))
 
+    def test_admin_adds_and_removes_family_members(self):
+        self.assertEqual(self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"}).status_code, 200)
+        r = self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50002"})
+        self.assertEqual(r.status_code, 200, r.text)
+        user = r.json()
+        self.assertEqual(sorted(x["discord_user_id"] for x in user["links"]), ["50001", "50002"])
+        self.assertEqual(self.c.get("/api/v1/status").json()["counts"]["linked_users"], 1)  # one account
+        self.assertEqual(self.c.delete("/api/v1/users/1001/link").status_code, 422)  # which member?
+        self.assertEqual(self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": "50003"}).status_code, 404)
+        r = self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": "50001"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([x["discord_user_id"] for x in r.json()["links"]], ["50002"])
+        self.assertEqual(r.json()["link"]["discord_user_id"], "50002")
+        self.assertIsNone(self.c.delete("/api/v1/users/1001/link").json()["link"])  # one left: no need to name it
+
     def test_role_mapping_preview_and_audit(self):
         self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
         self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50002"})

@@ -33,7 +33,7 @@ class Snapshot:
 
     role_map: dict[str, frozenset[str]]
     exempt: frozenset[str]
-    links: dict[str, DiscordLink]  # plex_user_id -> link
+    links: dict[str, list[DiscordLink]]  # plex_user_id -> linked members (several for a family account)
     members: dict[str, DiscordMember]  # discord_user_id -> member
     manual: dict[str, frozenset[str]]  # plex_user_id -> library ids
     cached_shares: dict[str, frozenset[str]]  # plex_user_id -> last observed
@@ -58,7 +58,7 @@ def load_snapshot(session: Session) -> Snapshot:
     return Snapshot(
         role_map={k: frozenset(v) for k, v in role_map.items()},
         exempt=frozenset(session.scalars(select(Library.library_id).where(Library.is_exempt.is_(True)))),
-        links={row.plex_user_id: row for row in session.scalars(select(DiscordLink))},
+        links=_links_by_plex(session),
         members={row.discord_user_id: row for row in session.scalars(select(DiscordMember))},
         manual={k: frozenset(v) for k, v in manual.items()},
         cached_shares={k: frozenset(v) for k, v in shares.items()},
@@ -69,23 +69,56 @@ def load_snapshot(session: Session) -> Snapshot:
     )
 
 
+def _links_by_plex(session: Session) -> dict[str, list[DiscordLink]]:
+    out: dict[str, list[DiscordLink]] = defaultdict(list)
+    for row in session.scalars(select(DiscordLink).order_by(DiscordLink.linked_at, DiscordLink.id)):
+        out[row.plex_user_id].append(row)
+    return dict(out)
+
+
+def counted_links(snap: Snapshot, plex_user_id: str, settings: AppSettings,
+                  exclude: frozenset[str] = frozenset()) -> list[DiscordLink]:
+    """The account's linked members that count (unverified ones not, if ignore_unverified_links)."""
+    return [link for link in snap.links.get(plex_user_id, [])
+            if link.discord_user_id not in exclude and (link.verified or not settings.ignore_unverified_links)]
+
+
+def account_roles(snap: Snapshot, plex_user_id: str, settings: AppSettings,
+                  exclude: frozenset[str] = frozenset()) -> tuple[bool, frozenset[str]] | None:
+    """(linked, union of roles) for a Plex account, or None if policy says leave it alone.
+
+    Members still in the Discord server give their roles. A member who left gives
+    nothing under leave_policy drop_role_access, and their last known roles under
+    keep_all ("leave their access as it is"). If every member has left and the
+    policy is keep_all, the account is left alone entirely.
+    """
+    links = counted_links(snap, plex_user_id, settings, exclude)
+    if not links:
+        return False, frozenset()
+    roles: set[str] = set()
+    present = False
+    for link in links:
+        member = snap.members.get(link.discord_user_id)
+        if member is not None and member.in_guild:
+            present = True
+            roles.update(member.role_ids)
+        elif member is not None and settings.leave_policy == "keep_all":
+            roles.update(member.role_ids)
+    if not present and settings.leave_policy == "keep_all":
+        return None
+    return True, frozenset(roles)
+
+
 def user_state(
     snap: Snapshot, plex_user_id: str, settings: AppSettings, current: frozenset[str]
 ) -> UserState | None:
     """UserState for one Plex user, or None if policy says leave them alone."""
     if plex_user_id in snap.owner_ids:
         return None  # the owner has every library; never planned or written
-    link = snap.links.get(plex_user_id)
-    linked = link is not None and (link.verified or not settings.ignore_unverified_links)
-    roles: frozenset[str] = frozenset()
-    if linked and link is not None:
-        member = snap.members.get(link.discord_user_id)
-        if member is None or not member.in_guild:
-            if settings.leave_policy == "keep_all":
-                return None
-            # drop_role_access: no roles; manual + exempt still kept by the engine.
-        else:
-            roles = frozenset(member.role_ids)
+    found = account_roles(snap, plex_user_id, settings)
+    if found is None:
+        return None
+    linked, roles = found
     return UserState(
         plex_user_id=plex_user_id,
         linked=linked,
@@ -119,12 +152,20 @@ def library_sources(
     return out
 
 
+def role_libraries(snap: Snapshot, roles: frozenset[str]) -> frozenset[str]:
+    """Managed libraries these roles give (exempt libraries are never role-granted)."""
+    universe = snap.universe
+    return frozenset(lib for r in roles for lib in snap.role_map.get(r, ()) if lib in universe)
+
+
 def role_holders(snap: Snapshot) -> Mapping[str, list[str]]:
-    """role_id -> plex_user_ids of linked users whose Discord member holds it."""
+    """role_id -> plex_user_ids of linked accounts where a member in the server holds it."""
     holders: dict[str, list[str]] = defaultdict(list)
-    for plex_id, link in snap.links.items():
-        member = snap.members.get(link.discord_user_id)
-        if member and member.in_guild:
-            for role in member.role_ids:
-                holders[role].append(plex_id)
+    for plex_id, links in snap.links.items():
+        for link in links:
+            member = snap.members.get(link.discord_user_id)
+            if member and member.in_guild:
+                for role in member.role_ids:
+                    if plex_id not in holders[role]:
+                        holders[role].append(plex_id)
     return holders

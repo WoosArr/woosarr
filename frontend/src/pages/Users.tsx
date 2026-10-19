@@ -19,6 +19,8 @@ import {
 import { ImpactList } from "../Impact";
 import { LibraryChooser } from "./LibraryChooser";
 
+type LinkOut = UserOut["links"][number];
+
 type Filter = "" | "verified" | "unverified" | "linked" | "unlinked";
 
 export default function UsersPage() {
@@ -39,7 +41,7 @@ export default function UsersPage() {
         !q ||
         u.username.toLowerCase().includes(q) ||
         (u.email ?? "").toLowerCase().includes(q) ||
-        (u.link?.discord_username ?? "").toLowerCase().includes(q),
+        u.links.some((l) => `${l.discord_username ?? ""} ${l.discord_display_name ?? ""}`.toLowerCase().includes(q)),
     );
   }, [users.data, search]);
 
@@ -52,22 +54,30 @@ export default function UsersPage() {
   const selectable = shown.filter((u) => !u.is_owner);
   const allSelected = selectable.length > 0 && selectable.every((u) => selected.has(u.plex_user_id));
 
-  const unlink = async (u: UserOut) => {
+  const unlink = async (u: UserOut, l: LinkOut) => {
+    const who = l.discord_display_name ?? l.discord_username ?? l.discord_user_id;
+    const shared = u.links.length > 1;
     const ok = await confirm({
-      title: `Unlink ${u.username}?`,
-      body: (
+      title: shared ? `Remove ${who} from ${u.username}?` : `Unlink ${u.username}?`,
+      body: shared ? (
+        <p>
+          <strong>{u.username}</strong> stays linked to the other member{u.links.length > 2 ? "s" : ""} who share it and keeps
+          what their roles give. Libraries only <strong>{who}</strong>'s roles gave follow <em>Settings → Linking → When a
+          member unlinks themselves</em>.
+        </p>
+      ) : (
         <p>
           WooSarr stops managing <strong>{u.username}</strong>'s library access. Their current Plex shares stay as they
           are. They can link again with <code>/link</code>.
         </p>
       ),
-      confirmLabel: "Unlink",
+      confirmLabel: shared ? "Remove member" : "Unlink",
       danger: true,
     });
     if (!ok) return;
     try {
-      await api.del(`/api/v1/users/${u.plex_user_id}/link`);
-      toast.ok(`${u.username} unlinked.`);
+      await api.del(`/api/v1/users/${u.plex_user_id}/link${qs({ discord_user_id: l.discord_user_id })}`);
+      toast.ok(shared ? `${who} removed from ${u.username}.` : `${u.username} unlinked.`);
       void users.reload();
     } catch (e) {
       toast.error(e);
@@ -140,14 +150,26 @@ export default function UsersPage() {
                     {u.removed ? <Badge tone="neutral">No longer shared</Badge> : null}
                   </td>
                   <td data-label="Discord">
-                    {u.link ? (
-                      <div className="stack" style={{ gap: 4 }}>
-                        <span>{u.link.discord_display_name ?? u.link.discord_username ?? u.link.discord_user_id}</span>
-                        <span className="row">
-                          <VerifiedBadge verified={u.link.verified} />
-                          {!u.link.in_guild ? <Badge tone="warn">Not in server</Badge> : null}
-                        </span>
-                        <span className="small muted">{u.link.method} · {ago(u.link.linked_at)}</span>
+                    {u.links.length ? (
+                      <div className="stack" style={{ gap: 10 }}>
+                        {u.links.length > 1 ? <Badge tone="info" icon="users" title="Several Discord members share this Plex account; it gets the libraries all their roles give">Shared by {u.links.length}</Badge> : null}
+                        {u.links.map((l) => (
+                          <div key={l.discord_user_id} className="stack" style={{ gap: 4 }}>
+                            <span className="row spread" style={{ flexWrap: "nowrap" }}>
+                              <span>{l.discord_display_name ?? l.discord_username ?? l.discord_user_id}</span>
+                              <button className="btn sm ghost" onClick={() => void unlink(u, l)}
+                                aria-label={`Unlink ${l.discord_display_name ?? l.discord_username ?? l.discord_user_id} from ${u.username}`}
+                                title="Unlink this member">
+                                <Icon name="unlink" size={14} />
+                              </button>
+                            </span>
+                            <span className="row">
+                              <VerifiedBadge verified={l.verified} />
+                              {!l.in_guild ? <Badge tone="warn">Not in server</Badge> : null}
+                            </span>
+                            <span className="small muted">{l.method} · {ago(l.linked_at)}</span>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <Badge tone="neutral" icon="unlink">Not linked</Badge>
@@ -173,15 +195,9 @@ export default function UsersPage() {
                   </td>
                   <td>
                     <div className="row" style={{ justifyContent: "flex-end" }}>
-                      {u.link ? (
-                        <button className="btn sm danger" onClick={() => void unlink(u)}>
-                          <Icon name="unlink" size={14} /> Unlink
-                        </button>
-                      ) : (
-                        <button className="btn sm" onClick={() => setLinking(u)}>
-                          <Icon name="link" size={14} /> Link
-                        </button>
-                      )}
+                      <button className="btn sm" style={{ whiteSpace: "nowrap" }} onClick={() => setLinking(u)}>
+                        <Icon name={u.links.length ? "plus" : "link"} size={14} /> {u.links.length ? "Add member" : "Link"}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -441,15 +457,18 @@ function LinkModal({ user, onClose, onDone }: { user: UserOut; onClose: () => vo
   const link = async (m: MemberOut) => {
     try {
       await api.put(`/api/v1/users/${user.plex_user_id}/link`, { discord_user_id: m.discord_user_id });
-      toast.ok(`${user.username} linked to ${m.display_name ?? m.username}.`);
+      toast.ok(user.links.length ? `${m.display_name ?? m.username} added to ${user.username}.` : `${user.username} linked to ${m.display_name ?? m.username}.`);
       onDone();
     } catch (e) {
       toast.error(e);
     }
   };
   return (
-    <Modal title={`Link ${user.username} to a Discord member`} onClose={onClose}>
-      <p className="small muted">Admin links count as verified.</p>
+    <Modal title={user.links.length ? `Add a member to ${user.username}` : `Link ${user.username} to a Discord member`} onClose={onClose}>
+      <p className="small muted">
+        Admin links count as verified.
+        {user.links.length ? " Several members can share one Plex account (a family); it gets the libraries all their roles give." : ""}
+      </p>
       <input type="search" placeholder="Search by name or id…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search Discord members" />
       <div style={{ marginTop: 10 }}>
         {members.loading && !members.data ? <Spinner /> : null}

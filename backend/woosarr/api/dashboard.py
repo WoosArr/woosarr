@@ -113,7 +113,11 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     owners = {p.plex_user_id for p in plex if p.is_owner}
     ids = {p.plex_user_id for p in plex}
     links = db.execute(select(DiscordLink.plex_user_id, DiscordLink.discord_user_id, DiscordLink.verified)).all()
-    linked = [link for link in links if link.plex_user_id in ids]
+    # Per Plex account (a shared account counts once): verified if any member is.
+    linked_accounts: dict[str, bool] = {}
+    for link in links:
+        if link.plex_user_id in ids:
+            linked_accounts[link.plex_user_id] = linked_accounts.get(link.plex_user_id, False) or link.verified
     linked_discord = {link.discord_user_id for link in links}
     member_roles = db.execute(select(DiscordMember.discord_user_id, DiscordMember.role_ids)
                               .where(DiscordMember.in_guild.is_(True))).all()
@@ -195,8 +199,10 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     }
 
     return InsightsOut(
-        links={"plex_users": len(plex), "linked": len(linked), "verified": sum(1 for x in linked if x.verified),
-               "unverified": sum(1 for x in linked if not x.verified), "unlinked": len(plex) - len(linked),
+        links={"plex_users": len(plex), "linked": len(linked_accounts),
+               "verified": sum(1 for v in linked_accounts.values() if v),
+               "unverified": sum(1 for v in linked_accounts.values() if not v),
+               "unlinked": len(plex) - len(linked_accounts),
                "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
         activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out, invites=invites, requests=requests,
         setup=setup, security=security)

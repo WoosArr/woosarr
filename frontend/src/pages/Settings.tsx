@@ -213,6 +213,24 @@ function Linking() {
         all={v.username_link_all_members ?? true} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.username_link_role_ids ?? []}
         onAll={(x) => f.set({ username_link_all_members: x })} onChange={(ids) => f.set({ username_link_role_ids: ids })} />
+      <fieldset className="plain">
+        <legend className="small" style={{ fontWeight: 600 }}>Shared Plex accounts (families)</legend>
+        <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
+          Several Discord members can be linked to one Plex account; it gets the libraries all their roles give.
+          Who may add a member to an account someone is already verified on:
+        </span>
+        <label className="check" style={{ marginBottom: 6 }}>
+          <input type="radio" name="family-link-mode" checked={(v.family_link_mode ?? "admin") === "admin"} onChange={() => f.set({ family_link_mode: "admin" })} />
+          <span><strong>Admins only</strong> <span className="muted small">— from the Users page (<em>Add member</em>)</span></span>
+        </label>
+        <label className="check">
+          <input type="radio" name="family-link-mode" checked={v.family_link_mode === "verified"} onChange={() => f.set({ family_link_mode: "verified" })} />
+          <span><strong>Admins, or members who sign in with that Plex account</strong> <span className="muted small">— in <code>/link</code>; typing the username is never enough</span></span>
+        </label>
+        <span className="hint small muted" style={{ display: "block", marginTop: 6 }}>
+          Either way, signing in with Plex replaces links made by typing the username, and every new member shows up in Alerts.
+        </span>
+      </fieldset>
       <Field label={<><code>/link</code> cooldown (seconds)</>} hint="How long a member waits between link attempts. 0 = no wait.">
         <input type="number" min={0} max={86400} value={v.link_cooldown_seconds} onChange={(e) => f.set({ link_cooldown_seconds: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </Field>

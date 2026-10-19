@@ -50,14 +50,37 @@ class DbTests(unittest.TestCase):
         with self.assertRaises(StatementError), self.db.session() as s:
             s.add(m.AuditLog(actor="system", action="x", ts=datetime.now()))
 
-    def test_link_is_one_to_one(self):
+    def test_discord_member_has_one_link_plex_account_may_have_several(self):
         with self.db.session() as s:
             s.add_all([m.PlexUser(plex_user_id="p1", username="a"), m.PlexUser(plex_user_id="p2", username="b")])
             s.flush()
             s.add(m.DiscordLink(plex_user_id="p1", discord_user_id="d1", method="username", linked_by="self"))
-        for plex, discord in (("p1", "d2"), ("p2", "d1")):
-            with self.assertRaises(IntegrityError), self.db.session() as s:
-                s.add(m.DiscordLink(plex_user_id=plex, discord_user_id=discord, method="username", linked_by="self"))
+        with self.assertRaises(IntegrityError), self.db.session() as s:
+            s.add(m.DiscordLink(plex_user_id="p2", discord_user_id="d1", method="username", linked_by="self"))
+        with self.db.session() as s:  # a family: second member on the same Plex account
+            s.add(m.DiscordLink(plex_user_id="p1", discord_user_id="d2", method="oauth", verified=True, linked_by="self"))
+
+    def test_family_links_migration_keeps_existing_links(self):
+        from alembic import command
+        from sqlalchemy import text
+
+        from woosarr.db.session import alembic_config
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = make_engine(Path(tmp) / "old.db")
+            command.upgrade(alembic_config(engine), "0009")  # before shared accounts
+            with engine.begin() as c:
+                c.execute(text("INSERT INTO plex_users (plex_user_id, username, is_managed, is_owner, removed, synced_at) "
+                               "VALUES ('p1', 'a', 0, 0, 0, '2026-01-01 00:00:00.000000')"))
+                c.execute(text("INSERT INTO discord_links (plex_user_id, discord_user_id, method, verified, linked_at, "
+                               "linked_by) VALUES ('p1', 'd1', 'oauth', 1, '2026-01-01 00:00:00.000000', 'self')"))
+            migrate(engine)
+            db = Database(engine)
+            with db.session() as s:
+                s.add(m.DiscordLink(plex_user_id="p1", discord_user_id="d2", method="admin", verified=True,
+                                    linked_by="admin:x"))
+            with db.session() as s:
+                self.assertEqual(sorted(x.discord_user_id for x in s.scalars(select(m.DiscordLink))), ["d1", "d2"])
+            engine.dispose()
 
     def test_foreign_keys_cascade(self):
         with self.db.session() as s:

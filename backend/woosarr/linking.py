@@ -6,7 +6,7 @@ Nothing here persists a Plex credential or token.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -29,7 +29,8 @@ class Link:
 class Outcome(str, Enum):
     CREATED = "created"
     UPGRADED = "upgraded"  # same pair, unverified -> verified
-    REPLACED = "replaced"  # a verified link superseded someone's unverified claim
+    REPLACED = "replaced"  # a verified sign-in superseded other members' unverified claims
+    JOINED = "joined"  # added next to other verified members (a family sharing the account)
     UNCHANGED = "unchanged"
     PLEX_ACCOUNT_TAKEN = "plex_account_taken"
     DISCORD_ALREADY_LINKED = "discord_already_linked"
@@ -39,8 +40,8 @@ class Outcome(str, Enum):
 class Decision:
     outcome: Outcome
     link: Link | None = None
-    # Discord user whose unverified claim was removed (REPLACED only)
-    displaced_discord_user_id: str | None = None
+    # Discord users whose unverified claims on the Plex account are removed (REPLACED/JOINED)
+    displaced_discord_user_ids: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -48,6 +49,7 @@ class Decision:
             Outcome.CREATED,
             Outcome.UPGRADED,
             Outcome.REPLACED,
+            Outcome.JOINED,
             Outcome.UNCHANGED,
         )
 
@@ -56,14 +58,17 @@ def decide_link(
     plex_user_id: str,
     discord_user_id: str,
     method: Method,
-    existing_by_plex: Link | None,
+    existing_on_plex: Sequence[Link],
     existing_by_discord: Link | None,
+    family_join: bool = False,
 ) -> Decision:
-    """One Plex account <-> one Discord account (D4a).
+    """A Discord member links to one Plex account; a Plex account may have several members (D4a, families).
 
-    A verified (OAuth/admin) link may supersede someone else's unverified claim
-    on the same Plex account. A Discord user who already has a link must be
-    unlinked by an admin before linking a different Plex account.
+    - A member who already has a link must be unlinked before linking a different Plex account.
+    - Typing a username can't claim an account another member is linked to.
+    - Signing in with Plex proves the account: it removes other members' unverified claims. If verified
+      members remain, it joins them only when `family_join` is on (setting: verified sign-in may join);
+      otherwise it's refused and nothing changes. Admins add members through their own path.
     """
     verified = method in (Method.OAUTH, Method.ADMIN)
     new = Link(plex_user_id, discord_user_id, method, verified)
@@ -71,17 +76,22 @@ def decide_link(
     if existing_by_discord and existing_by_discord.plex_user_id != plex_user_id:
         return Decision(Outcome.DISCORD_ALREADY_LINKED)
 
-    if existing_by_plex is None:
-        return Decision(Outcome.CREATED, new)
-
-    if existing_by_plex.discord_user_id == discord_user_id:
-        if verified and not existing_by_plex.verified:
+    own = next((x for x in existing_on_plex if x.discord_user_id == discord_user_id), None)
+    if own is not None:
+        if verified and not own.verified:
             return Decision(Outcome.UPGRADED, new)
-        return Decision(Outcome.UNCHANGED, existing_by_plex)
+        return Decision(Outcome.UNCHANGED, own)
 
-    # Plex account is claimed by a different Discord user.
-    if verified and not existing_by_plex.verified:
-        return Decision(Outcome.REPLACED, new, existing_by_plex.discord_user_id)
+    others = [x for x in existing_on_plex if x.discord_user_id != discord_user_id]
+    if not others:
+        return Decision(Outcome.CREATED, new)
+    if not verified:
+        return Decision(Outcome.PLEX_ACCOUNT_TAKEN)
+    unverified = tuple(x.discord_user_id for x in others if not x.verified)
+    if len(unverified) == len(others):
+        return Decision(Outcome.REPLACED, new, unverified)
+    if family_join:
+        return Decision(Outcome.JOINED, new, unverified)
     return Decision(Outcome.PLEX_ACCOUNT_TAKEN)
 
 

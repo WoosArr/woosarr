@@ -190,3 +190,111 @@ class InviteApiTests(unittest.TestCase):
             self.assertEqual((r.json()["unlink_policy"], r.json()["invite_role_ids"]), ("keep_all", ["123"]))
         finally:
             h.close()
+
+
+class FamilyAccountTests(Base):
+    """A Plex account shared by several Discord members (a family)."""
+
+    def setUp(self):
+        super().setUp()
+        with self.db.session() as s:
+            s.get(DiscordMember, "d1").role_ids = ["tv"]
+            s.get(DiscordMember, "d2").role_ids = ["movies"]
+            s.add(DiscordLink(plex_user_id="11", discord_user_id="d2", method="admin", verified=True,
+                              linked_by="admin:x"))
+        self.gw.shares["11"] = {"3"}
+
+    def service(self):
+        return DiscordService(self.db, SecretStore(SecretBox(Fernet.generate_key())), lambda *a, **k: None, None,
+                              self.sync)
+
+    def members(self):
+        with self.db.session() as s:
+            return sorted(x.discord_user_id for x in s.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == "11")))
+
+    def test_access_is_union_of_members_roles(self):
+        self.sync.run_now(None, "test")
+        self.assertEqual(self.gw.shares["11"], {"1", "2", "3"})  # Movies (d2) + TV (d1) + exempt Kids
+
+    def test_leave_drop_role_access_removes_only_that_members_libraries(self):
+        self.sync.run_now(None, "first")
+        with self.db.session() as s:
+            s.get(DiscordMember, "d1").in_guild = False
+        self.sync.run_now(["11"], "d1 left")
+        self.assertEqual(self.gw.shares["11"], {"1", "3"})  # TV went with d1; d2's Movies stay
+
+    def test_leave_keep_all_keeps_their_last_roles(self):
+        self.sync.run_now(None, "first")
+        with self.db.session() as s:
+            app_settings.update(s, {"leave_policy": "keep_all"})
+            s.get(DiscordMember, "d1").in_guild = False
+            s.get(DiscordMember, "d2").role_ids = []  # d2 (still here) loses Movies
+        self.sync.run_now(["11"], "changes")
+        self.assertEqual(self.gw.shares["11"], {"2", "3"})  # d1's TV kept; d2's Movies follow d2's roles
+
+    def test_unlink_drop_role_access_with_others_remaining(self):
+        self.sync.run_now(None, "first")
+        msg = self.service().unlink_member("d1")
+        self.assertIn("stays linked to the 1 other member", msg)
+        self.sync.run_now(["11"], "after unlink")
+        self.assertEqual(self.gw.shares["11"], {"1", "3"})
+        self.assertEqual(self.members(), ["d2"])
+
+    def test_unlink_keep_all_with_others_remaining_keeps_libraries_as_manual_grants(self):
+        self.sync.run_now(None, "first")
+        with self.db.session() as s:
+            app_settings.update(s, {"unlink_policy": "keep_all"})
+        msg = self.service().unlink_member("d1")
+        self.assertIn("1 library only your roles gave stay as manual grants", msg)
+        self.sync.run_now(["11"], "after unlink")
+        self.assertEqual(self.gw.shares["11"], {"1", "2", "3"})
+        with self.db.session() as s:
+            grants = [g.library_id for g in s.scalars(select(ManualGrant).where(ManualGrant.plex_user_id == "11"))]
+            kept = s.scalar(select(AuditLog).where(AuditLog.action == "manual_grant_kept"))
+        self.assertEqual(grants, ["2"])
+        self.assertEqual(kept.details["library_ids"], ["2"])
+
+    def test_last_member_unlinking_works_as_before(self):
+        self.service().unlink_member("d2")
+        msg = self.service().unlink_member("d1")
+        self.assertIn("Role-granted libraries were removed", msg)
+        self.assertEqual(self.members(), [])
+
+
+class FamilyJoinTests(Base):
+    def join(self, discord_id, method="oauth"):
+        from woosarr.linking import PlexIdentity
+        from woosarr.services import link_service
+        with self.db.session() as s:
+            if method == "oauth":
+                return link_service.link_by_identity(s, discord_id, PlexIdentity("11", "alice"))
+            return link_service.link_by_username(s, discord_id, "alice")
+
+    def members(self):
+        with self.db.session() as s:
+            return sorted((x.discord_user_id, x.verified)
+                          for x in s.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == "11")))
+
+    def test_admin_only_mode_refuses_sign_in_joins(self):
+        r = self.join("d2")
+        self.assertFalse(r.ok)
+        self.assertIn("ask an admin to add you", r.message)
+        self.assertEqual(self.members(), [("d1", True)])
+
+    def test_verified_mode_lets_sign_in_join_but_not_typed_usernames(self):
+        with self.db.session() as s:
+            app_settings.update(s, {"family_link_mode": "verified"})
+        self.assertFalse(self.join("d3", method="username").ok)
+        r = self.join("d2")
+        self.assertTrue(r.ok, r.message)
+        self.assertIn("share with 1 other member", r.message)
+        self.assertEqual(self.members(), [("d1", True), ("d2", True)])
+
+    def test_sign_in_still_takes_over_unverified_claims(self):
+        with self.db.session() as s:
+            s.query(DiscordLink).delete()
+            s.add(DiscordLink(plex_user_id="11", discord_user_id="d1", method="username", verified=False,
+                              linked_by="self"))
+        r = self.join("d2")  # admin-only mode: no verified member blocks it
+        self.assertTrue(r.ok, r.message)
+        self.assertEqual(self.members(), [("d2", True)])

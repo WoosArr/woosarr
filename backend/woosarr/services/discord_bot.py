@@ -962,10 +962,16 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
             await interaction.response.send_message("Your Discord account isn't linked to a Plex account.",
                                                     ephemeral=True)
             return
-        _link, plex = found
+        link, plex = found
         policy = (await self.run_db(app_settings.load)).unlink_policy
-        effect = ("Libraries your Discord roles gave you will be removed; manual grants and exempt libraries stay."
-                  if policy == "drop_role_access" else "Your Plex access stays as it is, but roles stop updating it.")
+        shared = await self.run_db(link_service.other_members, link.plex_user_id, str(interaction.user.id))
+        if shared:
+            effect = ("The account stays linked to the other members who share it. "
+                      + ("Libraries only your roles give will be removed." if policy == "drop_role_access"
+                         else "Libraries only your roles give stay as they are."))
+        else:
+            effect = ("Libraries your Discord roles gave you will be removed; manual grants and exempt libraries stay."
+                      if policy == "drop_role_access" else "Your Plex access stays as it is, but roles stop updating it.")
         await interaction.response.send_message(
             f"Unlink from Plex account **{plex.username if plex else '?'}**? {effect}",
             view=_UnlinkView(self, str(interaction.user.id)), ephemeral=True)
@@ -983,6 +989,23 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         def unlink() -> None:
             with self._db.session() as s:
                 link_service.unlink_self(s, discord_id, policy)
+
+        with self._db.session() as s:
+            shared = len(link_service.other_members(s, plex_id, discord_id))
+        if shared:
+            # A family account: it stays linked to the others and keeps what their roles give.
+            with self._db.session() as s:
+                kept = (link_service.keep_member_libraries(s, plex_id, discord_id, f"discord:{discord_id}")
+                        if policy == "keep_all" else [])
+                link_service.unlink_self(s, discord_id, policy)
+            self.trigger([plex_id], f"self-unlink by discord {discord_id} (shared account)")
+            others = f"{shared} other member{'s' if shared != 1 else ''}"
+            if policy == "keep_all":
+                extra = (f" {len(kept)} librar{'ies' if len(kept) != 1 else 'y'} only your roles gave stay as manual "
+                         "grants." if kept else "")
+                return f"Unlinked. The Plex account stays linked to the {others} who share it.{extra}"
+            return (f"Unlinked. The Plex account stays linked to the {others} who share it; libraries only your "
+                    "roles gave are removed.")
 
         if policy == "drop_role_access" and self._sync is not None:
             report = self._sync.drop_role_access(plex_id, f"self-unlink by discord {discord_id}", then=unlink)

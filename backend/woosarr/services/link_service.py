@@ -15,9 +15,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import app_settings
-from woosarr.db.models import AuditLog, DiscordLink, DiscordMember, PlexUser, utcnow
+from woosarr.db.models import AuditLog, DiscordLink, DiscordMember, ManualGrant, PlexUser, utcnow
 from woosarr.linking import Link, Method, Outcome, PlexIdentity, decide_link
 from woosarr.services import audit
+from woosarr.services.access import account_roles, load_snapshot, role_libraries
 
 log = logging.getLogger("woosarr.link")
 
@@ -60,41 +61,56 @@ def _fail(session: Session, discord_user_id: str, reason: str, message: str, **d
 
 
 def _apply(session: Session, discord_user_id: str, plex: PlexUser, method: Method) -> LinkResult:
-    by_plex = session.scalar(select(DiscordLink).where(DiscordLink.plex_user_id == plex.plex_user_id))
+    on_plex = list(session.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == plex.plex_user_id)
+                                   .order_by(DiscordLink.linked_at, DiscordLink.id)))
     by_discord = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
-    decision = decide_link(plex.plex_user_id, discord_user_id, method, _as_link(by_plex), _as_link(by_discord))
+    family_join = app_settings.load(session).family_link_mode == "verified"
+    decision = decide_link(plex.plex_user_id, discord_user_id, method, [_as_link(x) for x in on_plex],
+                           _as_link(by_discord), family_join=family_join)
     actor = f"discord:{discord_user_id}"
-    # Who holds the Plex account now (if not this member): the dashboard's Alerts name them.
-    holder = by_plex.discord_user_id if by_plex is not None and by_plex.discord_user_id != discord_user_id else None
+    # Who holds the Plex account now (other members): the dashboard's Alerts name them.
+    others = [x for x in on_plex if x.discord_user_id != discord_user_id]
+    holders = [x.discord_user_id for x in others]
+    holder_verified = any(x.verified for x in others)
     if decision.outcome == Outcome.DISCORD_ALREADY_LINKED:
         return _fail(session, discord_user_id, "discord_already_linked",
                      "Your Discord account is already linked to another Plex account. Ask an admin to unlink it first.",
-                     plex_user_id=plex.plex_user_id, method=method.value, holder_discord_user_id=holder,
+                     plex_user_id=plex.plex_user_id, method=method.value,
+                     holder_discord_user_id=holders[0] if holders else None, holder_discord_user_ids=holders,
                      own_plex_user_id=by_discord.plex_user_id if by_discord else None)
     if decision.outcome == Outcome.PLEX_ACCOUNT_TAKEN:
-        return _fail(session, discord_user_id, "plex_account_taken",
-                     "That Plex account is already linked to someone else. Sign in with Plex to prove it's yours, "
-                     "or ask an admin.", plex_user_id=plex.plex_user_id, method=method.value,
-                     holder_discord_user_id=holder, holder_verified=bool(by_plex and by_plex.verified))
+        message = ("That Plex account is already linked to someone else. If you share it (a family account), "
+                   "ask an admin to add you." if method == Method.OAUTH or (holder_verified and not family_join) else
+                   "That Plex account is already linked to someone else. Sign in with Plex to prove it's yours, "
+                   "or ask an admin.")
+        return _fail(session, discord_user_id, "plex_account_taken", message, plex_user_id=plex.plex_user_id,
+                     method=method.value, holder_discord_user_id=holders[0] if holders else None,
+                     holder_discord_user_ids=holders, holder_verified=holder_verified)
     if decision.outcome == Outcome.UNCHANGED:
         audit.record(session, actor, "link_self", "plex_user", plex.plex_user_id, outcome="unchanged", method=method.value)
         return LinkResult(True, f"You're already linked to **{plex.username}**.", plex.plex_user_id)
     link = decision.link
     assert link is not None
-    if decision.outcome == Outcome.REPLACED and by_plex is not None:
-        session.delete(by_plex)
-        session.flush()
-    if decision.outcome == Outcome.UPGRADED and by_plex is not None:
-        by_plex.method, by_plex.verified, by_plex.linked_at = method.value, True, utcnow()
+    displaced = set(decision.displaced_discord_user_ids)
+    for row in others:
+        if row.discord_user_id in displaced:
+            session.delete(row)
+    session.flush()
+    own = next((x for x in on_plex if x.discord_user_id == discord_user_id), None)
+    if decision.outcome == Outcome.UPGRADED and own is not None:
+        own.method, own.verified, own.linked_at = method.value, True, utcnow()
     else:
         session.add(DiscordLink(plex_user_id=plex.plex_user_id, discord_user_id=discord_user_id,
                                 method=method.value, verified=link.verified, linked_by="self"))
+    sharing = [x.discord_user_id for x in others if x.discord_user_id not in displaced]
     audit.record(session, actor, "link_self", "plex_user", plex.plex_user_id, outcome=decision.outcome.value,
                  method=method.value, verified=link.verified,
-                 displaced_discord_user_id=decision.displaced_discord_user_id)
+                 displaced_discord_user_ids=sorted(displaced) or None, other_discord_user_ids=sharing or None)
     verified = " (verified)" if link.verified else ""
-    return LinkResult(True, f"Linked to Plex account **{plex.username}**{verified}. Your library access updates shortly.",
-                      plex.plex_user_id)
+    shared = (f", which you share with {len(sharing)} other member{'s' if len(sharing) != 1 else ''}"
+              if sharing else "")
+    return LinkResult(True, f"Linked to Plex account **{plex.username}**{verified}{shared}. "
+                            "Your library access updates shortly.", plex.plex_user_id)
 
 
 def _known_plex_users(session: Session) -> int:
@@ -155,6 +171,32 @@ def current_link(session: Session, discord_user_id: str) -> tuple[DiscordLink, P
     return link, session.get(PlexUser, link.plex_user_id)
 
 
+def other_members(session: Session, plex_user_id: str, discord_user_id: str) -> list[DiscordLink]:
+    """Members still linked to the Plex account besides this one (a family account)."""
+    return list(session.scalars(select(DiscordLink).where(DiscordLink.plex_user_id == plex_user_id,
+                                                          DiscordLink.discord_user_id != discord_user_id)))
+
+
+def keep_member_libraries(session: Session, plex_user_id: str, discord_user_id: str, actor: str) -> list[str]:
+    """Before a member of a shared account unlinks under keep_all: libraries the account has
+    only because of this member's roles become manual grants, so nothing is taken away."""
+    settings = app_settings.load(session)
+    snap = load_snapshot(session)
+    before = account_roles(snap, plex_user_id, settings)
+    after = account_roles(snap, plex_user_id, settings, exclude=frozenset({discord_user_id}))
+    if before is None or after is None or not after[0]:
+        return []  # left alone anyway, or this was the last member (the account becomes unmanaged)
+    lost = role_libraries(snap, before[1]) - role_libraries(snap, after[1])
+    keep = sorted((lost & snap.cached_shares.get(plex_user_id, frozenset())) - snap.manual.get(plex_user_id, frozenset()))
+    for library_id in keep:
+        session.add(ManualGrant(plex_user_id=plex_user_id, library_id=library_id, granted_by=actor[:100]))
+    if keep:
+        session.flush()
+        audit.record(session, actor, "manual_grant_kept", "plex_user", plex_user_id, library_ids=keep,
+                     discord_user_id=discord_user_id, reason="member of a shared account unlinked (keep_all)")
+    return keep
+
+
 def unlink_self(session: Session, discord_user_id: str, policy: str) -> str | None:
     """Remove the member's own link (/unlink). Returns the Plex user id, or None."""
     link = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
@@ -162,5 +204,7 @@ def unlink_self(session: Session, discord_user_id: str, policy: str) -> str | No
         return None
     plex_user_id = link.plex_user_id
     session.delete(link)
-    audit.record(session, f"discord:{discord_user_id}", "unlink_self", "plex_user", plex_user_id, policy=policy)
+    remaining = [x.discord_user_id for x in other_members(session, plex_user_id, discord_user_id)]
+    audit.record(session, f"discord:{discord_user_id}", "unlink_self", "plex_user", plex_user_id, policy=policy,
+                 remaining_discord_user_ids=remaining or None)
     return plex_user_id

@@ -57,7 +57,7 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     settings = app_settings.load(db)
     plex = state.plex_status()
     discord = state.discord_status()
-    # Last 24 h, minus groups an admin marked resolved (services/error_digest.py).
+    # Open alerts: everything not covered by a resolution (services/error_digest.py).
     recent_warnings, recent_errors = error_digest.visible_counts(db)
     return StatusOut(
         version=__version__,
@@ -69,8 +69,10 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
         sync=state.sync.status(),
         counts={
             "plex_users": _count(db, PlexUser, PlexUser.removed.is_(False)),
-            "linked_users": _count(db, DiscordLink),
-            "verified_links": _count(db, DiscordLink, DiscordLink.verified.is_(True)),
+            # Plex accounts with a linked member (a shared account counts once).
+            "linked_users": db.scalar(select(func.count(func.distinct(DiscordLink.plex_user_id)))) or 0,
+            "verified_links": db.scalar(select(func.count(func.distinct(DiscordLink.plex_user_id)))
+                                        .where(DiscordLink.verified.is_(True))) or 0,
             "libraries": _count(db, Library, Library.removed.is_(False)),
             "exempt_libraries": _count(db, Library, Library.is_exempt.is_(True), Library.removed.is_(False)),
             "roles": _count(db, DiscordRole, DiscordRole.deleted.is_(False)),

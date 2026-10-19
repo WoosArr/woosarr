@@ -162,11 +162,12 @@ class DashboardApiTests(unittest.TestCase):
                                                "username, which is linked to Alice (Discord 50001). Refused.")
         with db.session() as s:  # signing in with Plex beats alice's typed claim
             self.assertTrue(link_service.link_by_identity(s, "50002", PlexIdentity("11", "bob")).ok)
-        r = self.c.put("/api/v1/users/11/link", json={"discord_user_id": "50001"})  # admin moves it back
+        r = self.c.put("/api/v1/users/11/link", json={"discord_user_id": "50001"})  # admin adds alice back: shared
         self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(sorted(x["discord_user_id"] for x in r.json()["links"]), ["50001", "50002"])
         messages = [g["message"] for g in self.c.get("/api/v1/errors").json() if g["logger"] == "woosarr.accounts"]
         self.assertEqual(messages[:2], [
-            "Admin admin moved Plex account bob from mallory (Discord 50002) to Alice (Discord 50001).",
+            "Admin admin added Alice (Discord 50001) to Plex account bob, which is also linked to mallory (Discord 50002).",
             ("mallory (Discord 50002) took over Plex account bob by signing in with Plex. "
              "The unverified link of Alice (Discord 50001) was removed.")])
         # Alerts can be resolved like any other.

@@ -93,9 +93,21 @@ test("manual grant, exemption and unlink with confirmation", async ({ page }) =>
   await expect(page.getByRole("row", { name: /Family Videos/ }).getByText("Exempt", { exact: true })).toBeVisible();
 
   await page.goto("/users");
-  await page.getByRole("row", { name: /alice/ }).getByRole("button", { name: "Unlink" }).click();
+  // A family: Frank shares alice's Plex account, then is removed again.
+  const alice = page.getByRole("row", { name: /alice/ });
+  await alice.getByRole("button", { name: "Add member" }).click();
+  await page.getByLabel("Search Discord members").fill("frank");
+  const addButtons = page.getByRole("dialog").getByRole("button", { name: "Link" });
+  await expect(addButtons).toHaveCount(1);
+  await addButtons.click();
+  await expect(alice.getByText("Shared by 2")).toBeVisible();
+  await alice.getByRole("button", { name: "Unlink Frank from alice" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove member" }).click();
+  await expect(alice.getByText("Shared by 2")).toHaveCount(0);
+
+  await alice.getByRole("button", { name: /^Unlink / }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Unlink" }).click();
-  await expect(page.getByRole("row", { name: /alice/ }).getByText("Not linked")).toBeVisible();
+  await expect(alice.getByText("Not linked")).toBeVisible();
 });
 
 test("reaction post draft with emoji and roles", async ({ page }) => {

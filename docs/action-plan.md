@@ -261,6 +261,8 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P8-04** Dashboard warnings/errors grouped by fingerprint (`services/error_digest.py`), **mark resolved** hides a group for 24 h (`PUT/DELETE /api/v1/errors/{fp}/resolved`, migration 0009, audited); separate WARNING+ ring buffer. *Verify:* `tests/test_dashboard.py`.
 - [x] **P8-05** Live log review 2026-10-18: reaction-post publish 500 (missing channel permissions → pre-check + clear errors), `/link` Plex button "Unknown interaction" (defer before plex.tv), gateway reconnect noise (INFO + 60 s watchdog), 4004 message, Seerr 404 noise. *Verify:* `tests/test_discord_features.py::…publish_refused_up_front…`, `tests/test_discord_events.py::LiveLogFixTests`.
 
+- [x] **P8-09** Retries aren't alerts (alert audit 2026-10-19). Rule: a retry is INFO; only a failure WooSarr has given up on is WARNING/ERROR. Plex retries are all INFO (retry 2/3 used to warn), plus an INFO "gave up after N retries"; the alert is the one `plex: …` ERROR from `_record_error` (required calls) or the caller's log (optional ones). Sync's batch-read "retrying alone" is INFO; a failed retry alone is the `sync failed for user` ERROR. *Verify:* `tests/test_plex_api_gateway.py::PlexApiGatewayTests::test_retries_that_succeed_raise_no_alert`, `…::test_exhausted_retries_are_one_alert`, `tests/test_sync_service.py::SyncWithPlexApiGatewayTests::test_user_whose_batch_read_failed_is_retried_alone`.
+
 ### Phase 9 — Setup assistants
 - [x] **P9-01** Discord wizard on the Setup page. **Live:** bot *WooSarr* connected to *Dave's Plex Chat* (6 roles, 36 members).
 - [x] **P9-02** Plex wizard: sign in → server → read check → write check. **Live:** done on *Bragi*.

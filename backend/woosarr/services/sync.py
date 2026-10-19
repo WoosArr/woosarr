@@ -359,8 +359,9 @@ class SyncService:
                 with self._db.session() as s:
                     for uid, ids in prefetched.items():
                         inventory.store_shares(s, uid, ids)
+                # Not an alert yet: if the read on its own fails too, "sync failed for user" is.
                 for uid, err in read_errors.items():
-                    log.warning("share read failed for user=%s, retrying alone: %s", uid, err)
+                    log.info("share read failed for user=%s, retrying alone: %s", uid, err)
         for uid in targets:
             with self._user_lock(uid):
                 try:

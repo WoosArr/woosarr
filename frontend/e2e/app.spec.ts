@@ -134,6 +134,7 @@ test("reaction post draft with emoji and roles", async ({ page }) => {
   await expect(preview).toContainText("🍿 @Series Fans");
   await expect(dialog.getByText(/\d+ \/ 2000 characters/)).toBeVisible();
   await dialog.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);  // saving closes the editor
   await expect(page.getByRole("heading", { name: "Plex libraries" })).toBeVisible();
   await expect(page.getByText("Draft")).toBeVisible();
   await expect(page.getByText(/Series Fans · 0/)).toBeVisible();

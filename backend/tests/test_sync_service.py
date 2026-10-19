@@ -212,6 +212,10 @@ class SyncWithPlexApiGatewayTests(unittest.TestCase):
     def test_user_whose_batch_read_failed_is_retried_alone(self):
         self.gw._retries = 0
         self.tv.broken_users = {"12"}
-        report = self.svc.run_now(None, "test")
+        with self.assertLogs("woosarr.sync", level="INFO") as cm:
+            report = self.svc.run_now(None, "test")
         self.assertEqual(report.errors, 1)  # 12 still fails on its own retry, and is reported
         self.assertEqual(report.writes, 1)  # 11 was synced regardless
+        # The batch failure is only a note; the failed retry alone is the alert.
+        self.assertTrue(any(line.startswith("INFO") and "retrying alone" in line for line in cm.output))
+        self.assertTrue(any(line.startswith("ERROR") and "sync failed for user=12" in line for line in cm.output))

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
 import { EmojiDisplay, EmojiPicker } from "../EmojiPicker";
 import { useDiscordFeatures } from "../features";
@@ -151,6 +151,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
     }
   };
 
+  const errorRef = useRef<HTMLDivElement>(null);
   const save = async (): Promise<ReactionPostOut | null> => {
     setError(null);
     try {
@@ -159,24 +160,40 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
         : await api.post<ReactionPostOut>("/api/v1/reaction-posts", draft);
     } catch (e) {
       setError(e);
+      // The banner sits above a long form; bring it into view so the problem isn't missed.
+      requestAnimationFrame(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
       return null;
+    }
+  };
+
+  const saveDraft = async () => {
+    setBusy(true);
+    const saved = await save();
+    setBusy(false);
+    if (saved) {
+      toast.ok("Saved.");
+      onSaved();
     }
   };
 
   const saveAndPublish = async () => {
     setBusy(true);
     const saved = await save();
-    if (saved) {
-      try {
-        const out = await api.post<PublishOut>(`/api/v1/reaction-posts/${saved.id}/publish`,
-          { new_channel_name: draft.channel_id ? null : newChannel || null });
-        toast.ok(`Posted in #${out.channel}${out.pinned ? " and pinned" : ""}.`);
-        onSaved();
-      } catch (e) {
-        setError(e);
-      }
+    if (!saved) {
+      setBusy(false);
+      return;  // nothing saved: stay open with the error shown
+    }
+    try {
+      const out = await api.post<PublishOut>(`/api/v1/reaction-posts/${saved.id}/publish`,
+        { new_channel_name: draft.channel_id ? null : newChannel || null });
+      toast.ok(`Posted in #${out.channel}${out.pinned ? " and pinned" : ""}.`);
+    } catch (e) {
+      // The changes are saved either way; say why Discord wasn't updated.
+      toast.error(new Error(`Saved, but ${post?.message_id ? "the Discord post wasn't updated" : "not posted"}: `
+        + (e instanceof Error ? e.message : String(e))));
     }
     setBusy(false);
+    onSaved();
   };
 
   return (
@@ -189,13 +206,13 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
         }}>Delete</button> : null}
         <span style={{ flex: 1 }} />
         <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy} onClick={async () => { if (await save()) { toast.ok("Saved."); onSaved(); } }}>Save draft</button>
+        <button className="btn" disabled={busy} onClick={() => void saveDraft()}>Save draft</button>
         <button className="btn primary" disabled={busy || !available("reaction_posts")} title={why("reaction_posts") ?? undefined}
           onClick={() => void saveAndPublish()}>{post?.message_id ? "Save & update post" : "Save & post"}</button>
       </>
     }>
       <div className="stack">
-        <ErrorBanner error={error} />
+        <div ref={errorRef}><ErrorBanner error={error} /></div>
         <Field label="Name (only shown in WooSarr)"><input type="text" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
         <Field label="Message" hint="The intro members see in Discord. The legend below is added after it.">
           <textarea rows={4} value={draft.content} onChange={(e) => setDraft({ ...draft, content: e.target.value })} maxLength={2000} />

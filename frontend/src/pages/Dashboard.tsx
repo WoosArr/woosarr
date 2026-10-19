@@ -785,13 +785,13 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
     case "libraries": {
       if (need(ins)) return null;
       const libs = (ins!.libraries as { title: string; users: number }[]).slice(0, 8);
-      return { label: "Users with access per library", unit: "users",
+      return { label: "Users with access per library",
         segs: libs.map((l, i) => ({ label: l.title, value: l.users, color: CYCLE[i % CYCLE.length] })) };
     }
     case "roles": {
       if (need(ins)) return null;
       const roles = (ins!.roles as RoleRow[]).slice(0, 8);
-      return { label: "Members per Discord role", unit: "members",
+      return { label: "Members per Discord role", unit: "memberships",
         segs: roles.map((r, i) => ({ label: r.name, value: r.members, color: CYCLE[i % CYCLE.length] })) };
     }
     case "security": {

@@ -44,6 +44,7 @@ const TITLES: Record<WidgetId, string> = {
   stat_roles: "Discord roles",
   stat_requests: "Open requests",
   stat_invites: "Pending invites",
+  stat_invites_accepted: "Invites accepted this week",
   errors: "Warnings and errors",
   last_sync: "Last sync",
   pending: "Pending changes",
@@ -62,7 +63,7 @@ const SIZES: Size[] = ["xs", "s", "m", "l"];
 // Widgets whose data can also be drawn as a circle or bars; the first entry names the usual form.
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
-  stat_requests: "Number", stat_invites: "Number", errors: "List", links: "Stacked bar",
+  stat_requests: "Number", errors: "List", links: "Stacked bar",
   access_chart: "Columns", activity: "List", libraries: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
@@ -271,7 +272,9 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       return <Stat id={id} value={ins ? open : null} sub={ins ? `${ins.requests.last_7d as number} this week` : undefined} to="/requests" />;
     }
     case "stat_invites":
-      return <Stat id={id} value={ins ? (ins.invites.pending as number) : null} sub={ins ? `${ins.invites.accepted_7d as number} accepted this week` : undefined} to="/users" />;
+      return <Stat id={id} value={ins ? (ins.invites.pending as number) : null} to="/users" />;
+    case "stat_invites_accepted":
+      return <Stat id={id} value={ins ? (ins.invites.accepted_7d as number) : null} to="/users" />;
     case "errors":
       return <ErrorsWidget ctx={ctx} />;
     case "last_sync":
@@ -610,7 +613,7 @@ function Invites({ ins }: { ins: Insights | null }) {
         <ul className="dash-list small">
           {v.recent.map((i) => <li key={i.identifier + i.created_at} className="row spread"><span>{i.identifier}</span><span className="muted">{ago(i.created_at)}</span></li>)}
         </ul>
-      ) : <p className="small muted">No pending invites. Members with an allowed role can use <code>/invite</code>.</p>}
+      ) : <p className="small muted">No pending invites.</p>}
     </>
   );
 }
@@ -713,12 +716,6 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       const total = Object.values(by).reduce((a, n) => a + n, 0);
       return { label: "Requests by status", center: String(total), unit: "requests",
         segs: Object.entries(by).map(([k, n]) => ({ label: (REQ_STATE[k] ?? [, k])[1] as string, value: n, color: REQ_COLOR[k] ?? C.muted })) };
-    }
-    case "stat_invites": {
-      if (need(ins)) return null;
-      const v = ins!.invites as { pending: number; accepted_7d: number };
-      return { label: "Plex invites", center: String(v.pending), unit: "pending",
-        segs: [{ label: "Pending", value: v.pending, color: C.warn }, { label: "Accepted this week", value: v.accepted_7d, color: C.ok }] };
     }
     case "errors": {
       if (need(ctx.errors)) return null;

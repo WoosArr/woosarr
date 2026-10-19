@@ -1356,7 +1356,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 18,
+            "maxItems": 19,
             "title": "Widgets",
             "type": "array"
           }
@@ -4014,6 +4014,7 @@
               "stat_roles",
               "stat_requests",
               "stat_invites",
+              "stat_invites_accepted",
               "errors",
               "last_sync",
               "pending",

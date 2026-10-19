@@ -156,7 +156,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(app_settings.AppSettings().request_command_name, "request")
         for ok in ("plexrequest", "req", "woosarr-request", "a_b"):
             self.assertEqual(app_settings.AppSettings(request_command_name=ok).request_command_name, ok)
-        for bad in ("Request", "my request", "/request", "", "x" * 33, "link", "unlink", "invite"):
+        for bad in ("Request", "my request", "/request", "", "x" * 33, "link", "unlink", "invite", "help"):
             with self.assertRaises(ValidationError, msg=bad):
                 app_settings.AppSettings(request_command_name=bad)
 
@@ -387,20 +387,20 @@ class DiscordTests(Base):
         bot = WooSarrBot(self.discord, GUILD)
         with mock.patch.object(bot.tree, "sync", new=mock.AsyncMock()) as sync:
             self.run_async(bot.sync_commands(force=True))
-            self.assertEqual(self.registered(bot), ["invite", "link", "unlink"])  # Seerr not set up yet
+            self.assertEqual(self.registered(bot), ["help", "invite", "link", "unlink"])  # Seerr not set up yet
             self.connect()
             self.run_async(bot.sync_commands())
-            self.assertEqual(self.registered(bot), ["invite", "link", "request", "unlink"])
+            self.assertEqual(self.registered(bot), ["help", "invite", "link", "request", "unlink"])
             calls = sync.await_count
             self.run_async(bot.sync_commands())
             self.assertEqual(sync.await_count, calls)  # unchanged: Discord isn't asked again
             self.settings(request_command_name="plexrequest")
             self.run_async(bot.sync_commands())
-            self.assertEqual(self.registered(bot), ["invite", "link", "plexrequest", "unlink"])
+            self.assertEqual(self.registered(bot), ["help", "invite", "link", "plexrequest", "unlink"])
             self.assertEqual(bot.request_name, "plexrequest")
             self.svc.disconnect()
             self.run_async(bot.sync_commands())
-            self.assertEqual(self.registered(bot), ["invite", "link", "unlink"])
+            self.assertEqual(self.registered(bot), ["help", "invite", "link", "unlink"])
 
     def test_suggestions(self):
         self.connect()

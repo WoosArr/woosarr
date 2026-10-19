@@ -99,6 +99,24 @@ async def list_guilds(token: str) -> list[dict[str, str]]:
     return [{"id": str(g["id"]), "name": g.get("name", "")} for g in guilds]
 
 
+def help_text(request_name: str | None) -> str:
+    """What `/help` answers: every command the bot has registered, with its options."""
+    lines = [
+        "**WooSarr commands**",
+        ("`/link`: link your Discord account to your Plex account. Sign in with Plex (verified) or type your "
+         "Plex username. Once linked, your Discord roles decide which Plex libraries you can see."),
+        "`/unlink`: remove that link. You're asked to confirm first.",
+        ("`/invite email [member]`: send a Plex invite to an email address or Plex username. The libraries come "
+         "from your Discord roles. Needs a role the server admins allow; Discord admins can set `member` to "
+         "invite for someone else."),
+    ]
+    if request_name:
+        lines.append(f"`/{request_name} title`: request a movie or TV show. Start typing and pick one of the "
+                     "suggestions. Needs a linked Plex account.")
+    lines.append("`/help`: show this message.")
+    return "\n".join(lines)
+
+
 def _role(r: discord.Role) -> cache.RoleData:
     return cache.RoleData(str(r.id), r.name, int(r.color.value), int(r.position), bool(r.managed))
 
@@ -142,6 +160,10 @@ class WooSarrBot(discord.Client):
         async def invite(interaction: discord.Interaction, email: str, member: discord.Member | None = None) -> None:
             await self.service.handle_invite_command(interaction, email, member)
 
+        @self.tree.command(name="help", description="Show WooSarr's commands and how to use them", guild=guild)
+        async def help_(interaction: discord.Interaction) -> None:
+            await interaction.response.send_message(help_text(self.request_name), ephemeral=True)
+
     async def setup_hook(self) -> None:
         await self.sync_commands(force=True)
 
@@ -158,7 +180,7 @@ class WooSarrBot(discord.Client):
                 self.tree.add_command(discord_requests.build_command(self.service, want), guild=guild)
             before, self.request_name = self.request_name, want
             await self.tree.sync(guild=guild)
-            names = ["link", "unlink", "invite"] + ([want] if want else [])
+            names = ["link", "unlink", "invite", "help"] + ([want] if want else [])
             log.info("discord commands registered in guild %s: %s%s", self.guild_id,
                      ", ".join(f"/{n}" for n in names),
                      f" (request command was /{before})" if before and before != want else "")

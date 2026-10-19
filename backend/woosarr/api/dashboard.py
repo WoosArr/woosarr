@@ -184,7 +184,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 
 WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
-    "stat_invites", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
+    "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
     "requests", "invites", "setup", "security",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
@@ -198,6 +198,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "requests", "size": "m", "hidden": True}, {"id": "invites", "size": "m", "hidden": True},
     {"id": "setup", "size": "m", "hidden": True}, {"id": "security", "size": "m", "hidden": True},
     {"id": "stat_requests", "size": "s", "hidden": True}, {"id": "stat_invites", "size": "s", "hidden": True},
+    {"id": "stat_invites_accepted", "size": "s", "hidden": True},
 ]
 
 

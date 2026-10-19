@@ -15,7 +15,7 @@ from woosarr.db.models import Setting
 
 KEY = "app"
 # Slash commands WooSarr always registers; the request command can't reuse these names.
-FIXED_COMMANDS = frozenset({"link", "unlink", "invite"})
+FIXED_COMMANDS = frozenset({"link", "unlink", "invite", "help"})
 
 
 class AppSettings(BaseModel):

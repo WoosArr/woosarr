@@ -101,7 +101,20 @@ class DiscordEventTests(unittest.TestCase):
 
     def test_link_command_is_registered_for_the_guild(self):
         cmds = self.bot.tree.get_commands(guild=SimpleNamespace(id=GUILD))
-        self.assertEqual(sorted(c.name for c in cmds), ["invite", "link", "unlink"])
+        self.assertEqual(sorted(c.name for c in cmds), ["help", "invite", "link", "unlink"])
+
+    def test_help_lists_every_command_privately(self):
+        cmd = self.bot.tree.get_command("help", guild=SimpleNamespace(id=GUILD))
+        interaction = SimpleNamespace(response=SimpleNamespace(send_message=mock.AsyncMock()))
+        self.bot.request_name = "plexrequest"
+        asyncio.run(cmd.callback(interaction))
+        text = interaction.response.send_message.await_args.args[0]
+        self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+        for name in ("/link", "/unlink", "/invite email [member]", "/plexrequest title", "/help"):
+            self.assertIn(f"`{name}", text)
+        self.bot.request_name = None  # Seerr not set up: no request command to describe
+        asyncio.run(cmd.callback(interaction))
+        self.assertNotIn("title`", interaction.response.send_message.await_args.args[0])
 
 
 class LiveLogFixTests(unittest.TestCase):

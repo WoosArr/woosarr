@@ -29,6 +29,7 @@ The rules:
 
 ### Discord commands
 
+- `/help`: lists the commands below with their options (only the asker sees it; `/request` appears only when Seerr is set up).
 - `/link`: link your Plex account (Plex sign-in = verified, or typed username).
 - `/unlink`: remove your own link. What happens to access is set under *Settings → When a member unlinks themselves*.
 - `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).

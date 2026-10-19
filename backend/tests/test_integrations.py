@@ -356,6 +356,19 @@ class DiscordServiceTests(Base):
         st = svc.status()
         self.assertFalse(st["configured"])
         self.assertEqual(st["detail"], "Bot token not set")
+        self.assertFalse(st["connecting"])
+
+    def test_status_connecting_until_ready_or_error(self):
+        svc = discord_bot.DiscordService(self.db, self.secrets, lambda *a, **k: None, self.plex)
+        with (
+            mock.patch.object(svc, "_token", return_value="t"),
+            mock.patch.object(svc, "config", return_value=({"application_id": "1"}, {"id": "2", "name": "g"})),
+        ):
+            st = svc.status()
+            self.assertEqual((st["connected"], st["connecting"], st["detail"]), (False, True, "Connecting…"))
+            svc._error = "Discord refused the bot token"
+            st = svc.status()
+            self.assertEqual((st["connected"], st["connecting"]), (False, False))
 
     def test_validate_token_rejects_garbage_without_network(self):
         with self.assertRaises(discord_bot.DiscordConfigError):

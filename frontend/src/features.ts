@@ -5,7 +5,7 @@ import { api, type DiscordStatus } from "./api";
 export function useDiscordFeatures() {
   // undefined while the first check runs, null when the status request failed.
   const [status, setStatus] = useState<DiscordStatus | null | undefined>(undefined);
-  const connecting = !!status && status.configured && !status.connected && status.detail === "Connecting…";
+  const connecting = !!status?.connecting;
   useEffect(() => {
     let live = true;
     const load = () => api.get<DiscordStatus>("/api/v1/discord/status").then((s) => live && setStatus(s), () => live && setStatus(null));

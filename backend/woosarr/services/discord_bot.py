@@ -818,6 +818,8 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         return {
             "configured": bool(has_token and guild),
             "connected": ready,
+            # Set up, no error, not ready yet: the UI shows this as in progress rather than a problem.
+            "connecting": bool(has_token and guild and not self._error and not ready),
             "bot": bot,
             "guild": {"id": guild["id"], "name": self._guild_name or guild.get("name")} if guild else None,
             "invite_url": invite_url(bot["application_id"]) if bot else None,

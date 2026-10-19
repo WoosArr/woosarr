@@ -206,6 +206,7 @@ class FeatureOut(BaseModel):
 class DiscordStatus(BaseModel):
     configured: bool
     connected: bool
+    connecting: bool = False  # set up and starting or reconnecting, no error yet
     bot: dict[str, Any] | None
     guild: dict[str, Any] | None
     invite_url: str | None

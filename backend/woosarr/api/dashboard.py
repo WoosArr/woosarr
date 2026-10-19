@@ -55,7 +55,7 @@ def _groups(db, level: str) -> list[error_digest.Group]:
 
 @router.get("/errors", response_model=list[ErrorGroupOut])
 def list_errors(db: DbDep, level: Annotated[Literal["WARNING", "ERROR"], Query()] = "WARNING") -> list[ErrorGroupOut]:
-    """Warnings/errors of the last 24 h grouped by problem, newest first."""
+    """Alerts: warnings/errors and account-takeover events grouped by problem, newest first."""
     return [ErrorGroupOut(**{k: getattr(g, k) for k in ErrorGroupOut.model_fields}) for g in _groups(db, level)]
 
 
@@ -65,7 +65,7 @@ def resolve_error(fingerprint: Annotated[str, Path(pattern=r"^[0-9a-f]{16}$")], 
     """Hide this problem's occurrences from the dashboard for 24 h."""
     group = next((g for g in _groups(db, "WARNING") if g.fingerprint == fingerprint), None)
     if group is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such warning or error in the last 24 hours")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such alert")
     row = error_digest.resolve(db, group, principal.actor)
     audit.record(db, principal.actor, "error_resolved", "log_group", fingerprint, level=group.level,
                  logger=group.logger, message=group.message[:200], until=row.until.isoformat())

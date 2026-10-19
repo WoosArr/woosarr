@@ -58,13 +58,13 @@ Default: their role-granted libraries are removed; manual grants and exempt libr
 
 The dashboard is made of widgets on an 8-column grid. **Customize** lets each admin move (↑/↓), resize (**eighth**, **quarter**, **half** or **full** width; 4 columns on tablets, 2 on phones) and hide widgets, choose how chartable widgets are drawn (their usual form, a **Circle** or **Bars**), and add hidden ones back from *More widgets*; **Save layout** stores it for your admin account, **Reset to default** brings back WooSarr's layout.
 
-Circle and bar views exist for the number tiles (e.g. Plex users by link status, linked share, libraries by how they're managed, roles that give libraries, requests by status, invites), Warnings and errors (errors / warnings / resolved), Link coverage, Access changes (applied vs planned), Recent activity (by kind), Library access (users per library), Requests and Security. Every chart has a legend with the numbers, and the colours follow the colour-vision palette in Settings → Appearance. Widgets:
+Circle and bar views exist for the number tiles (e.g. Plex users by link status, linked share, libraries by how they're managed, roles that give libraries, requests by status, invites), Alerts (errors / warnings / resolved), Link coverage, Access changes (applied vs planned), Recent activity (by kind), Library access (users per library), Requests and Security. Every chart has a legend with the numbers, and the colours follow the colour-vision palette in Settings → Appearance. Widgets:
 
 | Widget | Shows |
 |--------|-------|
 | Connections | Plex, Discord and Seerr status |
 | Plex users / Linked users / Libraries / Discord roles / Open requests / Pending invites | One number each, linking to its page |
-| Warnings and errors | Last 24 h, grouped by problem (repeats with different ids count once), with **Resolve** |
+| Alerts | Open warnings and errors grouped by problem (repeats with different ids count once), plus **Account** alerts, with **Resolve**. No time limit: an alert stays until resolved |
 | Last sync / Pending changes | The last sync report and what the next one would change |
 | Link coverage | Verified / unverified / unlinked Plex users, and Discord members who haven't linked |
 | Access changes (14 days) | Applied changes per day (and planned ones in dry-run) |
@@ -74,7 +74,12 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Setup checklist | Connections, role mappings, unmanaged libraries, dry-run |
 | Security | Failed sign-ins (24 h), active sessions, API keys |
 
-**Resolve** hides that problem from the dashboard (the banner count and the widget) for 24 hours, including earlier occurrences; it's audited (`error_resolved`) and shared by all admins. If it happens again after the 24 hours, it shows up again. *Show resolved* lists resolved problems with **Unresolve**. The Logs page always shows everything. Warnings and errors are kept in their own in-memory buffer (2,000 entries), so a busy INFO log doesn't push them out before they're seen.
+**Resolve** hides that problem from the dashboard (the banner count and the widget), including earlier occurrences, and keeps hiding new ones for 24 hours; it's audited (`error_resolved`) and shared by all admins. If it happens again after the 24 hours, it shows up again. *Show resolved* lists resolved problems with **Unresolve**. The Logs page always shows everything. Warnings and errors are kept in their own buffer (the latest 2,000), refilled from the log files when the container starts, so a restart or a busy INFO log doesn't hide them.
+
+**Account alerts** come from the audit log, so they survive restarts for as long as audit entries are kept. They name everyone involved:
+- someone tried to link a Plex account that's linked to another member (by typed username or Plex sign-in), refused; repeats by the same member on the same account count as one alert;
+- someone took over an unverified link by signing in with Plex (the other member's link was removed);
+- an admin moved a Plex account's link from one member to another on the Users page.
 
 ## Impact previews
 

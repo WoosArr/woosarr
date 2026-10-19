@@ -5172,7 +5172,7 @@
     },
     "/api/v1/errors": {
       "get": {
-        "description": "Warnings/errors of the last 24 h grouped by problem, newest first.",
+        "description": "Alerts: warnings/errors and account-takeover events grouped by problem, newest first.",
         "operationId": "list_errors_api_v1_errors_get",
         "parameters": [
           {

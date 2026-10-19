@@ -34,6 +34,18 @@ class LoggingTests(unittest.TestCase):
         for h in logs._state.handlers:
             h.flush()
 
+    def test_warnings_survive_a_restart(self):
+        self.log.info("just info")
+        self.log.warning("disk nearly full on %s", "/config")
+        self.log.error("plex unreachable")
+        self._flush()
+        ring = logs.configure_logging(self.settings)  # what a container restart does
+        problems, _ = ring.query(min_level=logging.WARNING)
+        self.assertEqual([e.message for e in problems], ["disk nearly full on /config", "plex unreachable"])
+        self.assertEqual([e.seq for e in problems], [1, 2])
+        self.log.warning("after restart")
+        self.assertEqual(ring.query(min_level=logging.WARNING)[0][-1].seq, 4)  # after the reload notice (INFO)
+
     def test_canary_never_reaches_any_sink(self):
         self.log.info("token is %s", self.secret)
         try:

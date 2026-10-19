@@ -306,7 +306,7 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await page.getByRole("button", { name: "Save layout" }).click();
   await page.reload();
   await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Warnings and errors" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Alerts" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Link coverage" })).toBeVisible();
 });
 

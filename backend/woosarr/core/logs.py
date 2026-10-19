@@ -19,6 +19,7 @@ import logging.handlers
 import threading
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from woosarr.core import redaction
 from woosarr.core.config import Settings
@@ -65,7 +66,8 @@ class RingBufferHandler(logging.Handler):
     """Keeps the most recent records in memory with a monotonically rising seq.
 
     Warnings and errors are also kept in a separate ring, so a busy INFO log
-    can't push them out before the dashboard (last 24 h) has shown them.
+    can't push them out before the dashboard's Alerts have shown them. At startup
+    that ring is refilled from the log files, so alerts survive a restart.
     """
 
     PROBLEMS_CAPACITY = 2000
@@ -76,6 +78,13 @@ class RingBufferHandler(logging.Handler):
         self._problems: collections.deque[LogEntry] = collections.deque(maxlen=self.PROBLEMS_CAPACITY)
         self._seq = 0
         self._entries_lock = threading.Lock()
+
+    def preload(self, entries: list[LogEntry]) -> None:
+        """Earlier warnings/errors (from the log files), oldest first; given fresh seq numbers."""
+        with self._entries_lock:
+            for e in entries[-self.PROBLEMS_CAPACITY:]:
+                self._seq += 1
+                self._problems.append(LogEntry(self._seq, e.ts, e.level, e.logger, e.message, e.exc))
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -145,6 +154,33 @@ def cap_library_loggers() -> None:
         logging.getLogger(name).setLevel(logging.INFO)
 
 
+_PROBLEM_LEVELS = ('"level": "WARNING"', '"level": "ERROR"', '"level": "CRITICAL"')
+
+
+def read_problems(log_file: Path, backups: int) -> list[LogEntry]:
+    """WARNING and up from the JSON log file and its rotated backups, oldest first.
+
+    The files were written through the redacting handlers, so nothing secret is re-read.
+    """
+    out: list[LogEntry] = []
+    files = [log_file.with_name(f"{log_file.name}.{i}") for i in range(backups, 0, -1)] + [log_file]
+    for path in files:
+        try:
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if not any(level in line for level in _PROBLEM_LEVELS):
+                        continue
+                    try:
+                        d = json.loads(line)
+                        out.append(LogEntry(0, str(d["ts"]), str(d["level"]), str(d["logger"]), str(d["message"]),
+                                            d.get("exc")))
+                    except (ValueError, KeyError, TypeError):
+                        continue
+        except OSError:
+            continue
+    return out
+
+
 def configure_logging(settings: Settings) -> RingBufferHandler:
     root = logging.getLogger()
     for handler in _state.handlers:
@@ -168,6 +204,8 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     file_handler.setFormatter(JsonFormatter())
 
     ring = RingBufferHandler(settings.log_buffer_size)
+    earlier = read_problems(settings.log_file, settings.log_file_backups)
+    ring.preload(earlier)
 
     handlers: list[logging.Handler] = [stream, file_handler, ring]
     for handler in handlers:
@@ -185,4 +223,7 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     cap_library_loggers()
     _state.handlers = handlers
     _state.buffer = ring
+    if earlier:
+        logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from the log files for Alerts",
+                                               min(len(earlier), ring.PROBLEMS_CAPACITY))
     return ring

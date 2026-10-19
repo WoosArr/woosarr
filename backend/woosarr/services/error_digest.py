@@ -1,10 +1,17 @@
-"""Recent warnings/errors grouped for the dashboard, with "mark resolved".
+"""Dashboard Alerts: grouped warnings/errors plus account-takeover events.
 
-Log entries come from the in-memory buffer (last 24 h). Repeats of the same
-problem are grouped by a fingerprint: level + logger + the message with
-numbers, ids and quoted values normalised. Resolving a group hides its
-occurrences up to 24 h after the resolve time from the dashboard (the Logs
-page still shows everything); if it happens again after that, it's back.
+Two sources, no time window:
+- Log entries at WARNING and up from the in-memory buffer (refilled from the log
+  files at startup). Repeats of the same problem are grouped by a fingerprint:
+  level + logger + the message with numbers, ids and quoted values normalised.
+- Account alerts from the audit log: someone tried to link a Plex account that is
+  linked to another Discord member, took over an unverified claim by signing in
+  with Plex, or an admin moved a link to a different member. Grouped per kind,
+  Plex account and Discord member.
+
+Resolving a group hides its occurrences up to 24 h after the resolve time from the
+dashboard (the Logs page still shows everything); if it happens again after that,
+it's back. A resolution is kept as long as anything it hides still exists.
 """
 
 from __future__ import annotations
@@ -19,9 +26,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import logs as logcore
-from woosarr.db.models import ErrorResolution, utcnow
+from woosarr.db.models import AuditLog, DiscordMember, ErrorResolution, PlexUser, utcnow
 
-WINDOW = timedelta(hours=24)
 RESOLVE_FOR = timedelta(hours=24)
 
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE)
@@ -68,39 +74,120 @@ def _ts(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
 
+ACCOUNT_LOGGER = "woosarr.accounts"
+_METHOD = {"username": "by typing its username", "oauth": "by signing in with Plex", "invite": "through an invite"}
+
+
+def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
+    """(fingerprint key, ISO timestamp, message) for each account-takeover event in the audit log, oldest first."""
+    rows = session.scalars(select(AuditLog).where(AuditLog.action.in_(("link_failed", "link_self", "link_admin")))
+                           .order_by(AuditLog.ts, AuditLog.id)).all()
+    events = []
+    for row in rows:
+        d = row.details or {}
+        taken = d.get("reason") == "plex_account_taken"
+        # A member who already has a link tried someone else's Plex account.
+        grab = d.get("reason") == "discord_already_linked" and bool(d.get("holder_discord_user_id"))
+        if row.action == "link_failed" and (taken or grab):
+            events.append((row, "attempt"))
+        elif row.action == "link_self" and d.get("outcome") == "replaced":
+            events.append((row, "takeover"))
+        elif (row.action == "link_admin" and d.get("previous_discord_user_id")
+              and d.get("previous_discord_user_id") != d.get("discord_user_id")):
+            events.append((row, "moved"))
+    if not events:
+        return []
+    discord_ids = set()
+    plex_ids = set()
+    for row, _kind in events:
+        d = row.details or {}
+        discord_ids.update(x for x in (row.actor.removeprefix("discord:"), d.get("holder_discord_user_id"),
+                                       d.get("displaced_discord_user_id"), d.get("previous_discord_user_id"),
+                                       d.get("discord_user_id")) if x)
+        plex_ids.update(x for x in (row.target_id, d.get("plex_user_id"), d.get("own_plex_user_id")) if x)
+    members = {m.discord_user_id: m for m in session.scalars(
+        select(DiscordMember).where(DiscordMember.discord_user_id.in_(discord_ids)))}
+    plex = dict(session.execute(select(PlexUser.plex_user_id, PlexUser.username)
+                                .where(PlexUser.plex_user_id.in_(plex_ids))).all())
+
+    def who(discord_id: str | None) -> str:
+        if not discord_id:
+            return "another member"
+        m = members.get(discord_id)
+        name = (m.display_name or m.username) if m else None
+        return f"{name} (Discord {discord_id})" if name else f"Discord member {discord_id}"
+
+    def account(plex_id: str | None) -> str:
+        return f"Plex account {plex.get(plex_id, plex_id or '?')}"
+
+    out = []
+    for row, kind in events:
+        d = row.details or {}
+        ts = row.ts.isoformat(timespec="milliseconds")
+        if kind == "attempt":
+            member = row.actor.removeprefix("discord:")
+            target = d.get("plex_user_id") or row.target_id
+            holder = d.get("holder_discord_user_id")
+            held_by = (f"which is linked to {who(holder)}" + (" (verified)" if d.get("holder_verified") else "")
+                       if holder else "which is linked to another member")
+            how = f" {_METHOD[d['method']]}" if d.get("method") in _METHOD else ""
+            own = f", whose own link is to {account(d['own_plex_user_id'])}," if d.get("own_plex_user_id") else ""
+            msg = f"{who(member)}{own} tried to link {account(target)}{how}, {held_by}. Refused."
+            out.append((f"attempt|{target}|{member}", ts, msg))
+        elif kind == "takeover":
+            member = row.actor.removeprefix("discord:")
+            msg = (f"{who(member)} took over {account(row.target_id)} by signing in with Plex. "
+                   f"The unverified link of {who(d.get('displaced_discord_user_id'))} was removed.")
+            out.append((f"takeover|{row.target_id}|{member}", ts, msg))
+        else:
+            admin = row.actor.removeprefix("admin:")
+            msg = (f"Admin {admin} moved {account(row.target_id)} from {who(d.get('previous_discord_user_id'))} "
+                   f"to {who(d.get('discord_user_id'))}.")
+            out.append((f"moved|{row.target_id}|{d.get('discord_user_id')}", ts, msg))
+    return out
+
+
 def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
-    """Groups seen in the last 24 h, most recent first (resolved ones included, count 0)."""
+    """All alert groups, most recent first (resolved ones included, count 0)."""
     now = utcnow()
-    session.execute(delete(ErrorResolution).where(ErrorResolution.until < now - WINDOW))
     resolutions = {r.fingerprint: r for r in session.scalars(select(ErrorResolution))}
-    entries, _ = logcore.buffer().query(min_level=min_level, limit=100_000)
-    cutoff = now - WINDOW
     out: dict[str, Group] = {}
-    for e in entries:
-        when = _ts(e.ts)
-        if when < cutoff:
-            continue
-        fp = fingerprint(e.level, e.logger, e.message)
+
+    def add(fp: str, level: str, logger: str, message: str, ts: str, exc: str | None = None) -> None:
         g = out.get(fp)
         if g is None:
-            g = out[fp] = Group(fp, "ERROR" if e.level == "CRITICAL" else e.level, e.logger, e.message,
-                                first_ts=e.ts)
-        g.message, g.last_ts = e.message, e.ts
-        g.exc = _exc_summary(e.exc) or g.exc
+            g = out[fp] = Group(fp, level, logger, message, first_ts=ts)
+        g.message, g.last_ts = message, ts
+        g.exc = exc or g.exc
         res = resolutions.get(fp)
-        if res is not None and when <= res.until:
+        if res is not None and _ts(ts) <= res.until:
             g.hidden += 1
         else:
             g.count += 1
+
+    entries, _ = logcore.buffer().query(min_level=min_level, limit=100_000)
+    for e in entries:
+        level = "ERROR" if e.level == "CRITICAL" else e.level
+        add(fingerprint(e.level, e.logger, e.message), level, e.logger, e.message, e.ts, _exc_summary(e.exc))
+    if min_level <= logging.WARNING:
+        for key, ts, message in _account_alerts(session):
+            fp = hashlib.sha256(f"account|{key}".encode()).hexdigest()[:16]
+            add(fp, "WARNING", ACCOUNT_LOGGER, message, ts)
+
     for fp, g in out.items():
         res = resolutions.get(fp)
-        if res is not None and res.until > now:
-            g.resolved_until, g.resolved_by = res.until, res.resolved_by
+        if res is not None:
+            g.resolved_by = res.resolved_by
+            g.resolved_until = res.until
+    # A resolution that has expired and hides nothing that still exists is no longer needed.
+    stale = [fp for fp, r in resolutions.items() if r.until < now and fp not in out]
+    if stale:
+        session.execute(delete(ErrorResolution).where(ErrorResolution.fingerprint.in_(stale)))
     return sorted(out.values(), key=lambda g: g.last_ts, reverse=True)
 
 
 def visible_counts(session: Session) -> tuple[int, int]:
-    """(warnings, errors) in the last 24 h that aren't covered by a resolution."""
+    """(warnings, errors) not covered by a resolution."""
     warnings = errors = 0
     for g in groups(session):
         if g.level == "WARNING":

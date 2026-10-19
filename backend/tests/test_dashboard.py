@@ -75,7 +75,7 @@ class DashboardApiTests(unittest.TestCase):
             s.get(ErrorResolution, fp).until = expired_at
         self.log.error("boom-a while publishing post 100")
         self.assertEqual((self.errors()["boom-a"]["count"], self.errors()["boom-a"]["hidden"]), (1, 4))
-        self.assertIsNone(self.errors()["boom-a"]["resolved_until"])
+        self.assertEqual(self.errors()["boom-a"]["resolved_by"], "admin:admin")  # still says who resolved the older ones
 
         self.assertEqual(self.c.delete(f"/api/v1/errors/{fp}/resolved").status_code, 204)
         self.assertEqual(self.errors()["boom-a"]["count"], 5)
@@ -138,6 +138,40 @@ class DashboardApiTests(unittest.TestCase):
         self.assertFalse(d["requests"]["configured"])
         self.assertEqual([(r["name"], r["members"], r["linked"], r["libraries"]) for r in d["roles"]],
                          [("Movies", 2, 1, 1), ("Fans", 1, 0, 0)])  # bot-managed role left out
+
+    def test_account_takeover_alerts(self):
+        from woosarr.core import app_settings
+        from woosarr.linking import PlexIdentity
+        from woosarr.services import link_service
+        db = self.h.app.state.db
+        with db.session() as s:
+            s.add_all([PlexUser(plex_user_id="11", username="bob"),
+                       DiscordMember(discord_user_id="50001", username="alice", display_name="Alice"),
+                       DiscordMember(discord_user_id="50002", username="mallory")])
+            app_settings.update(s, {"link_cooldown_seconds": 0})
+        with db.session() as s:
+            self.assertTrue(link_service.link_by_username(s, "50001", "bob").ok)
+        with db.session() as s:
+            self.assertFalse(link_service.link_by_username(s, "50002", "bob").ok)  # alice holds it
+        with db.session() as s:
+            self.assertFalse(link_service.link_by_username(s, "50002", "bob").ok)  # again: same group
+        alerts = [g for g in self.c.get("/api/v1/errors").json() if g["logger"] == "woosarr.accounts"]
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual((alerts[0]["count"], alerts[0]["level"]), (2, "WARNING"))
+        self.assertEqual(alerts[0]["message"], "mallory (Discord 50002) tried to link Plex account bob by typing its "
+                                               "username, which is linked to Alice (Discord 50001). Refused.")
+        with db.session() as s:  # signing in with Plex beats alice's typed claim
+            self.assertTrue(link_service.link_by_identity(s, "50002", PlexIdentity("11", "bob")).ok)
+        r = self.c.put("/api/v1/users/11/link", json={"discord_user_id": "50001"})  # admin moves it back
+        self.assertEqual(r.status_code, 200, r.text)
+        messages = [g["message"] for g in self.c.get("/api/v1/errors").json() if g["logger"] == "woosarr.accounts"]
+        self.assertEqual(messages[:2], [
+            "Admin admin moved Plex account bob from mallory (Discord 50002) to Alice (Discord 50001).",
+            ("mallory (Discord 50002) took over Plex account bob by signing in with Plex. "
+             "The unverified link of Alice (Discord 50001) was removed.")])
+        # Alerts can be resolved like any other.
+        fp = next(g["fingerprint"] for g in self.c.get("/api/v1/errors").json() if "tried to link" in g["message"])
+        self.assertEqual(self.c.put(f"/api/v1/errors/{fp}/resolved").json()["count"], 0)
 
     def test_layout_per_admin_with_defaults(self):
         r = self.c.get("/api/v1/dashboard/layout").json()

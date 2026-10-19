@@ -308,8 +308,8 @@ class MediaRequest(Base):
 
 
 class ErrorResolution(Base):
-    """An admin marked a group of recent warnings/errors resolved: the dashboard
-    hides its occurrences until `until` (resolve time + 24 h)."""
+    """An admin marked an alert group resolved: the dashboard hides its
+    occurrences until `until` (resolve time + 24 h)."""
 
     __tablename__ = "error_resolutions"
     fingerprint: Mapped[str] = mapped_column(String(16), primary_key=True)

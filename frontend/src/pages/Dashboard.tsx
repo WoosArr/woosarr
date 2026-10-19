@@ -45,7 +45,7 @@ const TITLES: Record<WidgetId, string> = {
   stat_requests: "Open requests",
   stat_invites: "Pending invites",
   stat_invites_accepted: "Invites accepted this week",
-  errors: "Warnings and errors",
+  errors: "Alerts",
   last_sync: "Last sync",
   pending: "Pending changes",
   links: "Link coverage",
@@ -163,7 +163,7 @@ export default function DashboardPage() {
         <div className="banner danger" role="alert">
           <Icon name="alert" />
           <div>
-            {data.recent_errors} unresolved error{data.recent_errors === 1 ? "" : "s"} in the last 24 hours. <Link to="/logs?level=ERROR">View logs</Link>
+            {data.recent_errors} unresolved error{data.recent_errors === 1 ? "" : "s"}. <Link to="/logs?level=ERROR">View logs</Link>
           </div>
         </div>
       ) : null}
@@ -330,6 +330,9 @@ function Loading({ ins }: { ins: Insights | null }) {
   return ins ? null : <Spinner />;
 }
 
+// Account-takeover alerts come from the audit log, not the app log.
+const ACCOUNT_LOGGER = "woosarr.accounts";
+
 function ErrorsWidget({ ctx }: { ctx: Ctx }) {
   const toast = useToast();
   const [showResolved, setShowResolved] = useState(false);
@@ -350,17 +353,17 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
     <>
       <Title id="errors"><Link to="/logs?level=WARNING" className="small">All logs →</Link></Title>
       {!ctx.errors ? <Spinner /> : open.length === 0 ? (
-        <p className="dash-ok small"><Icon name="check" size={16} /> No open warnings or errors in the last 24 hours{resolved.length ? " (apart from resolved ones)" : ""}.</p>
+        <p className="dash-ok small"><Icon name="check" size={16} /> No open alerts{resolved.length ? " (apart from resolved ones)" : ""}.</p>
       ) : (
         <ul className="dash-list">
           {open.slice(0, 8).map((g) => (
             <li key={g.fingerprint}>
               <div className="row" style={{ alignItems: "flex-start" }}>
-                <Badge tone={g.level === "ERROR" ? "danger" : "warn"}>{g.level === "ERROR" ? "Error" : "Warning"}</Badge>
+                <Badge tone={g.level === "ERROR" ? "danger" : "warn"}>{g.logger === ACCOUNT_LOGGER ? "Account" : g.level === "ERROR" ? "Error" : "Warning"}</Badge>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="dash-msg">{g.message}</div>
                   <div className="small muted">
-                    {g.count}× · last {ago(g.last_ts)} · <code>{g.logger}</code>{g.exc ? <> · {g.exc}</> : null}
+                    {g.count}× · last {ago(g.last_ts)} · {g.logger === ACCOUNT_LOGGER ? <Link to="/logs?tab=audit">audit log</Link> : <code>{g.logger}</code>}{g.exc ? <> · {g.exc}</> : null}
                   </div>
                 </div>
                 <button className="btn sm" onClick={() => void act(g, true)} aria-label={`Mark resolved: ${g.message.slice(0, 80)}`}>Resolve</button>
@@ -381,7 +384,7 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
                 <li key={g.fingerprint} className="row">
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="dash-msg muted">{g.message}</div>
-                    <div className="small muted">Resolved by {g.resolved_by?.replace(/^admin:/, "")}; hidden until {new Date(g.resolved_until!).toLocaleString()}</div>
+                    <div className="small muted">Resolved by {g.resolved_by?.replace(/^admin:/, "")}{new Date(g.resolved_until!) > new Date() ? `; hidden until ${new Date(g.resolved_until!).toLocaleString()}` : ""}</div>
                   </div>
                   <button className="btn ghost sm" onClick={() => void act(g, false)}>Unresolve</button>
                 </li>
@@ -756,7 +759,7 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       const sum = (f: (x: ErrorGroup) => boolean, k: "count" | "hidden") => g.filter(f).reduce((a, x) => a + x[k], 0);
       const errors = sum((x) => x.level === "ERROR", "count");
       const warnings = sum((x) => x.level === "WARNING", "count");
-      return { label: "Warnings and errors in the last 24 hours", center: String(errors + warnings), unit: "open",
+      return { label: "Open alerts", center: String(errors + warnings), unit: "open",
         segs: [{ label: "Errors", value: errors, color: C.danger }, { label: "Warnings", value: warnings, color: C.warn },
           { label: "Resolved", value: g.reduce((a, x) => a + x.hidden, 0), color: C.muted }] };
     }

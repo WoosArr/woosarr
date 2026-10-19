@@ -64,14 +64,18 @@ def _apply(session: Session, discord_user_id: str, plex: PlexUser, method: Metho
     by_discord = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
     decision = decide_link(plex.plex_user_id, discord_user_id, method, _as_link(by_plex), _as_link(by_discord))
     actor = f"discord:{discord_user_id}"
+    # Who holds the Plex account now (if not this member): the dashboard's Alerts name them.
+    holder = by_plex.discord_user_id if by_plex is not None and by_plex.discord_user_id != discord_user_id else None
     if decision.outcome == Outcome.DISCORD_ALREADY_LINKED:
         return _fail(session, discord_user_id, "discord_already_linked",
                      "Your Discord account is already linked to another Plex account. Ask an admin to unlink it first.",
-                     plex_user_id=plex.plex_user_id)
+                     plex_user_id=plex.plex_user_id, method=method.value, holder_discord_user_id=holder,
+                     own_plex_user_id=by_discord.plex_user_id if by_discord else None)
     if decision.outcome == Outcome.PLEX_ACCOUNT_TAKEN:
         return _fail(session, discord_user_id, "plex_account_taken",
                      "That Plex account is already linked to someone else. Sign in with Plex to prove it's yours, "
-                     "or ask an admin.", plex_user_id=plex.plex_user_id)
+                     "or ask an admin.", plex_user_id=plex.plex_user_id, method=method.value,
+                     holder_discord_user_id=holder, holder_verified=bool(by_plex and by_plex.verified))
     if decision.outcome == Outcome.UNCHANGED:
         audit.record(session, actor, "link_self", "plex_user", plex.plex_user_id, outcome="unchanged", method=method.value)
         return LinkResult(True, f"You're already linked to **{plex.username}**.", plex.plex_user_id)

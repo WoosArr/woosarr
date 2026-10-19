@@ -120,21 +120,79 @@ function AppLog({ initialLevel }: { initialLevel: string | null }) {
   );
 }
 
+// Every action the backend audits (tests/test_audit_labels.py keeps this list complete).
 const ACTION_LABEL: Record<string, string> = {
   access_changed: "Access changed",
   access_planned: "Access change (dry run)",
   access_skipped: "Change skipped",
+  access_removed_admin: "Libraries removed by admin",
+  access_restored_admin: "Libraries restored by admin",
   role_mapping_changed: "Role mapping changed",
+  role_removed: "Deleted role removed",
   manual_grant_add: "Manual grant added",
   manual_grant_remove: "Manual grant removed",
+  manual_grant_kept: "Libraries kept as manual grants",
   library_exempt: "Library exempted",
   library_unexempt: "Library managed again",
+  link_self: "Linked (by member)",
+  link_failed: "Link refused",
   link_admin: "Linked by admin",
+  unlink_self: "Unlinked (by member)",
   unlink_admin: "Unlinked by admin",
+  invite_sent: "Plex invite sent",
+  invite_failed: "Plex invite refused",
+  invite_accepted: "Plex invite accepted",
+  invite_cancelled: "Plex invite cancelled",
+  reaction_post_created: "Reaction post created",
+  reaction_post_updated: "Reaction post updated",
+  reaction_post_updated_text: "Reaction post text updated",
+  reaction_post_published: "Reaction post published",
+  reaction_post_deleted: "Reaction post deleted",
+  reaction_added: "Reaction added",
+  reaction_removed: "Reaction removed",
+  request_created: "Request made",
+  request_denied: "Request refused",
+  request_failed: "Request failed",
+  request_status: "Request status changed",
   settings_changed: "Settings changed",
+  error_resolved: "Alert resolved",
+  error_unresolved: "Alert unresolved",
+  plex_signed_in: "Plex signed in",
+  plex_server_selected: "Plex server chosen",
+  plex_disconnected: "Plex disconnected",
+  plex_write_check: "Plex sharing check",
+  discord_token_set: "Discord bot token set",
+  discord_guild_selected: "Discord server chosen",
+  discord_disconnected: "Discord disconnected",
+  discord_role_created: "Discord role created",
+  discord_avatar_set: "Bot avatar changed",
+  discord_avatar_failed: "Bot avatar change failed",
+  seerr_connected: "Seerr connected",
+  seerr_disconnected: "Seerr disconnected",
+  first_admin_created: "First admin created",
+  admin_created: "Admin created",
+  admin_created_sso: "Admin created (SSO)",
+  admin_deleted: "Admin deleted",
+  admin_disabled: "Admin disabled",
+  admin_enabled: "Admin enabled",
+  admin_password_reset: "Admin password reset",
+  admin_unlocked: "Admin unlocked",
+  password_changed: "Password changed",
+  api_key_created: "API key created",
+  api_key_revoked: "API key revoked",
+  sso_provider_created: "SSO provider added",
+  sso_provider_updated: "SSO provider updated",
+  sso_provider_deleted: "SSO provider deleted",
+  sso_test: "SSO test sign-in",
   login: "Signed in",
   login_failed: "Failed sign-in",
+  logout: "Signed out",
 };
+
+/** A readable name for an audited action, even one added after this list. */
+function actionLabel(action: string): string {
+  return ACTION_LABEL[action] ?? action.charAt(0).toUpperCase() + action.slice(1).replace(/_/g, " ");
+}
 
 function AuditTrail() {
   const [entries, setEntries] = useState<AuditOut[]>([]);
@@ -188,7 +246,7 @@ function AuditTrail() {
                   <td className="small" style={{ whiteSpace: "nowrap" }}>{fmtTime(a.ts)}</td>
                   <td className="small">{a.actor}</td>
                   <td>
-                    {ACTION_LABEL[a.action] ?? a.action}
+                    {actionLabel(a.action)}
                     {a.dry_run ? <> <Badge tone="warn" icon="eye">dry run</Badge></> : null}
                   </td>
                   <td className="small">{a.target_type ? `${a.target_type}:${a.target_id}` : "—"}</td>

@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>
+**WooSarr** grants and removes Plex library access based on Discord roles.
+
+Map each Discord role to Plex libraries; linked members get the union of their roles' libraries, and losing a role only removes a library if nothing else keeps it. Members link their Plex account themselves in Discord (`/link`, verified by signing in with Plex), and families can share one Plex account. WooSarr starts in dry-run, shows the impact of every change before it's made, and keeps an audit trail. The Discord bot also offers `/invite`, reaction posts that give roles, and `/request` for movies and shows through Seerr.
+
+One container, web UI on port 31337. Setup and documentation: https://github.com/WoosArr/woosarr. Questions and bugs: https://github.com/WoosArr/woosarr/issues.
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png</Icon>
+  <WebPage>https://github.com/WoosArr/woosarr</WebPage>
+  <Photo>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png</Photo>
+</CommunityApplications>

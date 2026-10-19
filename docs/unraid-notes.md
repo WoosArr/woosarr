@@ -31,12 +31,22 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 1. Copy `unraid/woosarr.xml` to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml` on the Unraid box.
 2. Docker tab → Add Container → choose the *woosarr* template → Apply.
 
-## CA submission (P12-04)
+## Community Applications (P12-06)
 
-CA reads templates from a public GitHub repo registered with the CA maintainers (support thread on the Unraid forum). Needs: public image, icon URL that resolves, `Support` link (GitHub issues), and an `Overview`.
+Submissions go through https://ca.unraid.net/submit (docs and a video walkthrough there). Requirements and where WooSarr stands:
 
-## Still to verify on a real box (P2-03, P11-06, HUMAN)
+| Requirement | WooSarr |
+|-------------|---------|
+| Public, active GitHub repo with an OSI-approved licence | `WoosArr/woosarr`, MIT |
+| `ca_profile.xml` in the repo root with a non-empty `<Profile>` | `ca_profile.xml` (overview, icon, web page, a photo) |
+| One XML per Docker app, `<Repository>` pointing at a valid image, readable `<Name>` and `<Overview>` | `unraid/woosarr.xml` → `ghcr.io/woosarr/woosarr:latest` (public) |
+| `<Support>` or `<Project>` | both (GitHub issues, repo) |
+| `<TemplateURL>` = raw URL of that exact file | yes |
+| Optional: icon, screenshots, `Requires`, `ReadMe`, `License`, search terms | all set; screenshots are `docs/images/*.png` (demo data, `make screenshots`) |
 
-- Install from the template, WebUI link opens the app.
-- `/config` ownership with PUID 99 / PGID 100 on an array share.
-- Update (pull new image) and restart keep settings and secrets (confirmed on a real box by repeated updates; a fresh install from the template is still to do).
+To submit: open https://ca.unraid.net/submit/new, enter the repository, run **Validate** and **Scan** (they parse the XML, read `ca_profile.xml` and check for duplicates), fix anything flagged (the category string is the likeliest; valid strings come from the *Application Categorizer* plugin in Apps), then submit. Approved apps appear after the next catalog build. An Unraid forum support thread is optional; if you open one, point `<Support>` in the template and `<Forum>` in `ca_profile.xml` at it.
+
+## Verified on a real box
+
+- Install from the template; the WebUI link opens the app (2026-10-19).
+- Update (pull new image) and restart keep settings and secrets.

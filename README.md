@@ -18,7 +18,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template.
 
-> **Status:** in use on a real Plex server and Discord server. Still to do: a fresh install from the Unraid template and the Community Applications listing. See [docs/action-plan.md](docs/action-plan.md).
+> **Status:** in use on a real Plex server and Discord server; installing from the Unraid template works. Still to do: the Community Applications listing (until then, install from the template as below). See [docs/action-plan.md](docs/action-plan.md).
 
 ## Screenshots
 

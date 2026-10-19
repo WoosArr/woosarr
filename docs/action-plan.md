@@ -22,6 +22,7 @@
 - **CI/CD:** `docker-publish.yml` calls `ci.yml` (ruff, pytest, vitest, frontend build, gitleaks), then builds `linux/amd64`, **smoke-tests the image** (`scripts/smoke-test.sh`: health, Docker healthy, `/config` persistence across restart, `docker stop` < 10 s) and only then pushes to GHCR. Gated runs green through `d68c5e8`, including the image smoke test; that image is published as `latest`. No Docker on the dev Mac, so the image is only exercised in CI.
 - **Diagnostics:** nobody has shell access to the deployed server (D16, http://10.0.1.101:31337). Logs come from `GET /api/v1/logs` (since/level/q/limit) and `GET /api/v1/logs/file`, which need an admin session or a `read` API key (`Authorization: Bearer wsk_…`). Claude reads the key from `~/.config/woosarr/api-key` and never prints it.
 - **Live (http://10.0.1.101:31337):** admin set up; Plex signed in (*Bragi*, 15 libraries, 63 users); Discord bot connected (*Dave's Plex Chat*); write check passed; still in dry-run with no role mappings or links yet. Remaining live checks: a real `/link` (P0-07, P4-04) and going live with mappings (P11-04).
+- **Unraid:** installing from `unraid/woosarr.xml` works (2026-10-19); Community Apps submission pending (P12-06).
 - **Live server:** in use (role mappings, links, reaction posts, Seerr requests). Features since: shared Plex accounts (P4-15), Alerts with account events (P8-07/08), Settings → Linking (P7-13). Docs and screenshots refreshed 2026-10-19 (P12-05).
 - **First thing to do in a fresh session:** `make install && make check`, and `gh run list --workflow "Docker publish" --limit 3`; fix anything red before new work.
 
@@ -156,7 +157,7 @@ remove_all       = target empty and current non-empty                # use the r
 | Discord application/bot + test guild | Bot token entered via Setup → Discord | P4-04 (live), P9-01, P11-04 |
 | ~~SAML IdP~~ | deferred (D7a) | — |
 | GitHub settings | Package visibility (public), Actions permissions, branch protection | P2-06 |
-| Unraid box | Template install test | P2-03, P11-06 |
+| Unraid box | Template install test (done), Community Apps submission | P2-03, P11-06, P12-06 |
 
 ## 9. Tasks
 
@@ -183,7 +184,7 @@ remove_all       = target empty and current non-empty                # use the r
 ### Phase 2 — Container and CI/CD
 - [x] **P2-01** Dockerfile + entrypoint (PUID/PGID, gosu, healthcheck on `WOOSARR_PORT`, `CMD python -m woosarr`). `scripts/smoke-test.sh` green in CI (`d68c5e8`): health, healthy status, `/config` persistence across restart, graceful SIGTERM. *Verify:* smoke-test step in `docker-publish.yml`.
 - [x] **P2-02** Healthcheck + graceful shutdown (uvicorn `timeout_graceful_shutdown=5`; `docker stop` ~1 s in CI). *Verify:* Docker healthy; `docker stop` exits < 10 s.
-- [~] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`. Done: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. *Remaining:* test install on an Unraid box.
+- [x] **P2-03** **HUMAN** Unraid template `unraid/woosarr.xml`: icon (`unraid/icon.png`), `WoosArr` owner URLs, `TemplateURL`, port 31337, `WOOSARR_LOG_LEVEL` option. **Live:** a server created from the template works (2026-10-19).
 - [x] **P2-04** Workflows: CI + gated publish + image smoke test + secret scan; `v0.1.0` tag published `0.1.0`, `0.1` and `latest` (2026-10-17). *Verify:* `gh run list`; `docker pull ghcr.io/woosarr/woosarr:0.1.0`.
 - [x] **P2-05** `linux/arm64` re-enabled (QEMU; UI stage runs on `$BUILDPLATFORM`). The early "ARM" failures were really the `python-plexapi` PyPI name. First multi-arch publish green (`e09ed1c`). *Verify:* `docker buildx imagetools inspect ghcr.io/woosarr/woosarr:latest` lists amd64 + arm64.
 - [x] **P2-06** GHCR package is public (anonymous manifest fetch → 200); README documents `docker run` and Unraid install.
@@ -285,14 +286,15 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P11-03** Playwright: `app` project (demo backend; every page, flows, axe, mobile) and `wizards` project (real app + fake plex.tv/Discord via `backend/tests/e2e_wizard_server.py`: Plex sign-in popup, server pick, read/write checks; Discord bad/good token, invite, server pick, axe). 11 tests, stable over repeated runs.
 - [ ] **P11-04** **HUMAN** Live test on a real Plex test server + Discord guild; verify N3–N6.
 - [~] **P11-05** Contrast checked for every theme combination; axe (WCAG 2.1 AA, serious/critical) runs on 10 pages × light/dark in Playwright and passes (fixed: tab ARIA, keyboard-focusable scroll regions, field hints). *Remaining:* **HUMAN** screen-reader pass.
-- [~] **P11-06** **Live evidence:** the container was updated several times on the Unraid host with admin, sessions, secrets and settings kept (`/config` persistence). *Remaining:* **HUMAN** fresh install from the template.
+- [x] **P11-06** **Live evidence:** the container was updated several times on the Unraid host with admin, sessions, secrets and settings kept (`/config` persistence), and a fresh install from the template works (2026-10-19).
 
 ### Phase 12 — Docs and release
 - [x] **P12-01** README: install (Unraid, Docker), first-run walkthrough with setup code, HTTPS, troubleshooting, backups, FAQ.
 - [x] **P12-02** `docs/admin-guide.md`: sync rules, triggers, leave policy, verified links, dry-run, troubleshooting, admins, env vars.
 - [x] **P12-03** Backup/restore and master key in `docs/admin-guide.md`; startup survives an unreadable secret (logs an error, admin re-enters it). *Verify:* `tests/test_recovery.py`.
-- [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` released (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (HUMAN, forum).
+- [~] **P12-04** `CHANGELOG.md` written; `v0.1.0` released (P2-04). *Remaining:* v1.0 after P11-04 live verification; Community Apps submission (P12-06).
 - [x] **P12-05** Docs refresh (2026-10-19): README (features, screenshots, docs index, FAQ for families/alerts/reaction posts), admin guide (shared accounts, alerts, widgets, env vars, screenshots), discord-notes (`/help`, linking rules for shared accounts, invite link per feature), requests, threat model (shared accounts, username-link roles), Unraid notes, CHANGELOG Unreleased regrouped. `make screenshots` (`frontend/playwright.screenshots.config.ts`, `e2e/screenshots.shots.ts`) renders `docs/images/*.png` from the demo backend with seeded fake data; live-server names/IPs removed from user docs, UI placeholder and tests. Found and fixed: `type="url"` inputs unstyled; deleted-role cleanup missed `username_link_role_ids`; Integrations command list lacked `/help`. *Verify:* `make check`, `make e2e`, `make screenshots`.
+- [~] **P12-06** **HUMAN** Community Applications listing. Done: `ca_profile.xml` in the repo root (required by https://ca.unraid.net/submit), template enriched (overview, `Requires`, `ReadMe`, `License`, `ExtraSearchTerms`, screenshots, category `MediaApp:Other Tools:Utilities`); repo is public with an MIT licence; GHCR image public (P2-06). *Remaining:* the maintainer runs **Validate** and **Scan** at https://ca.unraid.net/submit/new for `WoosArr/woosarr` (fix whatever they flag, e.g. the category), submits, and the app appears after the next catalog build. Optional: an Unraid forum support thread (then point `<Support>` and `ca_profile.xml` `<Forum>` at it). *Verify:* the app shows in Apps on an Unraid box.
 
 ### Phase 13 — Requests
 - [~] **P13-01** Seerr requests (D22): client `services/seerr.py` (strict query encoding, request-as-user, import from Plex), `services/media_requests.py` (Plex-id → email → username mapping, role/verified gating, submit, 5-min status poll + DMs), Discord flow `services/discord_requests.py` (autocomplete within 3 s, pick menu, details card, season select), command registered under `request_command_name` (default `request`; re-registered on rename or Seerr connect/disconnect), API `api/requests_api.py`, migration 0007, Setup card, Settings → Requests, Requests page, `docs/requests.md`. *Verify:* `pytest tests/test_requests.py` (fake Seerr from Seerr's source), Playwright `request command name…` + axe on the new pages. *Remaining:* **LIVE** connect a real Seerr, request from Discord, see it in Seerr under the member, get the DM.

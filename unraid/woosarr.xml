@@ -9,11 +9,20 @@
   <Support>https://github.com/WoosArr/woosarr/issues</Support>
   <Project>https://github.com/WoosArr/woosarr</Project>
   <TemplateURL>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/woosarr.xml</TemplateURL>
-  <Overview>Automatically grants and removes Plex library access based on Discord roles. Additive role grants, per-library exemptions, manual overrides, and a web UI on port 31337.</Overview>
-  <Category>MediaApp:Other Tools:</Category>
+  <ReadMe>https://raw.githubusercontent.com/WoosArr/woosarr/main/README.md</ReadMe>
+  <Overview>Grants and removes Plex library access based on Discord roles. Map each Discord role to Plex libraries; linked members get every library their roles give, and losing a role only removes a library if nothing else keeps it. Members link their own Plex account with the Discord bot (/link, verified by signing in with Plex); families can share one Plex account. Per-library exemptions, manual grants, impact previews, dry-run until you turn it off, and a full audit trail. The bot also sends Plex invites (/invite), runs reaction posts that give roles, and takes movie and TV requests through Seerr (/request). Web UI on port 31337 with alerts, logs and optional single sign-on.</Overview>
+  <Requires>A Plex server you own (WooSarr signs in as the owner) and a Discord bot application with the Server Members Intent turned on. Seerr is optional (for /request).</Requires>
+  <ExtraSearchTerms>plex discord roles libraries sharing access bot seerr overseerr jellyseerr invite</ExtraSearchTerms>
+  <License>MIT</License>
+  <Category>MediaApp:Other Tools:Utilities</Category>
   <WebUI>http://[IP]:[PORT:31337]/</WebUI>
   <Icon>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png</Icon>
   <ExtraParams>--health-start-period=20s</ExtraParams>
+  <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/reaction-post-editor.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/settings-linking.png</Screenshot>
   <Config Name="WebUI Port" Target="31337" Default="31337" Mode="tcp" Description="Web interface port" Type="Port" Display="always" Required="true" Mask="false">31337</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/woosarr" Mode="rw" Description="Database, logs and encrypted secrets. Back this up." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/woosarr</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User id for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>

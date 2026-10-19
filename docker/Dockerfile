@@ -27,10 +27,15 @@ RUN apt-get update \
     && useradd -u 99 -g 99 -d /app -s /usr/sbin/nologin woosarr
 
 WORKDIR /app
-COPY backend/pyproject.toml backend/constraints.txt ./
+# Dependencies first, in their own layer: constraints.txt is exactly the pinned runtime
+# set (P10-05, `make lock`), so this layer stays cached until a dependency changes. Code
+# changes then rebuild only the small layer below, which matters most for the arm64 image
+# (built under QEMU, where installing every dependency takes minutes).
+COPY backend/constraints.txt ./
+RUN pip install --no-cache-dir -r constraints.txt
+COPY backend/pyproject.toml ./
 COPY backend/woosarr ./woosarr
-# Pinned versions (P10-05); see `make lock`.
-RUN pip install --no-cache-dir -c constraints.txt .
+RUN pip install --no-cache-dir --no-deps . && pip check
 
 COPY --from=ui /ui/dist ./static
 COPY docker/entrypoint.sh /entrypoint.sh

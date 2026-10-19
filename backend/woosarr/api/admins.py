@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from woosarr.api.auth import admin_out
@@ -42,7 +42,7 @@ def _guard_last_admin(db, user: AdminUser) -> None:
 
 @router.get("", response_model=list[AdminOut])
 def list_admins(db: DbDep) -> list[AdminOut]:
-    return [admin_out(u) for u in db.scalars(select(AdminUser).order_by(AdminUser.username))]
+    return [admin_out(u) for u in db.scalars(select(AdminUser).order_by(func.lower(AdminUser.username), AdminUser.username))]
 
 
 @router.post("", response_model=AdminOut, status_code=201)

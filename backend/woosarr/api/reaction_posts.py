@@ -109,7 +109,7 @@ def _validate(db, body: ReactionPostIn) -> list[dict]:
     unknown = sorted(wanted - set(roles))
     if unknown:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown Discord roles: {unknown}")
-    unusable = sorted(r.name for r in roles.values() if r.managed or r.deleted)
+    unusable = sorted((r.name for r in roles.values() if r.managed or r.deleted), key=str.lower)
     if unusable:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             f"these roles can't be given by a bot: {unusable}")

@@ -15,7 +15,7 @@ import getpass
 import secrets
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from woosarr.core import auth
 from woosarr.core.config import Settings
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
     db = _db(settings or Settings())
     with db.session() as s:
         if args.cmd == "list":
-            for u in s.scalars(select(AdminUser).order_by(AdminUser.username)):
+            for u in s.scalars(select(AdminUser).order_by(func.lower(AdminUser.username), AdminUser.username)):
                 state = "active" if u.is_active else "disabled"
                 locked = " locked" if u.locked_until and u.locked_until > auth.utcnow() else ""
                 print(f"{u.username}\t{u.auth_source}\t{state}{locked}")

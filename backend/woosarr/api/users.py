@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
@@ -69,7 +69,7 @@ def _users(db, only: str | None = None) -> list[UserOut]:
     snap = load_snapshot(db)
     roles = {r.role_id: r for r in db.scalars(select(DiscordRole))}
     titles = dict(db.execute(select(Library.library_id, Library.title)).all())
-    stmt = select(PlexUser).order_by(PlexUser.username)
+    stmt = select(PlexUser).order_by(func.lower(PlexUser.username), PlexUser.username)
     if only:
         stmt = stmt.where(PlexUser.plex_user_id == only)
     out = []
@@ -356,7 +356,7 @@ class MemberOut(BaseModel):
 @router.get("/discord/members", response_model=list[MemberOut])
 def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] = None, limit: int = 50) -> list[MemberOut]:
     links = dict(db.execute(select(DiscordLink.discord_user_id, DiscordLink.plex_user_id)).all())
-    stmt = select(DiscordMember).order_by(DiscordMember.username).limit(min(max(limit, 1), 200))
+    stmt = select(DiscordMember).order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200))
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(

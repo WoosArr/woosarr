@@ -142,7 +142,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     libraries = sorted(({"library_id": lib.library_id, "title": lib.title, "type": lib.type,
                          "users": shared.get(lib.library_id, 0), "exempt": lib.is_exempt,
                          "managed": lib.library_id in mapped_libs} for lib in libs),
-                       key=lambda x: (-x["users"], x["title"]))
+                       key=lambda x: (-x["users"], x["title"].lower(), x["title"]))
 
     pending = db.scalars(select(PlexInvite).where(PlexInvite.status == "pending")
                          .order_by(PlexInvite.created_at.desc())).all()

@@ -64,7 +64,7 @@ class PublicProvider(BaseModel):
 
 @public.get("/providers", response_model=list[PublicProvider])
 def enabled_providers(db: DbDep) -> list[PublicProvider]:
-    rows = db.scalars(select(OidcProvider).where(OidcProvider.enabled.is_(True)).order_by(OidcProvider.name))
+    rows = db.scalars(select(OidcProvider).where(OidcProvider.enabled.is_(True)).order_by(func.lower(OidcProvider.name), OidcProvider.name))
     return [PublicProvider(slug=p.slug, name=p.name, kind=p.kind) for p in rows]
 
 
@@ -347,7 +347,7 @@ def _apply(request: Request, db, p: OidcProvider, body: ProviderIn, creating: bo
 
 @admin.get("/providers", response_model=list[ProviderOut])
 def list_providers(request: Request, db: DbDep) -> list[ProviderOut]:
-    return [_out(request, db, p) for p in db.scalars(select(OidcProvider).order_by(OidcProvider.name))]
+    return [_out(request, db, p) for p in db.scalars(select(OidcProvider).order_by(func.lower(OidcProvider.name), OidcProvider.name))]
 
 
 @admin.post("/providers", response_model=ProviderOut, status_code=201)

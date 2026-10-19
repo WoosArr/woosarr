@@ -44,7 +44,7 @@ def _all(db) -> list[LibraryOut]:
         LibraryOut(library_id=lib.library_id, title=lib.title, type=lib.type, is_exempt=lib.is_exempt,
                    removed=lib.removed, roles=sorted(by_lib.get(lib.library_id, []), key=lambda r: r.name.lower()),
                    shared_with=shared.get(lib.library_id, 0))
-        for lib in db.scalars(select(Library).order_by(Library.title))
+        for lib in db.scalars(select(Library).order_by(func.lower(Library.title), Library.title))
     ]
 
 

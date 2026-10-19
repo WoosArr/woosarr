@@ -44,6 +44,19 @@ class DomainApiTests(unittest.TestCase):
         unlinked = self.c.get("/api/v1/users", params={"link": "unlinked"}).json()
         self.assertEqual(len(unlinked), 5)
 
+    def test_lists_sort_case_insensitively(self):
+        from woosarr.db.models import Library, PlexUser
+        with self.h.app.state.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="2001", username="Zed"), PlexUser(plex_user_id="2002", username="adam"),
+                       PlexUser(plex_user_id="2003", username="Bea"),
+                       Library(library_id="91", title="anime", type="show"), Library(library_id="92", title="Zoo", type="movie")])
+        names = [u["username"] for u in self.c.get("/api/v1/users").json()]
+        self.assertEqual(names, sorted(names, key=str.lower))
+        self.assertLess(names.index("adam"), names.index("Bea"))
+        titles = [lib["title"] for lib in self.c.get("/api/v1/libraries").json()]
+        self.assertEqual(titles, sorted(titles, key=str.lower))
+        self.assertLess(titles.index("anime"), titles.index("Zoo"))
+
     def test_role_mapping_preview_and_audit(self):
         self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
         self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50002"})

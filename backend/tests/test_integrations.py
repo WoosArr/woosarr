@@ -242,6 +242,22 @@ class LinkServiceTests(Base):
         self.assertFalse(r.ok)
         self.assertIn("doesn't have access", r.message)
 
+    def test_username_link_limited_to_roles(self):
+        with self.db.session() as s:
+            s.add_all([DiscordMember(discord_user_id="d1", username="a", role_ids=["r-trusted"]),
+                       DiscordMember(discord_user_id="d2", username="b", role_ids=["r-other"])])
+            app_settings.update(s, {"username_link_all_members": False, "username_link_role_ids": ["r-trusted"]})
+        self.assertTrue(self.link(link_service.username_link_allowed, "d1"))
+        self.assertFalse(self.link(link_service.username_link_allowed, "d2"))
+        self.assertFalse(self.link(link_service.username_link_allowed, "d3"))  # not in the member cache
+        self.assertTrue(self.link(link_service.link_by_username, "d1", "alice").ok)
+        refused = self.link(link_service.link_by_username, "d2", "bob")
+        self.assertFalse(refused.ok)
+        self.assertIn("Sign in with Plex", refused.message)
+        # Plex sign-in (verified) is never limited.
+        self.assertTrue(self.link(link_service.link_by_identity, "d2", PlexIdentity("12", "bob")).ok)
+        self.assertEqual(self.links(), {("11", "d1", False), ("12", "d2", True)})
+
     def test_cooldown_and_audit(self):
         with self.db.session() as s:
             app_settings.update(s, {"link_cooldown_seconds": 300})

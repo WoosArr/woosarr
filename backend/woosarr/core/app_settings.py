@@ -39,6 +39,9 @@ class AppSettings(BaseModel):
     linked_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     # R4: optionally treat username-only (unverified) links as not linked.
     ignore_unverified_links: bool = False
+    # Who may /link by typing a Plex username (unverified). Plex sign-in is always offered.
+    username_link_all_members: bool = True
+    username_link_role_ids: list[str] = Field(default_factory=list, max_length=50)
     link_cooldown_seconds: int = Field(300, ge=0, le=86400)
     # None = use WOOSARR_LOG_LEVEL.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None

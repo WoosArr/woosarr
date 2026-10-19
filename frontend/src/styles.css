@@ -198,6 +198,14 @@ code, .mono { font-family: var(--mono); font-size: 0.875em; }
 .muted { color: var(--text-muted); }
 .small { font-size: 0.85rem; }
 .stack > * + * { margin-top: 12px; }
+/* Settings cards: each setting in its own band, divided by a rule. */
+:where(fieldset.plain) { border: 0; padding: 0; margin: 0; min-width: 0; }
+.settings > * + * { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+.settings > label.switch { display: flex; }
+/* A floated legend sits inside the fieldset, so the divider runs above it, not through it. */
+fieldset.plain > legend { float: left; width: 100%; padding: 0; margin-bottom: 4px; }
+fieldset.plain > legend + * { clear: both; }
+.settings .stack > * + * { margin-top: 10px; }
 .banner {
   display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: var(--radius);
   border: 1px solid currentColor; margin-bottom: 16px;

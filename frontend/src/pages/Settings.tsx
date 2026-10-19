@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings, type LibraryOut, type RoleOut } from "../api";
 import { useAuth } from "../auth";
@@ -12,12 +12,15 @@ import { ImpactList, type UserChange } from "../Impact";
 
 const TABS = [
   ["general", "General"],
+  ["linking", "Linking"],
+  ["invites", "Invites"],
   ["requests", "Requests"],
   ["appearance", "Appearance"],
   ["account", "My account"],
   ["admins", "Admins"],
   ["sso", "Single sign-on"],
   ["keys", "API keys"],
+  ["logging", "Logging"],
 ] as const;
 
 export default function SettingsPage() {
@@ -32,12 +35,15 @@ export default function SettingsPage() {
         ))}
       </div>
       {tab === "general" ? <General /> : null}
+      {tab === "linking" ? <Linking /> : null}
+      {tab === "invites" ? <Invites /> : null}
       {tab === "requests" ? <RequestSettings /> : null}
       {tab === "appearance" ? <Appearance /> : null}
       {tab === "account" ? <Account /> : null}
       {tab === "admins" ? <Admins /> : null}
       {tab === "sso" ? <SsoSettings /> : null}
       {tab === "keys" ? <ApiKeys /> : null}
+      {tab === "logging" ? <Logging /> : null}
     </>
   );
 }
@@ -50,13 +56,66 @@ interface SettingsImpact {
   users: UserChange[];
 }
 
-function General() {
+/** Loads the app settings and keeps unsaved changes; each settings tab edits its own fields. */
+function useSettingsDraft() {
   const s = useLoad(() => api.get<AppSettings>("/api/v1/settings"));
-  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
-  const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const [draft, setDraft] = useState<Partial<AppSettings>>({});
+  const toast = useToast();
+  const v = (s.data ? { ...s.data, ...draft } : null) as AppSettings | null;
+  const set = (p: Partial<AppSettings>) => setDraft({ ...draft, ...p });
+  const save = async () => {
+    try {
+      s.setData(await api.patch<AppSettings>("/api/v1/settings", draft));
+      setDraft({});
+      toast.ok("Settings saved.");
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  return { s, v, draft, set, save, discard: () => setDraft({}), dirty: Object.keys(draft).length > 0 };
+}
+
+function SaveRow({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => void; onDiscard: () => void }) {
+  return (
+    <div className="row">
+      <button className="btn primary" disabled={!dirty} onClick={onSave}>Save</button>
+      <button className="btn" disabled={!dirty} onClick={onDiscard}>Discard</button>
+    </div>
+  );
+}
+
+function RolePicker({ legend, hint, all, allHint, roles, value, onAll, onChange }: {
+  legend: ReactNode; hint: ReactNode; all: boolean; allHint: string; roles: RoleOut[]; value: string[];
+  onAll: (x: boolean) => void; onChange: (ids: string[]) => void;
+}) {
+  return (
+    <fieldset className="plain">
+      <legend className="small" style={{ fontWeight: 600 }}>{legend}</legend>
+      <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>{hint}</span>
+      <label className="check" style={{ marginBottom: 6 }}>
+        <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
+        <span><strong>All members</strong> <span className="muted small">— {allHint}</span></span>
+      </label>
+      <div className="chooser" style={all ? { opacity: 0.5 } : undefined} aria-disabled={all}>
+        {roles.filter((r) => !r.managed && !r.deleted).map((r) => {
+          const on = value.includes(r.role_id);
+          return (
+            <label key={r.role_id} className="check">
+              <input type="checkbox" checked={on} onChange={() => onChange(on ? value.filter((x) => x !== r.role_id) : [...value, r.role_id])} />
+              <span>{r.name}</span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function General() {
+  const f = useSettingsDraft();
+  const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const [impact, setImpact] = useState<SettingsImpact | null>(null);
-  const accessDraft = Object.fromEntries(Object.entries(draft).filter(([k]) => (ACCESS_SETTINGS as readonly string[]).includes(k)));
+  const accessDraft = Object.fromEntries(Object.entries(f.draft).filter(([k]) => (ACCESS_SETTINGS as readonly string[]).includes(k)));
   const accessKey = JSON.stringify(accessDraft);
   useEffect(() => {
     if (accessKey === "{}") {
@@ -70,16 +129,14 @@ function General() {
     return () => { live = false; clearTimeout(t); };
   }, [accessKey]);
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
-  const toast = useToast();
   const confirm = useConfirm();
-  if (s.error) return <ErrorBanner error={s.error} />;
-  if (!s.data) return <Spinner />;
-  const v = { ...s.data, ...draft } as AppSettings;
-  const dirty = Object.keys(draft).length > 0;
-  const set = (p: Partial<AppSettings>) => setDraft({ ...draft, ...p });
+  if (f.s.error) return <ErrorBanner error={f.s.error} />;
+  const v = f.v;
+  if (!v) return <Spinner />;
+  const set = f.set;
 
   const save = async () => {
-    if (draft.dry_run === false && s.data!.dry_run) {
+    if (f.draft.dry_run === false && f.s.data!.dry_run) {
       const ok = await confirm({
         title: "Turn off dry-run?",
         body: (
@@ -94,17 +151,11 @@ function General() {
       });
       if (!ok) return;
     }
-    try {
-      s.setData(await api.patch<AppSettings>("/api/v1/settings", draft));
-      setDraft({});
-      toast.ok("Settings saved.");
-    } catch (e) {
-      toast.error(e);
-    }
+    await f.save();
   };
 
   return (
-    <div className="card stack" style={{ maxWidth: 720 }}>
+    <div className="card settings" style={{ maxWidth: 720 }}>
       <Switch checked={v.dry_run} onChange={(x) => set({ dry_run: x })} label={<><strong>Dry-run</strong> <span className="muted small">— log and audit intended changes without touching Plex</span></>} />
       <Field label="Full reconcile every (minutes)" hint="Discord events trigger syncs right away; the reconcile catches anything missed. 5–1440.">
         <input type="number" min={5} max={1440} value={v.reconcile_interval_minutes} onChange={(e) => set({ reconcile_interval_minutes: Number(e.target.value) })} style={{ maxWidth: 160 }} />
@@ -123,57 +174,80 @@ function General() {
           <option value="keep_all">Leave their access as it is</option>
         </select>
       </label>
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-        <legend className="small" style={{ fontWeight: 600 }}>Roles allowed to <code>/invite</code> themselves</legend>
-        <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
-          Members with one of these roles can invite their own Plex account; their roles decide the libraries.
-          Discord admins (Manage Server) can always invite for any member. None selected = admins only.
-        </span>
-        <label className="check" style={{ marginBottom: 6 }}>
-          <input type="checkbox" checked={!!v.invite_all_members} onChange={(e) => set({ invite_all_members: e.target.checked })} />
-          <span><strong>All members</strong> <span className="muted small">— anyone in the Discord server</span></span>
-        </label>
-        <div className="chooser" style={v.invite_all_members ? { opacity: 0.5 } : undefined} aria-disabled={!!v.invite_all_members}>
-          {(roles.data ?? []).filter((r) => !r.managed && !r.deleted).map((r) => {
-            const current = v.invite_role_ids ?? [];
-            const on = current.includes(r.role_id);
-            return (
-              <label key={r.role_id} className="check">
-                <input type="checkbox" checked={on} onChange={() => set({ invite_role_ids: on ? current.filter((x) => x !== r.role_id) : [...current, r.role_id] })} />
-                <span>{r.name}</span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
-      <LinkRoles roles={roles.data ?? []} value={v} set={set} onCreated={() => void roles.reload()} />
       <Switch checked={v.ignore_unverified_links} onChange={(x) => set({ ignore_unverified_links: x })} label={<><strong>Ignore unverified links</strong> <span className="muted small">— only manage users who proved their Plex account</span></>} />
-      <label className="field">
-        <code>/link</code> cooldown (seconds)
-        <input type="number" min={0} max={86400} value={v.link_cooldown_seconds} onChange={(e) => set({ link_cooldown_seconds: Number(e.target.value) })} style={{ maxWidth: 160 }} />
-      </label>
-      <Field label="Log level" hint="DEBUG shows every Plex/Discord call. Applies immediately.">
-        <select value={v.log_level ?? ""} onChange={(e) => set({ log_level: (e.target.value || null) as AppSettings["log_level"] })} style={{ maxWidth: 220 }}>
-          <option value="">Default (container setting)</option>
-          {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-      </Field>
-      <label className="field">
-        Keep audit entries for (days)
-        <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
-      </label>
       {accessKey !== "{}" ? (
-        <div className="card" style={{ boxShadow: "none" }} aria-live="polite">
+        <div className="card flat" aria-live="polite">
           <h3>Impact of these changes</h3>
           {!impact ? <Spinner label="Calculating" /> : (
             <ImpactList titles={titles} changes={impact.users} empty="No linked user's access changes." />
           )}
         </div>
       ) : null}
-      <div className="row">
-        <button className="btn primary" disabled={!dirty} onClick={() => void save()}>Save</button>
-        <button className="btn" disabled={!dirty} onClick={() => setDraft({})}>Discard</button>
-      </div>
+      <SaveRow dirty={f.dirty} onSave={() => void save()} onDiscard={f.discard} />
+    </div>
+  );
+}
+
+function Linking() {
+  const f = useSettingsDraft();
+  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
+  if (f.s.error) return <ErrorBanner error={f.s.error} />;
+  const v = f.v;
+  if (!v) return <Spinner />;
+  return (
+    <div className="card settings" style={{ maxWidth: 720 }}>
+      <RolePicker
+        legend={<>Who may link by typing a Plex username (unverified)</>}
+        hint={<>Members without one of these roles only see <strong>Sign in with Plex</strong> in <code>/link</code>, which verifies their account. None selected = nobody can link by username.</>}
+        all={v.username_link_all_members ?? true} allHint="anyone in the Discord server" roles={roles.data ?? []}
+        value={v.username_link_role_ids ?? []}
+        onAll={(x) => f.set({ username_link_all_members: x })} onChange={(ids) => f.set({ username_link_role_ids: ids })} />
+      <Field label={<><code>/link</code> cooldown (seconds)</>} hint="How long a member waits between link attempts. 0 = no wait.">
+        <input type="number" min={0} max={86400} value={v.link_cooldown_seconds} onChange={(e) => f.set({ link_cooldown_seconds: Number(e.target.value) })} style={{ maxWidth: 160 }} />
+      </Field>
+      <LinkRoles roles={roles.data ?? []} value={v} set={f.set} onCreated={() => void roles.reload()} />
+      <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
+    </div>
+  );
+}
+
+function Invites() {
+  const f = useSettingsDraft();
+  const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
+  if (f.s.error) return <ErrorBanner error={f.s.error} />;
+  const v = f.v;
+  if (!v) return <Spinner />;
+  return (
+    <div className="card settings" style={{ maxWidth: 720 }}>
+      <RolePicker
+        legend={<>Roles allowed to <code>/invite</code> themselves</>}
+        hint={<>Members with one of these roles can invite their own Plex account; their roles decide the libraries.
+          Discord admins (Manage Server) can always invite for any member. None selected = admins only.</>}
+        all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
+        value={v.invite_role_ids ?? []}
+        onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
+      <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
+    </div>
+  );
+}
+
+function Logging() {
+  const f = useSettingsDraft();
+  if (f.s.error) return <ErrorBanner error={f.s.error} />;
+  const v = f.v;
+  if (!v) return <Spinner />;
+  return (
+    <div className="card settings" style={{ maxWidth: 720 }}>
+      <Field label="Log level" hint="DEBUG shows every Plex/Discord call. Applies immediately.">
+        <select value={v.log_level ?? ""} onChange={(e) => f.set({ log_level: (e.target.value || null) as AppSettings["log_level"] })} style={{ maxWidth: 220 }}>
+          <option value="">Default (container setting)</option>
+          {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+      </Field>
+      <Field label="Keep audit entries for (days)" hint="Older audit entries are deleted. 7–3650.">
+        <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => f.set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
+      </Field>
+      <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
     </div>
   );
 }
@@ -187,14 +261,14 @@ function Appearance() {
     ["blueyellow", "Blue-yellow friendly", "Teal / magenta (tritanopia)"],
   ];
   return (
-    <div className="card stack" style={{ maxWidth: 720 }}>
+    <div className="card settings" style={{ maxWidth: 720 }}>
       <div>
         <h3>Theme</h3>
         <div className="segmented" role="group" aria-label="Theme">
           {modes.map(([m, label]) => <button key={m} aria-pressed={prefs.mode === m} onClick={() => setPrefs({ mode: m })}>{label}</button>)}
         </div>
       </div>
-      <fieldset style={{ border: 0, padding: 0 }}>
+      <fieldset className="plain">
         <legend><h3>Colour vision</h3></legend>
         {palettes.map(([p, label, hint]) => (
           <label key={p} className="check" style={{ marginBottom: 6 }}>
@@ -448,7 +522,7 @@ function LinkRoles({ roles, value, set, onCreated }: {
   const assignBlocked = why("link_roles");
   const createBlocked = why("create_roles");
   return (
-    <fieldset style={{ border: 0, padding: 0, margin: 0 }} className="stack">
+    <fieldset className="plain stack">
       <legend className="small" style={{ fontWeight: 600 }}>Discord roles for Plex link status</legend>
       <span className="small muted">The bot gives and removes these roles to match each member's link. Leave on "Off" to skip.</span>
       {assignBlocked && (value.verified_role_id || value.unverified_role_id || value.linked_role_id) ? (

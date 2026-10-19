@@ -287,9 +287,11 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
 
 
 class _LinkView(discord.ui.View):
-    def __init__(self, service: DiscordService) -> None:
+    def __init__(self, service: DiscordService, allow_username: bool = True) -> None:
         super().__init__(timeout=300)
         self.service = service
+        if not allow_username:
+            self.remove_item(self.by_username)
 
     @discord.ui.button(label="Enter Plex username", style=discord.ButtonStyle.secondary)
     async def by_username(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
@@ -1019,13 +1021,20 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         if wait:
             await interaction.response.send_message(f"Please wait {wait} s before trying to link again.", ephemeral=True)
             return
-        await interaction.response.send_message(
-            "Link your Plex account so your roles give you the right libraries.\n"
-            "• **Sign in with Plex**: verified. WooSarr only reads your Plex username, then signs that sign-in out.\n"
-            "• **Enter Plex username**: quicker, but unverified.",
-            view=_LinkView(self),
-            ephemeral=True,
-        )
+        member = interaction.user
+
+        def allowed() -> bool:
+            with self._db.session() as s:
+                if isinstance(member, discord.Member):  # the cache may not have the member's latest roles yet
+                    cache.member_changed(s, _member(member))
+                return link_service.username_link_allowed(s, str(member.id))
+
+        by_username = await asyncio.to_thread(allowed)
+        text = ("Link your Plex account so your roles give you the right libraries.\n"
+                "• **Sign in with Plex**: verified. WooSarr only reads your Plex username, then signs that sign-in out.")
+        if by_username:
+            text += "\n• **Enter Plex username**: quicker, but unverified."
+        await interaction.response.send_message(text, view=_LinkView(self, by_username), ephemeral=True)
 
     async def start_oauth_link(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)

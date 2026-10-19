@@ -446,6 +446,19 @@
             ],
             "title": "Unverified Role Id"
           },
+          "username_link_all_members": {
+            "default": true,
+            "title": "Username Link All Members",
+            "type": "boolean"
+          },
+          "username_link_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Username Link Role Ids",
+            "type": "array"
+          },
           "verified_role_id": {
             "anyOf": [
               {

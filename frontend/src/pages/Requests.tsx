@@ -198,7 +198,7 @@ function SeerrForm({ current, onDone, onCancel }: { current: SeerrStatus; onDone
 // ---------------------------------------------------------------- Settings tab
 
 const NAME = /^[a-z0-9_-]{1,32}$/;
-const RESERVED = ["link", "unlink", "invite"];
+const RESERVED = ["link", "unlink", "invite", "help"];
 
 export function RequestSettings() {
   const s = useLoad(() => api.get<AppSettings>("/api/v1/settings"));
@@ -239,15 +239,15 @@ export function RequestSettings() {
   };
   const current = v.request_role_ids ?? [];
   return (
-    <div className="card stack" style={{ maxWidth: 720 }}>
+    <div className="card settings" style={{ maxWidth: 720 }}>
       <p className="small muted" style={{ margin: 0 }}>
         Requests need Seerr on the <Link to="/setup">Integrations</Link> page. Seerr's own permissions, quotas and
         auto-approval still apply to every request; these settings decide who may use the command at all.
       </p>
       <Field label="Command name" hint={<>Without the slash. Change it if another bot in your server already has <code>/request</code>. Members type <code>/{name || "…"}</code>.</>} error={nameError ?? undefined}>
-        <input value={name} onChange={(e) => set({ request_command_name: e.target.value.trim().toLowerCase() })} maxLength={32} spellCheck={false} style={{ maxWidth: 240 }} />
+        <input type="text" value={name} onChange={(e) => set({ request_command_name: e.target.value.trim().toLowerCase() })} maxLength={32} spellCheck={false} style={{ maxWidth: 240 }} />
       </Field>
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+      <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Who may request</legend>
         <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
           Only members with a linked Plex account can request, so every request belongs to their Seerr user.
@@ -269,7 +269,7 @@ export function RequestSettings() {
           })}
         </div>
       </fieldset>
-      <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+      <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Visibility</legend>
         <label className="check" style={{ marginBottom: 6 }}>
           <input type="radio" name="request-visibility" checked={!isPublic} onChange={() => set({ request_visibility: "private" })} />

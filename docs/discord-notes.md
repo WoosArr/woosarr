@@ -52,7 +52,7 @@ Rules (`services/link_service.py`, `linking.decide_link`): one Plex ↔ one Disc
 
 ## `/unlink`
 
-Ephemeral confirmation (Unlink / Cancel). Effect follows **Settings → When a member unlinks themselves**:
+Ephemeral confirmation (Unlink / Cancel). Effect follows **Settings → General → When a member unlinks themselves**:
 
 - *Remove role-granted libraries* (default): a one-user sync with no roles runs first (manual grants and exempt libraries stay; dry-run respected), then the link is deleted, inside the same sync lock so no queued sync can re-grant in between.
 - *Leave their access as it is*: the link is deleted; WooSarr stops managing the account.
@@ -61,14 +61,14 @@ Audited as `unlink_self` (with the policy).
 
 ## `/invite email [member]`
 
-- Members holding a role in **Settings → Roles allowed to /invite** may invite **themselves**. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
+- Members holding a role in **Settings → Invites → Roles allowed to /invite** may invite **themselves**. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
 - Libraries = what the target member's roles grant (exempt libraries are never granted by roles). No libraries → refused.
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
 - Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, a full sync finds them by email/username and links them (`method=invite`; verified when an admin sent it). Pending invites are listed on the Users page.
 
 ## Link-status roles
 
-*Settings → General → Discord roles for Plex link status*: pick (or **Create**) a role for **Verified**, **Unverified** and/or **Linked** members. After every sync the bot compares each member's roles with their link and only changes what differs (it never touches other roles). Bots are skipped. Needs *Link-status roles* (Manage Roles + role hierarchy).
+*Settings → Linking → Discord roles for Plex link status*: pick (or **Create**) a role for **Verified**, **Unverified** and/or **Linked** members. After every sync the bot compares each member's roles with their link and only changes what differs (it never touches other roles). Bots are skipped. Needs *Link-status roles* (Manage Roles + role hierarchy).
 
 These roles can themselves be mapped to libraries on the Roles page, e.g. give every verified member a library.
 

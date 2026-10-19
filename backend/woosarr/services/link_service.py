@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import app_settings
-from woosarr.db.models import AuditLog, DiscordLink, PlexUser, utcnow
+from woosarr.db.models import AuditLog, DiscordLink, DiscordMember, PlexUser, utcnow
 from woosarr.linking import Link, Method, Outcome, PlexIdentity, decide_link
 from woosarr.services import audit
 
@@ -97,8 +97,20 @@ def _known_plex_users(session: Session) -> int:
     return session.scalar(select(func.count()).select_from(PlexUser).where(PlexUser.removed.is_(False))) or 0
 
 
+def username_link_allowed(session: Session, discord_user_id: str) -> bool:
+    """Whether this member may link by typed username (settings: everyone, or members of chosen roles)."""
+    st = app_settings.load(session)
+    if st.username_link_all_members:
+        return True
+    member = session.get(DiscordMember, discord_user_id)
+    return bool(member and member.in_guild and set(st.username_link_role_ids) & set(member.role_ids or ()))
+
+
 def link_by_username(session: Session, discord_user_id: str, text: str) -> LinkResult:
     """Unverified: the member typed a Plex username or email."""
+    if not username_link_allowed(session, discord_user_id):
+        return _fail(session, discord_user_id, "username_link_not_allowed",
+                     "Your roles don't allow linking by username. Use **Sign in with Plex** in `/link` instead.")
     claim = text.strip()
     if not claim or len(claim) > 255:
         return _fail(session, discord_user_id, "bad_input", "Please enter your Plex username or email.")

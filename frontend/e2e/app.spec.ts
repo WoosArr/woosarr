@@ -192,6 +192,23 @@ test("theme, colour-vision palette and API key", async ({ page }) => {
   expect(res.status()).toBe(200);
 });
 
+test("settings tabs: username linking limited to a role", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings?tab=linking");
+  const picker = page.getByRole("group", { name: /link by typing a Plex username/ });
+  await picker.getByRole("checkbox", { name: /All members/ }).uncheck();
+  await picker.getByRole("checkbox").nth(1).check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  const saved = await (await page.request.get("/api/v1/settings")).json();
+  expect(saved.username_link_all_members).toBe(false);
+  expect(saved.username_link_role_ids).toHaveLength(1);
+  await page.getByRole("tab", { name: "Logging" }).click();
+  await expect(page.getByLabel("Log level")).toBeVisible();
+  await page.getByRole("tab", { name: "Invites" }).click();
+  await expect(page.getByRole("group", { name: /allowed to \/invite/ })).toBeVisible();
+});
+
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {
   await login(page);
   await page.goto("/settings");
@@ -211,7 +228,7 @@ test("no serious accessibility violations on any page (light and dark)", async (
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=invites", "/settings?tab=logging", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");

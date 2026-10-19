@@ -1,0 +1,113 @@
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+// Documentation screenshots (docs/images). Everything shown comes from the demo
+// backend (WOOSARR_DEMO: fake Plex server and Discord guild) plus the fake data
+// seeded below through the API. Run with `make screenshots`.
+
+const OUT = "../docs/images";
+const PASSWORD = "shots-" + "long-password-1";
+
+async function setupAdmin(page: Page) {
+  await page.goto("/");
+  await page.getByLabel("Username").fill("admin");
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByLabel("Confirm password").fill(PASSWORD);
+  await page.getByRole("button", { name: /create admin/i }).click();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  // The startup sync loads the demo inventory about a second after boot.
+  await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible({ timeout: 20_000 });
+}
+
+async function client(page: Page): Promise<(method: string, path: string, data?: unknown) => Promise<unknown>> {
+  const status = await (await page.request.get("/api/v1/auth/status")).json();
+  const headers = { "X-CSRF-Token": status.csrf_token as string };
+  const req: APIRequestContext = page.request;
+  return async (method, path, data) => {
+    const r = await req.fetch(path, { method, data, headers });
+    expect(r.ok(), `${method} ${path}: ${r.status()} ${await r.text()}`).toBeTruthy();
+    return r.status() === 204 ? null : r.json();
+  };
+}
+
+async function seed(api: Awaited<ReturnType<typeof client>>) {
+  // The demo's own startup notices aren't interesting in a screenshot; resolve them.
+  for (const g of (await api("GET", "/api/v1/errors")) as { fingerprint: string; logger: string }[]) {
+    if (g.logger !== "woosarr.accounts") await api("PUT", `/api/v1/errors/${g.fingerprint}/resolved`);
+  }
+  // Role → library mappings (demo roles 9001-9005, libraries 1-6).
+  for (const [role, libs] of [["9001", ["1", "4"]], ["9002", ["2"]], ["9003", ["3"]], ["9004", ["4", "5"]]] as const) {
+    await api("PUT", `/api/v1/roles/${role}/libraries`, { library_ids: libs });
+  }
+  await api("PATCH", "/api/v1/libraries/6", { is_exempt: true }); // Family Videos
+  // Links: alice and bob on their own accounts, carol's account shared by a family (Carol + Frank).
+  for (const [plex, discord] of [["1001", "50001"], ["1002", "50002"], ["1003", "50003"], ["1003", "50005"]]) {
+    await api("PUT", `/api/v1/users/${plex}/link`, { discord_user_id: discord });
+  }
+  await api("POST", "/api/v1/reaction-posts", {
+    title: "Library roles",
+    content: "React below to pick the Plex libraries you'd like. Remove your reaction to give one back.",
+    pin: true,
+    options: [
+      { emoji: "🎬", role_id: "9001" },
+      { emoji: "📺", role_id: "9002" },
+      { emoji: "🍙", role_id: "9003" },
+    ],
+    legend: true,
+    legend_template: "{emoji} {role} — {libraries}",
+    legend_header: "**Pick your libraries:**",
+  });
+  await api("POST", "/api/v1/sync", {});
+}
+
+async function shot(page: Page, name: string, opts: { fullPage?: boolean } = {}) {
+  await page.waitForTimeout(700); // charts and polled data settle
+  await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: opts.fullPage ?? false });
+}
+
+async function theme(page: Page, mode: "light" | "dark") {
+  await page.evaluate((m) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode: m, palette: "default", highContrast: false })), mode);
+}
+
+test("documentation screenshots", async ({ page }) => {
+  await setupAdmin(page);
+  const api = await client(page);
+  await seed(api);
+  await page.waitForTimeout(2500); // the queued sync runs
+
+  await page.setViewportSize({ width: 1440, height: 1640 }); // the whole default dashboard
+  for (const mode of ["dark", "light"] as const) {
+    await theme(page, mode);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Library access" })).toBeVisible();
+    await shot(page, `dashboard-${mode}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.goto("/users");
+  await expect(page.getByText("Shared by 2")).toBeVisible();
+  await shot(page, "users");
+
+  await page.goto("/roles");
+  await shot(page, "roles");
+
+  await page.goto("/libraries");
+  await shot(page, "libraries");
+
+  await page.goto("/reactions");
+  await page.getByRole("button", { name: "Edit" }).first().click();
+  const preview = page.getByLabel("Message preview");
+  await expect(preview).toContainText("Pick your libraries");
+  await preview.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await page.getByRole("dialog").screenshot({ path: `${OUT}/reaction-post-editor.png` });
+  await page.keyboard.press("Escape");
+
+  await page.goto("/settings?tab=linking");
+  await shot(page, "settings-linking");
+
+  await page.goto("/setup");
+  await shot(page, "integrations");
+
+  await page.goto("/logs?tab=audit");
+  await shot(page, "audit-trail");
+});

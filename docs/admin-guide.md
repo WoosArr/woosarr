@@ -6,6 +6,8 @@ How WooSarr decides who sees which Plex library, and how to look after it.
 
 WooSarr manages a Plex user only if they are **linked** to a Discord account. For each linked user it computes the complete list of libraries they should have, and writes that list to Plex.
 
+![Users page: each Plex user's linked members, roles and the source of every library](images/users.png)
+
 | Source | Meaning | Shown as |
 |--------|---------|----------|
 | **Role** | A Discord role the member holds is mapped to the library (Roles page). | `role` |
@@ -15,7 +17,7 @@ WooSarr manages a Plex user only if they are **linked** to a Discord account. Fo
 
 The rules:
 
-1. **Additive.** A user gets the union of all their roles' libraries. Losing one role only removes a library if no other role, manual grant or exemption keeps it.
+1. **Additive.** A user gets the union of all their roles' libraries (for a shared account, all its members' roles). Losing one role only removes a library if no other role, manual grant or exemption keeps it.
 2. **Exempt libraries are frozen.** Role logic never touches them, in either direction.
 3. **Unmanaged libraries are left alone.** A library no role maps to isn't removed from anyone.
 4. **Only linked users.** Unlinked Plex users are never changed. Unlinking someone stops management; their current shares stay.
@@ -68,6 +70,8 @@ Several Discord members can be linked to one Plex account, for example a family 
 
 ## Dashboard
 
+![Dashboard](images/dashboard-light.png)
+
 The dashboard is made of widgets on an 8-column grid. **Customize** lets each admin move (↑/↓), resize (**eighth**, **quarter**, **half** or **full** width; 4 columns on tablets, 2 on phones) and hide widgets, choose how chartable widgets are drawn (their usual form, a **Circle** or **Bars**), and add hidden ones back from *More widgets*; **Save layout** stores it for your admin account, **Reset to default** brings back WooSarr's layout.
 
 Circle and bar views exist for the number tiles (e.g. Plex users by link status, linked share, libraries by how they're managed, roles that give libraries, requests by status, invites), Alerts (errors / warnings / resolved), Link coverage, Access changes (applied vs planned), Recent activity (by kind), Library access (users per library), Requests and Security. Every chart has a legend with the numbers, and the colours follow the colour-vision palette in Settings → Appearance. Widgets:
@@ -75,13 +79,14 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Widget | Shows |
 |--------|-------|
 | Connections | Plex, Discord and Seerr status |
-| Plex users / Linked users / Libraries / Discord roles / Open requests / Pending invites | One number each, linking to its page |
+| Plex users / Linked users / Libraries / Discord roles / Open requests / Pending invites / Invites accepted this week | One number each, linking to its page (a shared account counts once) |
 | Alerts | Open warnings and errors grouped by problem (repeats with different ids count once), plus **Account** alerts, with **Resolve**. No time limit: an alert stays until resolved |
 | Last sync / Pending changes | The last sync report and what the next one would change |
 | Link coverage | Verified / unverified / unlinked Plex users, and Discord members who haven't linked |
 | Access changes (14 days) | Applied changes per day (and planned ones in dry-run) |
 | Recent activity | The latest audited events, without routine sync and sign-in entries |
-| Library access | Users per library; marks exempt libraries and libraries no role manages |
+| Library access | Users per library (the server owner counts on every library); marks exempt libraries and libraries no role manages |
+| Discord role members | Members per Discord role, how many of them are linked, and roles that give no libraries |
 | Requests / Plex invites | Recent requests by status; pending invites |
 | Setup checklist | Connections, role mappings, unmanaged libraries, dry-run |
 | Security | Failed sign-ins (24 h), active sessions, API keys |
@@ -90,8 +95,9 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 
 **Account alerts** come from the audit log, so they survive restarts for as long as audit entries are kept. They name everyone involved:
 - someone tried to link a Plex account that's linked to another member (by typed username or Plex sign-in), refused; repeats by the same member on the same account count as one alert;
-- someone took over an unverified link by signing in with Plex (the other member's link was removed);
-- an admin moved a Plex account's link from one member to another on the Users page.
+- someone took over unverified links by signing in with Plex (the other members' links were removed);
+- someone joined a shared account by signing in with Plex (when *Settings → Linking → Shared Plex accounts* allows it);
+- an admin added a member to a Plex account others are already linked to.
 
 ## Impact previews
 
@@ -103,6 +109,7 @@ New installs start in **dry-run**: WooSarr computes, logs and audits every chang
 
 ## Troubleshooting
 
+- **Dashboard → Alerts**: open warnings, errors and account events. Most problems show up here first, with the message that explains them (for example a missing bot permission).
 - **Logs page**: live application log; filter by level or search for a request id from an error message.
 - **Audit trail** (Logs → Audit trail): every access change with who/what/why, every role mapping, link and settings change.
 - Set *Log level* to DEBUG in Settings to see every Plex and Discord call (secrets are always redacted).
@@ -136,7 +143,7 @@ Everything WooSarr needs is in `/config` (`/mnt/user/appdata/woosarr` on Unraid)
 |------|------|----------|
 | `app.db` (+ `app.db-wal`, `app.db-shm`) | settings, mappings, links, audit, encrypted secrets | Yes |
 | `secrets/master.key` | key that decrypts the stored Plex/Discord tokens | Yes, **separately** from `app.db` |
-| `logs/` | rotating application logs | Optional |
+| `logs/` | rotating application logs (`woosarr.log`) and warnings/errors (`alerts.log`) | Optional |
 
 - Stop the container (or use the Unraid *Appdata Backup* plugin, which stops it) so the SQLite files are consistent.
 - **Restore**: put the files back in `/config` and start the container. The schema migrates forward automatically.
@@ -150,6 +157,8 @@ Everything WooSarr needs is in `/config` (`/mnt/user/appdata/woosarr` on Unraid)
 | `WOOSARR_PORT` | `31337` | Port inside the container |
 | `WOOSARR_LOG_LEVEL` | `INFO` | Startup log level (the Settings page can override it) |
 | `WOOSARR_LOG_FORMAT` | `json` | `json` or `text` for the container log |
+| `WOOSARR_LOG_FILE_MAX_BYTES` / `WOOSARR_LOG_FILE_BACKUPS` | `5242880` / `5` | Size and count of `logs/woosarr.log` files |
+| `WOOSARR_ALERTS_FILE_MAX_BYTES` / `WOOSARR_ALERTS_FILE_BACKUPS` | `2097152` / `2` | Size and count of `logs/alerts.log` files (warnings and errors only) |
 | `WOOSARR_MASTER_KEY` / `WOOSARR_MASTER_KEY_FILE` | — | Supply the encryption key instead of `/config/secrets/master.key` |
 | `WOOSARR_COOKIE_SECURE` | `auto` | `always` behind an HTTPS proxy that isn't in `WOOSARR_FORWARDED_ALLOW_IPS` |
 | `WOOSARR_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IPs whose `X-Forwarded-*` headers are trusted |

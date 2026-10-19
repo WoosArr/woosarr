@@ -6,7 +6,7 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs icons
+.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs icons screenshots
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
@@ -14,6 +14,7 @@ help:
 	@echo "openapi  refresh frontend/openapi.json after changing API models"
 	@echo "icons    render favicons, app and Unraid icons from assets/brand/woosarr.svg"
 	@echo "e2e      Playwright UI tests against a demo backend"
+	@echo "screenshots  documentation images in docs/images (demo backend, fake data)"
 	@echo "demo     run on :$(PORT) with fake Plex/Discord data (WOOSARR_DEMO)"
 	@echo "dev      run the backend on :$(PORT) with ./config and the built UI"
 	@echo "image    build the Docker image ($(IMAGE))"
@@ -50,6 +51,10 @@ check: lint test ui contrast
 
 e2e:
 	cd frontend && npm run e2e
+
+screenshots: ui
+	mkdir -p docs/images
+	cd frontend && npx playwright test -c playwright.screenshots.config.ts
 
 demo: ui
 	WOOSARR_DEMO=true WOOSARR_SETUP_CODE_REQUIRED=false $(MAKE) dev

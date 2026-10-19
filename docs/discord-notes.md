@@ -7,7 +7,7 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | Feature | What it does | Permissions | Also needs |
 |---------|--------------|-------------|------------|
 | **Core** (always) | Read roles and members, react to role changes | *(none)* | **Server Members Intent** (privileged, Developer Portal → Bot) |
-| **/link, /unlink, /invite, /request** | Slash commands with private replies; request status DMs | *(none)* | `applications.commands` scope (in the invite link). `/request` is only registered while Seerr is connected; its name is set in Settings → Requests ([requests.md](requests.md)) |
+| **/link, /unlink, /invite, /help, /request** | Slash commands with private replies; request status DMs | *(none)* | `applications.commands` scope (in the invite link). `/request` is only registered while Seerr is connected; its name is set in Settings → Requests ([requests.md](requests.md)) |
 | **Link-status roles** | Give/remove the Verified, Unverified and Linked roles | **Manage Roles** | The bot's highest role must be **above** those roles (Server Settings → Roles, drag the bot's role up) |
 | **Create roles** | Create link-status roles and per-library roles from WooSarr | **Manage Roles** | New roles are created at the bottom, below the bot's role |
 | **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |
@@ -29,13 +29,13 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 2. **Privileged Gateway Intents → Server Members Intent: on.** WooSarr checks this before saving the token: `GET /applications/@me` → `flags` must contain `GATEWAY_GUILD_MEMBERS` (1<<14) or `GATEWAY_GUILD_MEMBERS_LIMITED` (1<<15).
 3. **Reset Token** and paste it into WooSarr. It's validated with `GET /users/@me`, stored encrypted as `discord.bot_token`, and never shown again.
    Optional, once connected: **Integrations → Discord → Bot avatar** sets the bot's avatar to WooSarr's icon (default) or an uploaded image, and optionally the application icon too. See *Bot avatar* below.
-4. Invite with the generated URL: `scope=bot applications.commands`, `permissions=0`. The bot needs no channel permissions: it only reads roles and members (intent) and answers `/link` with ephemeral replies.
+4. Invite the bot with the link on the Integrations page (`scope=bot applications.commands`). Tick the features you want under *Bot features and permissions* first: the link then asks for exactly their permissions (with none ticked, `permissions=0` is enough for the commands and link syncing). Using the link again later updates the permissions without removing the bot.
 5. Pick the server (`GET /users/@me/guilds`). One guild in v1 (D11).
 
 ## Runtime
 
-- Intents: `guilds` + `members` only (no message content).
-- `/link` is registered as a **guild** command (`tree.sync(guild=…)`), so it appears immediately (global commands can take up to an hour).
+- Intents: `guilds`, `members` and `guild_reactions` (for reaction posts); never message content.
+- `/link`, `/unlink`, `/invite`, `/help` and the request command are **guild** commands (`tree.sync(guild=…)`), so they appear immediately (global commands can take up to an hour). The log line `discord commands registered in guild …` lists them.
 - On connect: full cache sync (`guild.roles`, `guild.fetch_members()`), then a full reconcile.
 - Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`.
 - Reconnect/resume is discord.py's (`reconnect=True`). `PrivilegedIntentsRequired` and `LoginFailure` are shown on the dashboard and Integrations page; **Restart bot** retries without a container restart.
@@ -46,9 +46,14 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 Ephemeral reply with two buttons:
 
 - **Sign in with Plex (verified)**: WooSarr starts a Plex PIN with a throwaway client id and replies with a link button; it polls for up to 5 min, reads the identity, signs the token out and verifies it's dead (see `plex-notes.md`), then links with `method=oauth`, `verified=true`.
-- **Enter Plex username**: modal with one text field; matches a known Plex user by username or email (case-insensitive); `method=username`, `verified=false`.
+- **Enter Plex username**: modal with one text field; matches a known Plex user by username or email (case-insensitive); `method=username`, `verified=false`. Only offered to members allowed by *Settings → Linking → Who may link by typing a Plex username* (everyone by default); the bot refreshes the member's roles before deciding, and refuses a typed username from anyone else (`link_failed`, reason `username_link_not_allowed`).
 
-Rules (`services/link_service.py`, `linking.decide_link`): one Plex ↔ one Discord account; verified supersedes an unverified claim; a Discord account already linked elsewhere must be unlinked by an admin; per-user cooldown (Settings); every attempt audited (`link_self` / `link_failed`).
+Rules (`services/link_service.py`, `linking.decide_link`):
+
+- A Discord member has **one** link. One linked elsewhere must be unlinked first (`discord_already_linked`).
+- A Plex account may have **several** members (a family sharing it; see the admin guide). Typing a username never joins an account someone else is linked to (`plex_account_taken`).
+- *Sign in with Plex* proves the account: it removes other members' unverified (typed-username) claims. If verified members remain, it joins them only when *Settings → Linking → Shared Plex accounts* is set to allow sign-in; otherwise it's refused and the member is told to ask an admin.
+- Per-member cooldown (*Settings → Linking*); every attempt is audited (`link_self` with outcome `created` / `upgraded` / `replaced` / `joined` / `unchanged`, or `link_failed` with the reason and who holds the account). Attempts on someone else's account, takeovers and joins appear in the dashboard's **Alerts**.
 
 ## `/unlink`
 
@@ -57,7 +62,13 @@ Ephemeral confirmation (Unlink / Cancel). Effect follows **Settings → Linking 
 - *Remove role-granted libraries* (default): a one-user sync with no roles runs first (manual grants and exempt libraries stay; dry-run respected), then the link is deleted, inside the same sync lock so no queued sync can re-grant in between.
 - *Leave their access as it is*: the link is deleted; WooSarr stops managing the account.
 
-Audited as `unlink_self` (with the policy).
+On a **shared** account the others stay linked and the account keeps what their roles give: *Remove* drops only the libraries this member's roles gave; *Leave as is* turns those libraries into manual grants (`manual_grant_kept`). The confirmation says which applies.
+
+Audited as `unlink_self` (with the policy and the members who remain).
+
+## `/help`
+
+A private reply listing every command the bot has registered with its options: `/link`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up) and `/help`. `help` can't be used as the request command's name.
 
 ## `/invite email [member]`
 
@@ -78,7 +89,7 @@ Libraries page → **Create role** opens the same dialog as the Roles page with 
 
 ## Roles deleted in Discord
 
-When a role is deleted in Discord (or was deleted while the bot was offline), the Roles page marks it **Deleted in Discord** and keeps its mappings so nothing changes silently. **Remove** (per role) or **Remove N deleted roles** forgets it in WooSarr and cleans up everything that refers to it: role → library mappings, the link-status roles and the *Roles allowed to /invite* / *request* lists in Settings, and reaction-post options that give it (the post's legend is updated). The confirmation lists exactly what will be removed. Roles that still exist in Discord can't be removed here (delete them in Discord first). No one can hold a deleted role, so no Plex access changes; a sync runs anyway when mappings were removed. Audited as `role_removed`.
+When a role is deleted in Discord (or was deleted while the bot was offline), the Roles page marks it **Deleted in Discord** and keeps its mappings so nothing changes silently. **Remove** (per role) or **Remove N deleted roles** forgets it in WooSarr and cleans up everything that refers to it: role → library mappings, the link-status roles and the *Plex Invites*, *request* and *link by typing a username* role lists in Settings, and reaction-post options that give it (the post's legend is updated). The confirmation lists exactly what will be removed. Roles that still exist in Discord can't be removed here (delete them in Discord first). No one can hold a deleted role, so no Plex access changes; a sync runs anyway when mappings were removed. Audited as `role_removed`.
 
 ## Reaction posts
 

@@ -17,7 +17,7 @@ WooSarr holds a Plex server-owner token and a Discord bot token, and it can chan
 ## Trust boundaries
 
 1. **Browser ↔ WooSarr** (port 31337, plain HTTP unless a reverse proxy adds TLS).
-2. **Discord members ↔ WooSarr** via the bot (`/link`).
+2. **Discord members ↔ WooSarr** via the bot (`/link`, `/unlink`, `/invite`, `/help`, `/request`, reactions on reaction posts).
 3. **WooSarr ↔ plex.tv / the Plex server** and **WooSarr ↔ Discord** (outbound HTTPS).
 4. **Host ↔ container** (`/config` volume, env vars, container logs).
 
@@ -25,11 +25,15 @@ WooSarr holds a Plex server-owner token and a Discord bot token, and it can chan
 
 ### Unverified `/link` claims (accepted risk)
 A Discord member types someone else's Plex username and gets that person's role-based access applied to *the Plex account*. They don't gain access themselves; the real Plex user does. The risk is that an attacker can *add or remove* libraries on someone else's account through role changes.
-- One Plex account ↔ one Discord account; first come, first served (`linking.decide_link`).
-- A verified link (Plex sign-in or admin) supersedes an unverified claim.
+- A typed username only claims an account **nobody** is linked to; it never joins or replaces another member (`linking.decide_link`).
+- A verified link (Plex sign-in or admin) supersedes unverified claims.
+- Typed-username linking can be limited to trusted roles (`username_link_*` settings); everyone else must sign in with Plex.
 - The UI shows **Verified/Unverified** with icon and text; admins can unlink anyone.
 - `ignore_unverified_links` setting manages only verified users (R4).
-- Per-user `/link` cooldown; every link event is audited.
+- Per-user `/link` cooldown; every link event is audited, and attempts on an account someone else holds, takeovers and new members on shared accounts raise dashboard **Alerts** naming everyone involved.
+
+### Shared Plex accounts (families)
+Several Discord members may be linked to one Plex account; the account gets the union of their roles, so anyone added widens what the account can see. Only an admin can add a member to an account that has a verified member, unless `family_link_mode` is set to let a member who **signs in with that Plex account** join (proving they have its credentials). Typing a username never joins. Every join and admin add is audited and shown in Alerts. A member who unlinks or leaves only takes away what their own roles gave (per the unlink/leave policies).
 
 ### Role escalation in Discord
 Anyone who can assign roles in the guild effectively grants Plex libraries. WooSarr can't stop that; it's how the product works. Mitigations: the Roles page shows which roles grant what; the audit log records every access change with its trigger; exempt libraries are never touched by roles.

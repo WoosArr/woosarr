@@ -1,4 +1,4 @@
-"""Admin 'Remove libraries' (live: removing access from themunchkin did nothing,
+"""Admin 'Remove libraries' (live: removing access from friendly_fred did nothing,
 because the old button only removed manual grants and they had none)."""
 
 import unittest
@@ -16,10 +16,10 @@ class RemoveAccessTests(Base):
     def setUp(self):
         super().setUp()
         # 12 = an unlinked friend with libraries shared directly in Plex ("external").
-        self.gw.users.append(GwUser("12", "themunchkin", "m@x.com"))
+        self.gw.users.append(GwUser("12", "friendly_fred", "m@x.com"))
         self.gw.shares["12"] = {"1", "2", "3"}
         with self.db.session() as s:
-            s.add(PlexUser(plex_user_id="12", username="themunchkin"))
+            s.add(PlexUser(plex_user_id="12", username="friendly_fred"))
 
     def test_unlinked_user_external_shares_are_removed(self):
         [r] = self.sync.remove_access(["12"], ["1", "2"], "admin:test")
@@ -89,10 +89,10 @@ class RemoveAccessApiTests(unittest.TestCase):
 class PreviewAndUndoTests(Base):
     def setUp(self):
         super().setUp()
-        self.gw.users.append(GwUser("12", "themunchkin", "m@x.com"))
+        self.gw.users.append(GwUser("12", "friendly_fred", "m@x.com"))
         self.gw.shares["12"] = {"1", "2", "3"}
         with self.db.session() as s:
-            s.add(PlexUser(plex_user_id="12", username="themunchkin"))
+            s.add(PlexUser(plex_user_id="12", username="friendly_fred"))
         self.sync.run_now(None, "cache shares")  # the preview reads the share cache
 
     def test_preview_matches_the_real_removal(self):

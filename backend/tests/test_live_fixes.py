@@ -171,8 +171,8 @@ class CommunityFriendsTests(Base):
 
 
 class RekeyMergeTests(Base):
-    """Live: themunchkin (6101685) had a share, lost it (row marked removed), was
-    re-found as uuid:..., got a share again. The uuid row must merge into 6101685."""
+    """Live: a friend (numeric id) had a share, lost it (row marked removed), was
+    re-found as uuid:..., got a share again. The uuid row must merge into the numeric row."""
 
     def test_merge_into_existing_removed_row_keeps_uuid_link_and_grants(self):
         from woosarr.db.models import Library, ManualGrant

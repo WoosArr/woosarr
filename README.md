@@ -4,18 +4,34 @@
 
 Automatically grants and removes **Plex library access** based on **Discord roles**.
 
-- Role grants are **additive**: a user keeps a library if any role, manual grant or exemption keeps it
-- Per-library **exemptions** that role changes never touch
-- Manual per-user grants from the web UI
-- Only Plex users with a **linked Discord account** are managed
-- Users link themselves with `/link` (Plex username, or Plex sign-in for a verified link; no Plex tokens are stored)
-- Starts in **dry-run**: see exactly what would change before anything does
-- Web UI on port **31337**: light/dark themes, colour-blind palettes, live logs and an audit trail
-- Members request movies and shows with `/request` (name configurable) through **Seerr**, as their own Seerr user, and get a DM when it's available ([docs/requests.md](docs/requests.md))
-- Admin single sign-on with OpenID Connect: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md))
-- One Docker container, with an Unraid template in `unraid/`
+![WooSarr dashboard](docs/images/dashboard-dark.png)
 
-> **Status:** the web UI, auth, sync engine and audit are done. Plex and Discord connections are being finished against real servers. See [docs/action-plan.md](docs/action-plan.md).
+- **Discord roles → Plex libraries.** Map each role to libraries; members get the union of all their roles. Grants are **additive**: a library stays if any role, manual grant or exemption keeps it.
+- **Only linked users are managed.** Members link themselves with `/link`: *Sign in with Plex* (verified; the one-time token is invalidated straight away) or by typing their Plex username (unverified, can be limited to chosen roles).
+- **Shared Plex accounts.** Several Discord members can share one Plex account (a family); it gets the libraries all their roles give.
+- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change.
+- **Exemptions and manual grants.** Exempt libraries are never touched by roles; admins can grant or remove libraries per user.
+- **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role) and link-status roles (Verified / Unverified / Linked).
+- **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, and hear back when it's available ([docs/requests.md](docs/requests.md)).
+- **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
+- **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs.
+- **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
+- One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template.
+
+> **Status:** in use on a real Plex server and Discord server. Still to do: a fresh install from the Unraid template and the Community Applications listing. See [docs/action-plan.md](docs/action-plan.md).
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Users: linked Discord members, roles and where each library comes from](docs/images/users.png) | ![Roles: which libraries each Discord role grants](docs/images/roles.png) |
+| **Users**: linked members (one account shared by two), roles, and why each library is there | **Roles**: which libraries each Discord role grants |
+| ![Libraries: exemptions and the roles that grant each library](docs/images/libraries.png) | ![Reaction post editor with a live preview of the Discord message](docs/images/reaction-post-editor.png) |
+| **Libraries**: exemptions and the roles that grant each one | **Reaction posts**: react to get a role, with a live preview |
+| ![Settings: linking rules](docs/images/settings-linking.png) | ![Integrations: Plex, Discord and Seerr](docs/images/integrations.png) |
+| **Settings → Linking**: who may link how, shared accounts, leave and unlink rules | **Integrations**: connect Plex, Discord and Seerr |
+
+All screenshots use WooSarr's demo mode (a fake Plex server and Discord guild); `make screenshots` regenerates them.
 
 ## Install
 
@@ -51,7 +67,7 @@ Images are published for `linux/amd64` and `linux/arm64`.
 4. **Roles** page: choose which libraries each Discord role grants. **Libraries** page: exempt any library that roles should never touch.
 5. **Dashboard**: check *Pending changes*. When they look right, turn off **dry-run** in *Settings → General*.
 
-How access is decided, troubleshooting, backups and all settings: [docs/admin-guide.md](docs/admin-guide.md).
+How access is decided, the Discord commands, troubleshooting, backups and all settings: [docs/admin-guide.md](docs/admin-guide.md). Bot permissions per feature: [docs/discord-notes.md](docs/discord-notes.md).
 
 ## HTTPS and reverse proxies
 
@@ -75,6 +91,7 @@ Don't expose port 31337 directly to the internet.
 
 ## Logs and troubleshooting
 
+- **Dashboard → Alerts**: open warnings, errors and account events, grouped, with **Resolve**.
 - **Logs** page: live application log and the audit trail of every access change.
 - Without a browser session, create a **read** API key (*Settings → API keys*) and:
 
@@ -99,13 +116,30 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 
 **A user lost a role but still has the library.** Another role, a manual grant or an exemption still gives it; the Users page shows each library's source.
 
-**Someone linked the wrong Plex account.** Unlink them on the Users page. A Plex sign-in (verified) link replaces a typed-username (unverified) claim. You can also ignore unverified links entirely in Settings.
+**Someone linked the wrong Plex account.** Unlink them on the Users page. A Plex sign-in (verified) link replaces a typed-username (unverified) claim, and every attempt to link an account someone else holds shows up in **Alerts**. You can limit typed-username linking to chosen roles, or ignore unverified links entirely (*Settings → Linking* and *General*).
+
+**Our family shares one Plex login but has several Discord accounts.** Link them all to the same Plex account: an admin uses **Add member** on the Users page, or (if *Settings → Linking → Shared Plex accounts* allows it) each member signs in with Plex in `/link`. The account gets the libraries all their roles give.
+
+**A reaction post won't publish.** The bot needs View Channels, Send Messages, Add Reactions and Read Message History in that channel (channel permission overrides win over server roles). The post is saved anyway; a toast and the Alerts widget say which permission is missing. *Integrations → Discord → Bot features and permissions* shows what the bot can do.
 
 **Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token and the bot token are stored, encrypted.
 
 **Another bot already has `/request`.** Both work; Discord shows each with its bot's name. Rename WooSarr's in *Settings → Requests* or hide the other bot's under *Server Settings → Integrations* ([docs/requests.md](docs/requests.md#another-bot-already-has-request)).
 
 **Can I try it without connecting anything?** Yes: `WOOSARR_DEMO=true` uses a fake Plex server and Discord data. Don't use it on a real install.
+
+## Documentation
+
+| Doc | For |
+|-----|-----|
+| [Admin guide](docs/admin-guide.md) | How access is decided, Discord commands, shared accounts, dashboard and alerts, troubleshooting, backups, environment variables |
+| [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, link-status roles, bot avatar |
+| [Requests](docs/requests.md) | `/request` through Seerr: setup, who may request, public or private, diagnostics |
+| [Single sign-on](docs/sso.md) | OIDC providers for admin sign-in |
+| [Plex notes](docs/plex-notes.md) | How WooSarr talks to Plex and what was verified on a real server |
+| [Unraid notes](docs/unraid-notes.md) | The Unraid template |
+| [Threat model](docs/threat-model.md) | What's protected and how |
+| [Changelog](CHANGELOG.md) | What changed |
 
 ## Develop
 
@@ -114,6 +148,7 @@ make install   # backend venv + frontend deps
 make check     # lint + tests (backend and frontend) + UI build + contrast check
 make demo      # run on http://localhost:31337 with fake Plex/Discord data
 make e2e       # Playwright UI tests
+make screenshots  # regenerate docs/images from the demo backend
 ```
 
 Security notes: [docs/threat-model.md](docs/threat-model.md).

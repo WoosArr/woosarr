@@ -175,7 +175,7 @@ function SeerrForm({ current, onDone, onCancel }: { current: SeerrStatus; onDone
       </ol>
       <ErrorBanner error={error} />
       <Field label="Seerr address">
-        <input type="url" inputMode="url" placeholder="http://10.0.1.101:5055" value={url} onChange={(e) => { setUrl(e.target.value); setTested(null); }} required />
+        <input type="url" inputMode="url" placeholder="http://192.168.1.10:5055" value={url} onChange={(e) => { setUrl(e.target.value); setTested(null); }} required />
       </Field>
       <Field label="API key" hint={needKey ? "Checked with Seerr, then stored encrypted. It's never shown again." : "Leave empty to keep the stored key."}>
         <input type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => { setKey(e.target.value); setTested(null); }} required={needKey} minLength={16} />

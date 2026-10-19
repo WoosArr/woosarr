@@ -5,10 +5,10 @@ Members request movies and TV shows from Discord with a slash command (default *
 ## Setup
 
 1. In Seerr: **Settings → General → API Key**, copy it.
-2. In WooSarr: **Integrations → Seerr (requests)**. Enter the address WooSarr can reach Seerr on, for example `http://10.0.1.101:5055`. Use Seerr's own address, not an SSO or login portal in front of it. Paste the key, press **Test**, then **Save**.
+2. In WooSarr: **Integrations → Seerr (requests)**. Enter the address WooSarr can reach Seerr on, for example `http://192.168.1.10:5055`. Use Seerr's own address, not an SSO or login portal in front of it. Paste the key, press **Test**, then **Save**.
    - *Test* calls `GET /api/v1/status` (is this Seerr?), `GET /api/v1/auth/me` (is the key valid?) and `GET /api/v1/user` (how many users come from Plex?). Nothing is saved until **Save**.
    - The key is stored encrypted like the Plex and Discord tokens, redacted from logs and never returned by the API.
-3. The bot registers the request command within a few seconds; Setup and the Requests page show the name it registered.
+3. The bot registers the request command within a few seconds; the Integrations page and the Requests page show the name it registered.
 4. Check **Settings → Requests** (below).
 
 ## What members see
@@ -36,13 +36,13 @@ Public needs a channel. The bot needs **View Channels, Send Messages, Embed Link
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| **Command name** | `request` | 1–32 characters: lowercase letters, numbers, `-`, `_`. Can't be `link`, `unlink` or `invite`. See *Another bot already has /request*. |
+| **Command name** | `request` | 1–32 characters: lowercase letters, numbers, `-`, `_`. Can't be `link`, `unlink`, `invite` or `help` (WooSarr's other commands). See *Another bot already has /request*. |
 | **All linked members** | on | Off = only members with one of the ticked roles. Discord admins (Manage Server) can always request. |
 | **Verified links only** | on | Only members whose link is verified (Sign in with Plex) may request. A username-only `/link` is a claim anyone could make, and requests are made as that Plex account's Seerr user. |
 | **Create missing Seerr users** | on | If the member's Plex account has no Seerr user yet, WooSarr imports it (`POST /api/v1/user/import-from-plex` with that Plex id). Seerr gives it its **default permissions** (Seerr → Settings → Users). Off = the member is told to ask an admin. |
 | **Notify members** | on | DM status changes. |
 
-A member always needs a link: requests are made as their Seerr user, which is found from their Plex account. Matching order: Seerr user with the same **Plex id**, then the same **email**, then the same **Plex username**.
+A member always needs a link: requests are made as their Seerr user, which is found from their Plex account. Members who share one Plex account (a family) request as that account's Seerr user, so Seerr counts their requests together. Matching order: Seerr user with the same **Plex id**, then the same **email**, then the same **Plex username**.
 
 ## Another bot already has /request
 
@@ -70,7 +70,7 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 | Log line | Meaning |
 |----------|---------|
 | `discord commands registered in guild … /request` | The command is live (also shows a rename: `request command was /old`). |
-| `seerr GET /search -> 403` | API key wrong or regenerated in Seerr; enter it again on Setup. |
+| `seerr GET /search -> 403` | API key wrong or regenerated in Seerr; enter it again on the Integrations page. |
 | `no seerr user for plex <name>` | Member's Plex account isn't in Seerr and import is off, or Seerr couldn't import it (not a Plex friend with library access). |
 | `request <id> created for discord … as seerr user …` | Request made; the Seerr user id it ran as. |
 | `request suggestions … unavailable: timeout` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |

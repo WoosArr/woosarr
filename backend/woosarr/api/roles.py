@@ -110,7 +110,7 @@ def _validate_libraries(db, library_ids: list[str]) -> set[str]:
 # ---- roles deleted in Discord --------------------------------------------------------
 
 LINK_ROLE_SETTINGS = ("verified_role_id", "unverified_role_id", "linked_role_id")
-LIST_ROLE_SETTINGS = ("invite_role_ids", "request_role_ids")
+LIST_ROLE_SETTINGS = ("invite_role_ids", "request_role_ids", "username_link_role_ids")
 
 
 class RoleReferences(BaseModel):

@@ -351,7 +351,7 @@ function DiscordCard() {
             <dt className="muted">Server</dt><dd style={{ margin: 0 }}><strong>{String(s.guild.name ?? s.guild.id)}</strong></dd>
           </dl>
           <Detail text={s.detail} />
-          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code> and <code>/invite</code> in your server (and the request command once Seerr is connected).</p>
+          <p className="small muted" style={{ margin: 0 }}>Members can now run <code>/link</code>, <code>/unlink</code>, <code>/invite</code> and <code>/help</code> in your server (and the request command once Seerr is connected).</p>
           <BotFeatures status={s} />
           <BotAvatar status={s} onDone={() => void st.reload()} />
           <div className="row">

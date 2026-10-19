@@ -73,6 +73,8 @@ function Shell() {
               <Icon name="logout" size={15} /> Sign out
             </button>
           </div>
+          {/* AGPL-3.0 §13: users of a (modified) instance can get its source. Forks: point this at your source. */}
+          <a className="small" href="https://github.com/WoosArr/woosarr" target="_blank" rel="noreferrer">Source code · AGPL-3.0</a>
         </div>
       </nav>
       <main className="main" id="main" tabIndex={-1}>

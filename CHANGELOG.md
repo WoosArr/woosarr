@@ -29,6 +29,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Documentation screenshots (`make screenshots`, demo data only) in the README and admin guide.
 
 ### Changed
+- **Licence: WooSarr is now licensed under the GNU AGPL v3.0** (AGPL-3.0-only). Earlier versions, including v0.1.0, remain available under MIT. The web UI links to the source code.
 - Sidebar: *Reactions* is now **Reaction Posts** and *Setup* is now **Integrations**.
 - An admin linking a Discord member to an already-linked Plex account now **adds** them (shared account) instead of replacing the existing member; unlinking names the member to remove.
 - The dashboard counts the Plex server owner as a user everywhere (Link coverage, Library access), and a shared account once.

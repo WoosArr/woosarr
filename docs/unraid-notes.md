@@ -37,7 +37,7 @@ Submissions go through https://ca.unraid.net/submit (docs and a video walkthroug
 
 | Requirement | WooSarr |
 |-------------|---------|
-| Public, active GitHub repo with an OSI-approved licence | `WoosArr/woosarr`, MIT |
+| Public, active GitHub repo with an OSI-approved licence | `WoosArr/woosarr`, AGPL-3.0 |
 | `ca_profile.xml` in the repo root with a non-empty `<Profile>` | `ca_profile.xml` (overview, icon, web page, a photo) |
 | One XML per Docker app, `<Repository>` pointing at a valid image, readable `<Name>` and `<Overview>` | `unraid/woosarr.xml` → `ghcr.io/woosarr/woosarr:latest` (public) |
 | `<Support>` or `<Project>` | both (GitHub issues, repo) |

@@ -1,11 +1,12 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "woosarr"
 version = "0.1.0"
 description = "Sync Plex library access from Discord roles"
+license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
   # Minimums are versions the test suite has run against (P10-05).

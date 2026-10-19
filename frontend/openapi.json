@@ -1181,6 +1181,14 @@
             "title": "Requests",
             "type": "object"
           },
+          "roles": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
           "security": {
             "additionalProperties": {
               "type": "integer"
@@ -1199,6 +1207,7 @@
           "activity",
           "access_by_day",
           "libraries",
+          "roles",
           "invites",
           "requests",
           "setup",
@@ -1356,7 +1365,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 19,
+            "maxItems": 20,
             "title": "Widgets",
             "type": "array"
           }
@@ -4025,7 +4034,8 @@
               "requests",
               "invites",
               "setup",
-              "security"
+              "security",
+              "roles"
             ],
             "title": "Id",
             "type": "string"

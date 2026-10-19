@@ -52,6 +52,7 @@ const TITLES: Record<WidgetId, string> = {
   access_chart: "Access changes (14 days)",
   activity: "Recent activity",
   libraries: "Library access",
+  roles: "Discord role members",
   requests: "Requests",
   invites: "Plex invites",
   setup: "Setup checklist",
@@ -64,7 +65,7 @@ const SIZES: Size[] = ["xs", "s", "m", "l"];
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
   stat_requests: "Number", errors: "List", links: "Stacked bar",
-  access_chart: "Columns", activity: "List", libraries: "List", requests: "List", security: "Numbers",
+  access_chart: "Columns", activity: "List", libraries: "List", roles: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
 
@@ -289,6 +290,8 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       return <Activity ins={ins} />;
     case "libraries":
       return <Libraries ins={ins} />;
+    case "roles":
+      return <Roles ins={ins} />;
     case "requests":
       return <Requests ins={ins} />;
     case "invites":
@@ -569,6 +572,36 @@ function Libraries({ ins }: { ins: Insights | null }) {
   );
 }
 
+type RoleRow = { role_id: string; name: string; color: number; members: number; linked: number; libraries: number };
+
+function Roles({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="roles" /><Loading ins={ins} /></>;
+  const roles = ins.roles as RoleRow[];
+  const max = Math.max(1, ...roles.map((r) => r.members));
+  return (
+    <>
+      <Title id="roles"><Link to="/roles" className="small">Roles →</Link></Title>
+      {roles.length === 0 ? <p className="muted small">No Discord roles yet.</p> : (
+        <ul className="dash-list small">
+          {roles.slice(0, 8).map((r) => (
+            <li key={r.role_id}>
+              <div className="row spread">
+                <span className="row" style={{ gap: 6 }}>
+                  <span className="role-dot" aria-hidden="true" style={r.color ? { background: `#${r.color.toString(16).padStart(6, "0")}` } : undefined} />
+                  {r.name} {r.libraries ? null : <Badge tone="neutral">No libraries</Badge>}
+                </span>
+                <span className="muted">{r.members} member{r.members === 1 ? "" : "s"} · {r.linked} linked</span>
+              </div>
+              <div className="dash-bar thin" aria-hidden="true"><span style={{ width: `${(r.members / max) * 100}%`, background: "var(--accent)" }} /></div>
+            </li>
+          ))}
+          {roles.length > 8 ? <li className="muted small">…and {roles.length - 8} more on the <Link to="/roles">Roles</Link> page</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
 const REQ_STATE: Record<string, [Tone, string]> = {
   pending: ["warn", "Waiting"], approved: ["info", "Approved"], declined: ["danger", "Declined"], failed: ["danger", "Failed"],
   partially_available: ["accent", "Partly available"], available: ["ok", "Available"], deleted: ["neutral", "Removed"],
@@ -751,6 +784,12 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       const libs = (ins!.libraries as { title: string; users: number }[]).slice(0, 8);
       return { label: "Users with access per library", unit: "users",
         segs: libs.map((l, i) => ({ label: l.title, value: l.users, color: CYCLE[i % CYCLE.length] })) };
+    }
+    case "roles": {
+      if (need(ins)) return null;
+      const roles = (ins!.roles as RoleRow[]).slice(0, 8);
+      return { label: "Members per Discord role", unit: "members",
+        segs: roles.map((r, i) => ({ label: r.name, value: r.members, color: CYCLE[i % CYCLE.length] })) };
     }
     case "security": {
       if (need(ins)) return null;

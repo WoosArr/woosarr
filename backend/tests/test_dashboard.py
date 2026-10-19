@@ -10,9 +10,11 @@ from woosarr.db.models import (
     AuditLog,
     DiscordLink,
     DiscordMember,
+    DiscordRole,
     ErrorResolution,
     Library,
     PlexUser,
+    RoleLibrary,
     utcnow,
 )
 from woosarr.services import error_digest
@@ -110,8 +112,10 @@ class DashboardApiTests(unittest.TestCase):
                                    linked_by="self"),
                        DiscordLink(plex_user_id="12", discord_user_id="502", method="username", verified=False,
                                    linked_by="self"),
-                       DiscordMember(discord_user_id="501", username="a"), DiscordMember(discord_user_id="503",
-                                                                                         username="c"),
+                       DiscordRole(role_id="901", name="Movies"), DiscordRole(role_id="902", name="Bots", managed=True),
+                       DiscordRole(role_id="903", name="Fans"), RoleLibrary(role_id="901", library_id="2"),
+                       DiscordMember(discord_user_id="501", username="a", role_ids=["901", "902"]),
+                       DiscordMember(discord_user_id="503", username="c", role_ids=["901", "903"]),
                        AuditLog(actor="system", action="access_changed", target_type="plex_user", target_id="11"),
                        AuditLog(actor="system", action="access_planned", target_type="plex_user", target_id="12",
                                 dry_run=True),
@@ -128,6 +132,8 @@ class DashboardApiTests(unittest.TestCase):
         self.assertGreaterEqual(d["security"]["sessions"], 1)
         self.assertNotIn("access_changed", [a["action"] for a in d["activity"]])
         self.assertFalse(d["requests"]["configured"])
+        self.assertEqual([(r["name"], r["members"], r["linked"], r["libraries"]) for r in d["roles"]],
+                         [("Movies", 2, 1, 1), ("Fans", 1, 0, 0)])  # bot-managed role left out
 
     def test_layout_per_admin_with_defaults(self):
         r = self.c.get("/api/v1/dashboard/layout").json()

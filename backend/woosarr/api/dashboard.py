@@ -93,6 +93,7 @@ class InsightsOut(BaseModel):
     activity: list[dict[str, Any]]
     access_by_day: list[dict[str, Any]]
     libraries: list[dict[str, Any]]
+    roles: list[dict[str, Any]]  # Discord roles by member count, with linked members and mapped libraries
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -112,7 +113,9 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     links = db.execute(select(DiscordLink.plex_user_id, DiscordLink.discord_user_id, DiscordLink.verified)).all()
     linked = [link for link in links if link.plex_user_id in ids]
     linked_discord = {link.discord_user_id for link in links}
-    members = db.scalars(select(DiscordMember.discord_user_id).where(DiscordMember.in_guild.is_(True))).all()
+    member_roles = db.execute(select(DiscordMember.discord_user_id, DiscordMember.role_ids)
+                              .where(DiscordMember.in_guild.is_(True))).all()
+    members = [m.discord_user_id for m in member_roles]
 
     # Access changes per day: applied changes, or planned ones while in dry-run.
     since = now - timedelta(days=DAYS - 1)
@@ -160,6 +163,20 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 
     roles = db.scalars(select(DiscordRole).where(DiscordRole.deleted.is_(False), DiscordRole.managed.is_(False))).all()
     mapped_roles = set(db.scalars(select(RoleLibrary.role_id)))
+    libs_per_role: dict[str, int] = {}
+    for role_id in db.scalars(select(RoleLibrary.role_id)):
+        libs_per_role[role_id] = libs_per_role.get(role_id, 0) + 1
+    in_role: dict[str, int] = {}
+    linked_in_role: dict[str, int] = {}
+    for m in member_roles:
+        for role_id in set(m.role_ids or ()):
+            in_role[role_id] = in_role.get(role_id, 0) + 1
+            if m.discord_user_id in linked_discord:
+                linked_in_role[role_id] = linked_in_role.get(role_id, 0) + 1
+    roles_out = sorted(({"role_id": r.role_id, "name": r.name, "color": r.color, "members": in_role.get(r.role_id, 0),
+                         "linked": linked_in_role.get(r.role_id, 0), "libraries": libs_per_role.get(r.role_id, 0)}
+                        for r in roles), key=lambda x: (-x["members"], x["name"].lower()))
+
     setup = {"unmanaged_libraries": sum(1 for lib in libs if not lib.is_exempt and lib.library_id not in mapped_libs),
              "exempt_libraries": sum(1 for lib in libs if lib.is_exempt),
              "roles_mapped": sum(1 for r in roles if r.role_id in mapped_roles),
@@ -176,7 +193,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
         links={"plex_users": len(plex), "linked": len(linked), "verified": sum(1 for x in linked if x.verified),
                "unverified": sum(1 for x in linked if not x.verified), "unlinked": len(plex) - len(linked),
                "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
-        activity=activity, access_by_day=access_by_day, libraries=libraries, invites=invites, requests=requests,
+        activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out, invites=invites, requests=requests,
         setup=setup, security=security)
 
 
@@ -185,7 +202,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
-    "requests", "invites", "setup", "security",
+    "requests", "invites", "setup", "security", "roles",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "integrations", "size": "l"},
@@ -199,6 +216,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "setup", "size": "m", "hidden": True}, {"id": "security", "size": "m", "hidden": True},
     {"id": "stat_requests", "size": "s", "hidden": True}, {"id": "stat_invites", "size": "s", "hidden": True},
     {"id": "stat_invites_accepted", "size": "s", "hidden": True},
+    {"id": "roles", "size": "m", "hidden": True},
 ]
 
 

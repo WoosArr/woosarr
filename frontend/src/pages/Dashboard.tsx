@@ -344,7 +344,7 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
     <>
       <Title id="errors"><Link to="/logs?level=WARNING" className="small">All logs →</Link></Title>
       {!ctx.errors ? <Spinner /> : open.length === 0 ? (
-        <Empty icon="check" title="No open warnings or errors">Nothing new in the last 24 hours{resolved.length ? " (apart from resolved ones)" : ""}.</Empty>
+        <p className="dash-ok small"><Icon name="check" size={16} /> No open warnings or errors in the last 24 hours{resolved.length ? " (apart from resolved ones)" : ""}.</p>
       ) : (
         <ul className="dash-list">
           {open.slice(0, 8).map((g) => (

@@ -241,6 +241,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P7-06** Customizable dashboard: per-admin layout (`GET/PUT/DELETE /api/v1/dashboard/layout`, move/resize/hide/add), widgets from `GET /api/v1/dashboard/insights` (link coverage, access changes per day, activity, library access, requests, invites, setup checklist, security) and number tiles. *Verify:* `tests/test_dashboard.py`, Playwright `dashboard widgets…` (+ axe in edit mode).
 - [x] **P7-08** Dashboard: `xs` (eighth) size on an 8-column grid; per-widget `view` default / donut / bar with text legends. *Verify:* `test_layout_per_admin_with_defaults`, Playwright `dashboard widgets…` (+ axe with charts).
 - [x] **P7-07** Users page *Linked* tab (`?link=linked`). *Verify:* `test_users_linked_filter`, Playwright `users page has a Linked tab…`.
+- [x] **P7-09** Dashboard *Warnings and errors* widget: one compact line instead of the tall empty-state block when nothing is open. *Verify:* `make check`; dashboard with no open errors.
 
 ### Phase 8 — Logs
 - [x] **P8-01** Logs page: live tail (2 s cursor polling), level filter, search, export shown lines (JSONL) and full file; keeps up to 20k lines with `content-visibility` rows. Push streaming dropped: polling with `since` is enough for one admin UI.

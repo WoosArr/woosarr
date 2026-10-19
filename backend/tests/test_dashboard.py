@@ -13,6 +13,7 @@ from woosarr.db.models import (
     DiscordRole,
     ErrorResolution,
     Library,
+    LibraryState,
     PlexUser,
     RoleLibrary,
     utcnow,
@@ -112,6 +113,7 @@ class DashboardApiTests(unittest.TestCase):
                                    linked_by="self"),
                        DiscordLink(plex_user_id="12", discord_user_id="502", method="username", verified=False,
                                    linked_by="self"),
+                       LibraryState(plex_user_id="11", library_id="1"),
                        DiscordRole(role_id="901", name="Movies"), DiscordRole(role_id="902", name="Bots", managed=True),
                        DiscordRole(role_id="903", name="Fans"), RoleLibrary(role_id="901", library_id="2"),
                        DiscordMember(discord_user_id="501", username="a", role_ids=["901", "902"]),
@@ -123,8 +125,10 @@ class DashboardApiTests(unittest.TestCase):
         r = self.c.get("/api/v1/dashboard/insights")
         self.assertEqual(r.status_code, 200, r.text)
         d = r.json()
-        self.assertEqual(d["links"], {"plex_users": 3, "linked": 2, "verified": 1, "unverified": 1, "unlinked": 1,
-                                      "members": 2, "members_unlinked": 1})  # owner not counted
+        self.assertEqual(d["links"], {"plex_users": 4, "linked": 2, "verified": 1, "unverified": 1, "unlinked": 2,
+                                      "members": 2, "members_unlinked": 1})  # the owner counts as a Plex user
+        users = {lib["title"]: lib["users"] for lib in d["libraries"]}
+        self.assertEqual(users, {"Movies": 2, "Kids": 1})  # alice's share + the owner, who sees every library
         today = d["access_by_day"][-1]
         self.assertEqual((len(d["access_by_day"]), today["changed"], today["planned"], today["users"]), (14, 1, 1, 2))
         self.assertEqual(d["setup"]["unmanaged_libraries"], 1)  # Movies: no role, not exempt

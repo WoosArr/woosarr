@@ -108,7 +108,9 @@ def _day(ts: datetime) -> str:
 def insights(request: Request, db: DbDep) -> InsightsOut:
     """Everything the dashboard widgets show, from data WooSarr already keeps."""
     now = utcnow()
-    plex = db.scalars(select(PlexUser).where(PlexUser.removed.is_(False), PlexUser.is_owner.is_(False))).all()
+    # The server owner counts as a Plex user everywhere on the dashboard (same as the status counts).
+    plex = db.scalars(select(PlexUser).where(PlexUser.removed.is_(False))).all()
+    owners = {p.plex_user_id for p in plex if p.is_owner}
     ids = {p.plex_user_id for p in plex}
     links = db.execute(select(DiscordLink.plex_user_id, DiscordLink.discord_user_id, DiscordLink.verified)).all()
     linked = [link for link in links if link.plex_user_id in ids]
@@ -137,10 +139,13 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                                     .order_by(AuditLog.ts.desc()).limit(12))]
 
     libs = db.scalars(select(Library).where(Library.removed.is_(False))).all()
-    shared = dict(db.execute(select(LibraryState.library_id, func.count()).group_by(LibraryState.library_id)).all())
+    # Shares cover friends only; the owner sees every library of their own server.
+    shared = dict(db.execute(select(LibraryState.library_id, func.count())
+                             .where(LibraryState.plex_user_id.not_in(owners))
+                             .group_by(LibraryState.library_id)).all())
     mapped_libs = set(db.scalars(select(RoleLibrary.library_id)))
     libraries = sorted(({"library_id": lib.library_id, "title": lib.title, "type": lib.type,
-                         "users": shared.get(lib.library_id, 0), "exempt": lib.is_exempt,
+                         "users": shared.get(lib.library_id, 0) + len(owners), "exempt": lib.is_exempt,
                          "managed": lib.library_id in mapped_libs} for lib in libs),
                        key=lambda x: (-x["users"], x["title"].lower(), x["title"]))
 

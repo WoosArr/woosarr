@@ -37,7 +37,7 @@ def labelled_actions() -> set[str]:
     text = LOGS_PAGE.read_text()
     block = text[text.index("const ACTION_LABEL"):]
     block = block[:block.index("};")]
-    return set(re.findall(r"^\s+([a-z_]+):", block, re.M))
+    return set(re.findall(r"^\s+([a-z_]+):", block, re.MULTILINE))
 
 
 class AuditLabelTests(unittest.TestCase):

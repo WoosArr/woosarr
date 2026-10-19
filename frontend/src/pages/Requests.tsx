@@ -43,7 +43,7 @@ export default function RequestsPage() {
       {seerr.data && !seerr.data.configured ? (
         <div className="banner info" role="status">
           <Icon name="info" />
-          <div>Connect Seerr on the <Link to="/setup">Setup</Link> page to turn on requests in Discord.</div>
+          <div>Connect Seerr on the <Link to="/setup">Integrations</Link> page to turn on requests in Discord.</div>
         </div>
       ) : seerr.data ? (
         <p className="small muted">
@@ -241,7 +241,7 @@ export function RequestSettings() {
   return (
     <div className="card stack" style={{ maxWidth: 720 }}>
       <p className="small muted" style={{ margin: 0 }}>
-        Requests need Seerr on the <Link to="/setup">Setup</Link> page. Seerr's own permissions, quotas and
+        Requests need Seerr on the <Link to="/setup">Integrations</Link> page. Seerr's own permissions, quotas and
         auto-approval still apply to every request; these settings decide who may use the command at all.
       </p>
       <Field label="Command name" hint={<>Without the slash. Change it if another bot in your server already has <code>/request</code>. Members type <code>/{name || "…"}</code>.</>} error={nameError ?? undefined}>

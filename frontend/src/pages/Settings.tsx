@@ -429,7 +429,7 @@ const LINK_ROLES: { key: "verified_role_id" | "unverified_role_id" | "linked_rol
 function LinkRoles({ roles, value, set, onCreated }: {
   roles: RoleOut[]; value: AppSettings; set: (p: Partial<AppSettings>) => void; onCreated: () => void;
 }) {
-  const { available, why } = useDiscordFeatures();
+  const { available, why, pending } = useDiscordFeatures();
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const create = async (key: (typeof LINK_ROLES)[number]["key"], name: string) => {
@@ -452,7 +452,7 @@ function LinkRoles({ roles, value, set, onCreated }: {
       <legend className="small" style={{ fontWeight: 600 }}>Discord roles for Plex link status</legend>
       <span className="small muted">The bot gives and removes these roles to match each member's link. Leave on "Off" to skip.</span>
       {assignBlocked && (value.verified_role_id || value.unverified_role_id || value.linked_role_id) ? (
-        <div className="banner warn small"><span>{assignBlocked}</span></div>
+        <div className={`banner ${pending ? "info" : "warn"} small`} role={pending ? "status" : undefined}><span>{assignBlocked}</span></div>
       ) : null}
       {LINK_ROLES.map((r) => (
         <div key={r.key} className="row" style={{ alignItems: "flex-end" }}>

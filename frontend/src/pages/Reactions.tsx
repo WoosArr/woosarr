@@ -43,7 +43,7 @@ export default function ReactionsPage() {
   const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const roles = useLoad(() => api.get<RoleOut[]>("/api/v1/roles"));
   const [editing, setEditing] = useState<ReactionPostOut | "new" | null>(null);
-  const { why } = useDiscordFeatures();
+  const { why, pending } = useDiscordFeatures();
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
   const roleById = new Map((roles.data ?? []).map((r) => [r.role_id, r]));
   const libsOf = (roleIds: string[]) =>
@@ -52,10 +52,12 @@ export default function ReactionsPage() {
 
   return (
     <>
-      <PageHead title="Reactions" sub="Pinned Discord posts where reacting gives members roles and removing the reaction takes them away.">
+      <PageHead title="Reaction Posts" sub="Pinned Discord posts where reacting gives members roles and removing the reaction takes them away.">
         <button className="btn primary" onClick={() => setEditing("new")}><Icon name="plus" /> New post</button>
       </PageHead>
-      {blocked ? <div className="banner warn"><Icon name="alert" /><div className="small">{blocked}. See Setup → Discord for the bot's permissions.</div></div> : null}
+      {blocked ? (pending
+        ? <div className="banner info" role="status"><Icon name="clock" /><div className="small">{blocked}</div></div>
+        : <div className="banner warn"><Icon name="alert" /><div className="small">{blocked}. See Integrations → Discord for the bot's permissions.</div></div>) : null}
       <div className="banner info">
         <Icon name="info" />
         <div className="small">

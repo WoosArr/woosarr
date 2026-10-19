@@ -31,7 +31,7 @@ The rules:
 
 - `/link`: link your Plex account (Plex sign-in = verified, or typed username).
 - `/unlink`: remove your own link. What happens to access is set under *Settings → When a member unlinks themselves*.
-- `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Needs Seerr connected on the Setup page and a linked (by default verified) Plex account. See [requests.md](requests.md).
+- `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).
 - `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Roles allowed to /invite*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
 
 ### Discord roles managed by WooSarr

@@ -21,7 +21,7 @@ export default function SetupPage() {
   if (params.get("plex") === "signed-in") return <PlexReturned />;
   return (
     <>
-      <PageHead title="Setup" sub="Connect WooSarr to your Plex server and your Discord server." />
+      <PageHead title="Integrations" sub="Connect WooSarr to your Plex server and your Discord server." />
       <div className="grid cols-2">
         <PlexCard />
         <DiscordCard />

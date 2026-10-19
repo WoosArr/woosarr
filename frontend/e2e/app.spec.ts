@@ -45,7 +45,7 @@ test("first-run setup creates the admin and lands on the dashboard", async ({ pa
 
 test("sidebar navigation reaches every page", async ({ page }) => {
   await login(page);
-  for (const name of ["Users", "Roles", "Libraries", "Reactions", "Requests", "Logs", "Settings", "Setup", "Dashboard"]) {
+  for (const name of ["Users", "Roles", "Libraries", "Reaction Posts", "Requests", "Logs", "Settings", "Integrations", "Dashboard"]) {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }

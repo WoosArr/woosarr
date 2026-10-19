@@ -5,7 +5,7 @@ Members request movies and TV shows from Discord with a slash command (default *
 ## Setup
 
 1. In Seerr: **Settings → General → API Key**, copy it.
-2. In WooSarr: **Setup → Seerr (requests)**. Enter the address WooSarr can reach Seerr on, for example `http://10.0.1.101:5055`. Use Seerr's own address, not an SSO or login portal in front of it. Paste the key, press **Test**, then **Save**.
+2. In WooSarr: **Integrations → Seerr (requests)**. Enter the address WooSarr can reach Seerr on, for example `http://10.0.1.101:5055`. Use Seerr's own address, not an SSO or login portal in front of it. Paste the key, press **Test**, then **Save**.
    - *Test* calls `GET /api/v1/status` (is this Seerr?), `GET /api/v1/auth/me` (is the key valid?) and `GET /api/v1/user` (how many users come from Plex?). Nothing is saved until **Save**.
    - The key is stored encrypted like the Plex and Discord tokens, redacted from logs and never returned by the API.
 3. The bot registers the request command within a few seconds; Setup and the Requests page show the name it registered.
@@ -30,7 +30,7 @@ Searching, the "Which one?" list and the details card are always private to the 
 | Status changes | DM to the member | Reply to that post mentioning the member, and the post's *Status* line is updated. Falls back to a DM if the channel or post is gone or the bot can't post there. |
 | **Only in this channel** | n/a | Optional. `/request` used anywhere else answers "Please make requests in #channel" (privately). To also hide the command in other channels, use *Server Settings → Integrations → WooSarr → /request → Channels*. A bot can't set that itself. |
 
-Public needs a channel. The bot needs **View Channels, Send Messages, Embed Links and Read Message History** there (*Public requests* in Setup → Bot features); the channel list marks channels where it can't post. If it can't post, the request is still made and the problem is logged (`bot can't post requests in #… missing …`). Whether a request was public is decided when it's made, so switching later doesn't move existing requests' updates.
+Public needs a channel. The bot needs **View Channels, Send Messages, Embed Links and Read Message History** there (*Public requests* in Integrations → Bot features); the channel list marks channels where it can't post. If it can't post, the request is still made and the problem is logged (`bot can't post requests in #… missing …`). Whether a request was public is decided when it's made, so switching later doesn't move existing requests' updates.
 
 ## Who may request (Settings → Requests)
 

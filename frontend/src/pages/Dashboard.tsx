@@ -578,7 +578,7 @@ function Requests({ ins }: { ins: Insights | null }) {
     <>
       <Title id="requests"><Link to="/requests" className="small">Requests →</Link></Title>
       {!r.configured && r.recent.length === 0 ? (
-        <p className="small muted">Connect Seerr on the <Link to="/setup">Setup</Link> page so members can request movies and shows from Discord.</p>
+        <p className="small muted">Connect Seerr on the <Link to="/setup">Integrations</Link> page so members can request movies and shows from Discord.</p>
       ) : (
         <>
           <div className="row" style={{ flexWrap: "wrap", marginBottom: 8 }}>

@@ -47,7 +47,7 @@ Images are published for `linux/amd64` and `linux/arm64`.
    ```
 
 2. Open `http://<host>:31337`, enter the code and create the first admin account (password ≥ 12 characters).
-3. **Setup** page: connect Plex and Discord.
+3. **Integrations** page: connect Plex and Discord.
 4. **Roles** page: choose which libraries each Discord role grants. **Libraries** page: exempt any library that roles should never touch.
 5. **Dashboard**: check *Pending changes*. When they look right, turn off **dry-run** in *Settings → General*.
 

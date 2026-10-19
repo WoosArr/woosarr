@@ -20,11 +20,11 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/users", label: "Users", icon: "users" },
   { to: "/roles", label: "Roles", icon: "roles" },
   { to: "/libraries", label: "Libraries", icon: "library" },
-  { to: "/reactions", label: "Reactions", icon: "check" },
+  { to: "/reactions", label: "Reaction Posts", icon: "check" },
   { to: "/requests", label: "Requests", icon: "download" },
   { to: "/logs", label: "Logs", icon: "logs" },
   { to: "/settings", label: "Settings", icon: "settings" },
-  { to: "/setup", label: "Setup", icon: "setup" },
+  { to: "/setup", label: "Integrations", icon: "setup" },
 ];
 
 function ThemeToggle() {

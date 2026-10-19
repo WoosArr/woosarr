@@ -8,7 +8,7 @@ Sources: python-plexapi 4.18.3 source (`plexapi/myplex.py`), read in full for th
 - The token is bound to `X-Plex-Client-Identifier`. WooSarr generates `woosarr-<uuid4>` once per install (`settings` key `plex.client_id`) and puts it in `plexapi.BASE_HEADERS` (the dict every plexapi request copies), along with `X-Plex-Product: WooSarr`.
 - Stored session: only the owner token, Fernet-encrypted as secret `plex.token`. Account id/username and the chosen server are plain settings.
 - `MyPlexJWTLogin` (JWT device auth) isn't needed: PIN/OAuth tokens work for every call WooSarr makes. Revisit if Plex retires classic tokens.
-- Revocation: a 401 from plex.tv (`Unauthorized`) marks the gateway `auth_failed`; the dashboard and Setup page say "sign in again". Disconnect calls `signout()` before deleting the token.
+- Revocation: a 401 from plex.tv (`Unauthorized`) marks the gateway `auth_failed`; the dashboard and Integrations page say "sign in again". Disconnect calls `signout()` before deleting the token.
 
 ## Sharing semantics (P0-03)
 
@@ -35,7 +35,7 @@ Performance: per-user reads cost ~0.5 s each (they re-fetch the friends list), s
 
 ### Verifying on your server
 
-Setup → Plex → **Verify sharing on a test user…** rewrites the user's current set, adds one library, then restores the original, checking shares and per-friend settings after each step. Keep dry-run on until it passes.
+Integrations → Plex → **Verify sharing on a test user…** rewrites the user's current set, adds one library, then restores the original, checking shares and per-friend settings after each step. Keep dry-run on until it passes.
 
 ## Who counts as a Plex user (live finding 2026-10-17)
 

@@ -2,7 +2,7 @@
 
 ## Bot permissions by feature
 
-Grant only what the features you use need. WooSarr reads the bot's actual permissions in your server and shows each feature as available or not (Setup → Discord → *Bot features and permissions*); unavailable features are disabled in the UI and refused with the missing permission named. The same page builds an invite link with exactly the permissions for the features you tick; using it again updates the bot's permissions without removing it.
+Grant only what the features you use need. WooSarr reads the bot's actual permissions in your server and shows each feature as available or not (Integrations → Discord → *Bot features and permissions*); unavailable features are disabled in the UI and refused with the missing permission named. The same page builds an invite link with exactly the permissions for the features you tick; using it again updates the bot's permissions without removing it.
 
 | Feature | What it does | Permissions | Also needs |
 |---------|--------------|-------------|------------|
@@ -23,12 +23,12 @@ WooSarr never needs Administrator, Kick/Ban, Manage Messages or Message Content.
 
 Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
-## Setup the admin does (Setup page)
+## Setup the admin does (Integrations page)
 
 1. Developer Portal → New Application → **Bot**.
 2. **Privileged Gateway Intents → Server Members Intent: on.** WooSarr checks this before saving the token: `GET /applications/@me` → `flags` must contain `GATEWAY_GUILD_MEMBERS` (1<<14) or `GATEWAY_GUILD_MEMBERS_LIMITED` (1<<15).
 3. **Reset Token** and paste it into WooSarr. It's validated with `GET /users/@me`, stored encrypted as `discord.bot_token`, and never shown again.
-   Optional, once connected: **Setup → Discord → Bot avatar** sets the bot's avatar to WooSarr's icon (default) or an uploaded image, and optionally the application icon too. See *Bot avatar* below.
+   Optional, once connected: **Integrations → Discord → Bot avatar** sets the bot's avatar to WooSarr's icon (default) or an uploaded image, and optionally the application icon too. See *Bot avatar* below.
 4. Invite with the generated URL: `scope=bot applications.commands`, `permissions=0`. The bot needs no channel permissions: it only reads roles and members (intent) and answers `/link` with ephemeral replies.
 5. Pick the server (`GET /users/@me/guilds`). One guild in v1 (D11).
 
@@ -38,7 +38,7 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 - `/link` is registered as a **guild** command (`tree.sync(guild=…)`), so it appears immediately (global commands can take up to an hour).
 - On connect: full cache sync (`guild.roles`, `guild.fetch_members()`), then a full reconcile.
 - Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`.
-- Reconnect/resume is discord.py's (`reconnect=True`). `PrivilegedIntentsRequired` and `LoginFailure` are shown on the dashboard and Setup page; **Restart bot** retries without a container restart.
+- Reconnect/resume is discord.py's (`reconnect=True`). `PrivilegedIntentsRequired` and `LoginFailure` are shown on the dashboard and Integrations page; **Restart bot** retries without a container restart.
 - DB work runs in `asyncio.to_thread`; Plex calls run on the sync worker, so the gateway heartbeat never waits on Plex.
 
 ## `/link`
@@ -82,18 +82,18 @@ When a role is deleted in Discord (or was deleted while the bot was offline), th
 
 ## Reaction posts
 
-Reactions page:
+Reaction Posts page:
 
 1. **New post**: message text, channel (existing, or a new channel name; an existing channel with that name is reused), pin on/off, and up to 20 reactions (Discord's limit). Each reaction gives exactly **one Discord role**, chosen from a dropdown (or *＋ Create new role…*); its label in WooSarr is always the role's name. Pick the emoji with the searchable picker (server emoji + common emoji) or paste any emoji / `<:name:id>`. Bot/integration roles can't be chosen.
 2. **Legend** (on by default): under the message the bot lists each reaction, one line per reaction from an editable template, e.g. `{emoji} {role} — {libraries}` → "🎬 @Movie Night — Movies, 4K Movies". Placeholders: `{emoji}`, `{role}` (a role mention: shows the role's name and colour, never pings), `{role_name}` (plain text), `{libraries}` (what the role unlocks). Optional heading, and an optional custom line per reaction. The editor shows a live preview and the length (Discord allows 2000 characters).
 3. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
 4. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 5. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.
-6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reactions page shows *Update pending* until it has.
+6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
 
 ## Bot avatar
 
-**Setup → Discord → Bot avatar** (admins, only while the bot is connected):
+**Integrations → Discord → Bot avatar** (admins, only while the bot is connected):
 
 - **WooSarr icon** (default): the 512 px PNG shipped in the image (`backend/woosarr/assets/bot-avatar.png`, rendered by `make icons`).
 - **My own image**: PNG, JPEG or GIF, at least 128×128, up to 8 MB. The type and size are read from the file's bytes (not its name or the browser's claim); SVG and WebP are refused because Discord's image data doesn't take them. Discord shows avatars as circles cropped from the centre; the page previews that.

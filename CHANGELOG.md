@@ -4,6 +4,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-19
+
+First stable release. Highlights since 0.1.0: shared Plex accounts (families), Alerts with account events, the Discord bot's `/unlink`, `/invite`, `/help` and reaction posts, requests through Seerr, admin single sign-on, a customizable dashboard, Docker Compose support, and the move to the AGPL-3.0 licence.
+
 ### Added
 - `compose.yaml`: run WooSarr with Docker Compose (data folder, port, `PUID`/`PGID` and log level via `.env`; Unraid WebUI/icon labels for Compose stacks). CI starts the built image through it before publishing.
 - **Shared Plex accounts (families):** several Discord members can be linked to one Plex account, which gets the libraries all their roles give. Admins add members on the Users page (**Add member**); *Settings → Linking → Shared Plex accounts* can also let members join by signing in with that Plex account (typing a username never joins). Leaving or unlinking follows the existing policies per member; under "leave as it is", a departing member's libraries become manual grants.

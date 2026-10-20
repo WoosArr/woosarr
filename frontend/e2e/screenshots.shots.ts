@@ -87,6 +87,18 @@ test("documentation screenshots", async ({ page }) => {
   await expect(page.getByText("Shared by 2")).toBeVisible();
   await shot(page, "users");
 
+  await page.goto("/users?tab=discord");
+  await expect(page.getByRole("region", { name: "Discord members" })).toBeVisible();
+  await shot(page, "users-discord");
+  await page.getByLabel("Select Frank").check();
+  await page.getByLabel("Select Bob").check();
+  await page.getByRole("button", { name: /Add roles/ }).click();
+  await page.getByRole("dialog").getByLabel("Anime Club").check();
+  await expect(page.getByRole("dialog").getByText(/gains/).first()).toBeVisible();
+  await page.waitForTimeout(400);
+  await page.getByRole("dialog").screenshot({ path: `${OUT}/discord-add-roles.png` });
+  await page.keyboard.press("Escape");
+
   await page.goto("/roles");
   await shot(page, "roles");
 

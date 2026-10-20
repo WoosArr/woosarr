@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, qs, type InviteOut, type LibraryOut, type MemberOut, type UserOut } from "../api";
 import { Icon } from "../icons";
 import {
@@ -18,12 +19,29 @@ import {
 } from "../ui";
 import { ImpactList } from "../Impact";
 import { LibraryChooser } from "./LibraryChooser";
+import DiscordUsers from "./DiscordUsers";
+import { LinkFilter, TriStateBox, type Filter } from "./UserFilters";
 
 type LinkOut = UserOut["links"][number];
 
-type Filter = "" | "verified" | "unverified" | "linked" | "unlinked";
-
 export default function UsersPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "discord" ? "discord" : "plex";
+  return (
+    <>
+      <PageHead title="Users" sub={tab === "plex"
+        ? "Plex users, their linked Discord accounts, roles and library access."
+        : "Members of your Discord server, their roles and Plex links."} />
+      <div className="segmented" role="tablist" aria-label="User lists" style={{ marginBottom: 16 }}>
+        <button role="tab" aria-selected={tab === "plex"} onClick={() => setParams({})}><Icon name="plex" size={15} /> Plex</button>
+        <button role="tab" aria-selected={tab === "discord"} onClick={() => setParams({ tab: "discord" })}><Icon name="discord" size={15} /> Discord</button>
+      </div>
+      {tab === "plex" ? <PlexUsers /> : <DiscordUsers />}
+    </>
+  );
+}
+
+function PlexUsers() {
   const [filter, setFilter] = useState<Filter>("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -86,23 +104,18 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHead title="Users" sub="Plex users, their linked Discord accounts, roles and library access.">
-        <button className="btn" disabled={!selected.size} onClick={() => setBulk("add")}>
-          <Icon name="plus" /> Add libraries{selected.size ? ` (${selected.size})` : ""}
-        </button>
-        <button className="btn" disabled={!selected.size} onClick={() => setBulk("remove")}>
-          <Icon name="minus" /> Remove libraries{selected.size ? ` (${selected.size})` : ""}
-        </button>
-      </PageHead>
-
-      <div className="row" style={{ marginBottom: 12 }}>
-        <input type="search" className="inline-input" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search users" style={{ width: 260 }} />
-        <div className="segmented" role="group" aria-label="Link filter">
-          {(["", "verified", "unverified", "linked", "unlinked"] as Filter[]).map((f) => (
-            <button key={f || "all"} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-              {f ? f[0].toUpperCase() + f.slice(1) : "All"}
-            </button>
-          ))}
+      <div className="row spread" style={{ marginBottom: 12 }}>
+        <div className="row">
+          <input type="search" className="inline-input" placeholder="Search users…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search users" style={{ width: 260 }} />
+          <LinkFilter value={filter} onChange={setFilter} />
+        </div>
+        <div className="row">
+          <button className="btn" disabled={!selected.size} onClick={() => setBulk("add")}>
+            <Icon name="plus" /> Add libraries{selected.size ? ` (${selected.size})` : ""}
+          </button>
+          <button className="btn" disabled={!selected.size} onClick={() => setBulk("remove")}>
+            <Icon name="minus" /> Remove libraries{selected.size ? ` (${selected.size})` : ""}
+          </button>
         </div>
       </div>
 
@@ -297,17 +310,6 @@ interface PreviewRow {
   kept_by_roles: string[];
 }
 
-function TriStateBox({ state, marked, label, onToggle }: { state: "all" | "some" | "none"; marked: boolean; label: string; onToggle: () => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const checked = state === "all" && !marked;
-  const mixed = state === "some" && !marked;
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = mixed;
-  }, [mixed]);
-  return (
-    <input ref={ref} type="checkbox" checked={checked} disabled={state === "none"} onChange={onToggle} aria-label={label} />
-  );
-}
 
 function RemoveModal({ users, libraries, onClose, onDone }: { users: UserOut[]; libraries: LibraryOut[]; onClose: () => void; onDone: () => void }) {
   const [marked, setMarked] = useState<Set<string>>(new Set());

@@ -6,6 +6,8 @@ No Plex calls; uses the share cache (library_state) refreshed by every sync.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -65,6 +67,44 @@ def settings_impact(session: Session, proposed: AppSettings) -> list[dict]:
     for uid in snap.plex_user_ids:
         before = _outcome(snap, current_settings, uid)
         after = _outcome(snap, proposed, uid)
+        if before != after:
+            out.append({"plex_user_id": uid, "username": names.get(uid, uid),
+                        "gain": sorted(after - before), "lose": sorted(before - after)})
+    return out
+
+
+def _target(snap: Snapshot, settings: AppSettings, uid: str, current: frozenset[str]) -> frozenset[str]:
+    """The share set a sync would aim for (ignoring dry-run)."""
+    state = user_state(snap, uid, settings, current)
+    plan = plan_for_user(state, snap.role_map, snap.exempt) if state else None
+    return plan.target if plan else current
+
+
+def role_change_impact(session: Session, discord_user_ids: Iterable[str], add: Iterable[str],
+                       remove: Iterable[str]) -> list[dict]:
+    """Per linked Plex account: libraries gained/lost if these members' roles changed like this.
+
+    Compares what the sync would set (not what dry-run would write), so the preview is useful in
+    dry-run too. Shared accounts use every member's roles, as the sync does.
+    """
+    settings = app_settings.load(session)
+    snap = load_snapshot(session)
+    ids, add_set, remove_set = set(discord_user_ids), set(add), set(remove)
+    members = dict(snap.members)
+    for uid in ids:
+        m = members.get(uid)
+        if m is not None:
+            members[uid] = SimpleNamespace(discord_user_id=uid, role_ids=sorted((set(m.role_ids or ()) | add_set) - remove_set),
+                                           in_guild=m.in_guild)
+    after_snap = replace(snap, members=members)
+    affected = {link.plex_user_id for links in snap.links.values() for link in links if link.discord_user_id in ids}
+    names = dict(session.execute(select(PlexUser.plex_user_id, PlexUser.username)).all())
+    out = []
+    for uid in sorted(affected, key=lambda x: names.get(x, x).lower()):
+        if uid in snap.owner_ids:
+            continue
+        current = snap.cached_shares.get(uid, frozenset())
+        before, after = _target(snap, settings, uid, current), _target(after_snap, settings, uid, current)
         if before != after:
             out.append({"plex_user_id": uid, "username": names.get(uid, uid),
                         "gain": sorted(after - before), "lose": sorted(before - after)})

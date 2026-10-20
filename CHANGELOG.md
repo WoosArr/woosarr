@@ -4,6 +4,13 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Added
+- Users page: **Plex** and **Discord** tabs. The Discord tab lists the server's members with their roles and linked Plex account (All / Verified / Unverified / Linked / Unlinked, search), and **Add roles** / **Remove roles** for selected members with a Plex impact preview. New bot feature *Give and remove roles* (Manage Roles). Audited.
+- Dashboard *Requests* widget shows who asked (their Plex username).
+
+### Changed
+- Development moved to the `develop` branch (now the default branch; pull requests go there). `main` is the release branch; only merges to `main` and version tags publish images.
+
 ## [1.0.0] - 2026-10-19
 
 First stable release. Highlights since 0.1.0: shared Plex accounts (families), Alerts with account events, the Discord bot's `/unlink`, `/invite`, `/help` and reaction posts, requests through Seerr, admin single sign-on, a customizable dashboard, Docker Compose support, and the move to the AGPL-3.0 licence.

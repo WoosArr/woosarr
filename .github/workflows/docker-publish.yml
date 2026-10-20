@@ -1,12 +1,15 @@
 name: Docker publish
 
-# Push to main or a version tag: run CI first, then build and publish the image
-# to GHCR only if CI passes. Uses the built-in GITHUB_TOKEN; no stored registry
+# Push to main, develop or a version tag: run CI first, then build and publish the
+# image to GHCR only if CI passes. Uses the built-in GITHUB_TOKEN; no stored registry
 # credentials. Pull requests run CI only (see ci.yml).
+#
+# Image tags: main → latest; develop → develop; v1.2.3 → 1.2.3 and 1.2; every build
+# also gets sha-<commit>. `latest` never comes from develop.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ["v*.*.*"]
   workflow_dispatch:
 
@@ -55,7 +58,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            # Not {{is_default_branch}}: the default branch is develop, latest is main only.
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short

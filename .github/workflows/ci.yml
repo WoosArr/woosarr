@@ -1,12 +1,10 @@
 name: CI
 
-# Runs on pull requests and pushes to develop (no image), and is called by
-# docker-publish.yml so the image is only built and published when these checks pass.
+# Runs on pull requests, and is called by docker-publish.yml (pushes to main, develop
+# and tags) so an image is only built and published when these checks pass.
 
 on:
   pull_request:
-  push:
-    branches: [develop]
   workflow_call:
 
 permissions:

@@ -41,12 +41,18 @@ ROLES = [
     (SUPPORTERS, "Supporters", 0xF1C40F, 2),
     (MODERATORS, "Moderators", 0x2ECC71, 1),
 ]
+# Discord-sized member ids, too.
+ALICE = "748291035561803777"
+BOB = "748291188204560415"
+CAROL = "748291317952876544"
+ERIN = "748291442378301460"
+FRANK = "748291569020018699"
 MEMBERS = [
-    ("50001", "alice_d", "Alice", [MOVIE_NIGHT, SERIES_FANS]),
-    ("50002", "bobby", "Bob", [MOVIE_NIGHT]),
-    ("50003", "carol.c", "Carol", [ANIME_CLUB, SUPPORTERS]),
-    ("50004", "erin_e", "Erin", []),
-    ("50005", "frank", "Frank", [SERIES_FANS]),
+    (ALICE, "alice_d", "Alice", [MOVIE_NIGHT, SERIES_FANS]),
+    (BOB, "bobby", "Bob", [MOVIE_NIGHT]),
+    (CAROL, "carol.c", "Carol", [ANIME_CLUB, SUPPORTERS]),
+    (ERIN, "erin_e", "Erin", []),
+    (FRANK, "frank", "Frank", [SERIES_FANS]),
 ]
 
 

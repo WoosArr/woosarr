@@ -237,5 +237,5 @@ def set_role_libraries(role_id: str, body: RoleLibrariesIn, request: Request, db
                  role_name=role.name if role else None, before=sorted(before), after=sorted(wanted),
                  users_gaining=impact.users_gaining, users_losing=impact.users_losing)
     # A mapping change can move the managed universe, so reconcile everyone.
-    request.app.state.sync.trigger(None, f"role {role_id} mapping changed by {principal.actor}")
+    request.app.state.sync.trigger(None, f"role {role.name if role else role_id} mapping changed by {principal.actor}")
     return impact

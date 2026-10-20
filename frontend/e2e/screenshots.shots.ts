@@ -42,8 +42,10 @@ async function seed(api: Awaited<ReturnType<typeof client>>) {
   }
   await api("PATCH", "/api/v1/libraries/6", { is_exempt: true }); // Family Videos
   // Links: alice and bob on their own accounts, carol's account shared by a family (Carol + Frank).
-  for (const [plex, discord] of [["1001", "50001"], ["1002", "50002"], ["1003", "50003"], ["1003", "50005"]]) {
-    await api("PUT", `/api/v1/users/${plex}/link`, { discord_user_id: discord });
+  const memberId = Object.fromEntries(((await api("GET", "/api/v1/discord/member-list")) as { discord_user_id: string; display_name: string }[])
+    .map((m) => [m.display_name, m.discord_user_id]));
+  for (const [plex, discord] of [["1001", "Alice"], ["1002", "Bob"], ["1003", "Carol"], ["1003", "Frank"]]) {
+    await api("PUT", `/api/v1/users/${plex}/link`, { discord_user_id: memberId[discord] });
   }
   await api("POST", "/api/v1/reaction-posts", {
     title: "Library roles",
@@ -76,7 +78,7 @@ test("documentation screenshots", async ({ page }) => {
   await seed(api);
   await page.waitForTimeout(2500); // the queued sync runs
 
-  await page.setViewportSize({ width: 1440, height: 1640 }); // the whole default dashboard
+  await page.setViewportSize({ width: 1440, height: 1720 }); // the whole default dashboard
   for (const mode of ["dark", "light"] as const) {
     await theme(page, mode);
     await page.goto("/");

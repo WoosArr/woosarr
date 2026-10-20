@@ -9,7 +9,7 @@ from tests.helpers import AppHarness
 from tests.test_invite_unlink import Base
 from woosarr.core import app_settings
 from woosarr.db.models import AuditLog, DiscordLink, ManualGrant, PlexUser
-from woosarr.dev.demo import SERIES_FANS
+from woosarr.dev.demo import ALICE, SERIES_FANS
 from woosarr.plex_gateway import PlexUser as GwUser
 
 
@@ -150,7 +150,7 @@ class SettingsImpactTests(Base):
         try:
             c = h.setup_admin()
             h.app.state.sync.run_now(None, "load")
-            c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
+            c.put("/api/v1/users/1001/link", json={"discord_user_id": ALICE})
             c.put(f"/api/v1/roles/{SERIES_FANS}/libraries", json={"library_ids": ["2", "3"]})
             r = c.post("/api/v1/settings/preview", json={"dry_run": False}).json()
             self.assertEqual(r["users_gaining"], 1)

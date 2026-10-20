@@ -230,19 +230,19 @@ class WooSarrBot(discord.Client):
             return
         pid = await self.service.run_db(cache.member_changed, _member(after))
         if pid:
-            self.service.trigger([pid], f"discord roles changed for {after.id}")
+            self.service.trigger([pid], f"discord roles changed for {after.display_name}")
 
     async def on_member_join(self, member: discord.Member) -> None:
         if self._ours(member.guild):
             pid = await self.service.run_db(cache.member_changed, _member(member))
             if pid:
-                self.service.trigger([pid], f"discord member joined {member.id}")
+                self.service.trigger([pid], f"discord member joined: {member.display_name}")
 
     async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
         if payload.guild_id == self.guild_id:
             pid = await self.service.run_db(cache.member_left, str(payload.user.id))
             if pid:
-                self.service.trigger([pid], f"discord member left {payload.user.id}")
+                self.service.trigger([pid], f"discord member left: {payload.user.name}")
 
     async def on_guild_role_create(self, role: discord.Role) -> None:
         if self._ours(role.guild):
@@ -268,7 +268,7 @@ class WooSarrBot(discord.Client):
         if self._ours(role.guild):
             affected = await self.service.run_db(cache.role_deleted, str(role.id))
             if affected:
-                self.service.trigger(affected, f"discord role {role.id} deleted")
+                self.service.trigger(affected, f"discord role {role.name} deleted")
             self.service.schedule_post_refresh()
 
 
@@ -282,7 +282,7 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         result = await self.service.run_db(link_service.link_by_username, str(interaction.user.id), str(self.name.value))
         if result.ok and result.plex_user_id:
-            self.service.trigger([result.plex_user_id], f"self-link by discord {interaction.user.id}")
+            self.service.trigger([result.plex_user_id], f"self-link by {interaction.user.display_name}")
         await interaction.response.send_message(result.message, ephemeral=True)
 
 

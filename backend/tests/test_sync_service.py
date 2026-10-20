@@ -31,7 +31,7 @@ class SyncServiceTests(unittest.TestCase):
         with self.db.session() as s:
             inventory.refresh_all(s, self.gw)
             # alice: Movie Night + Series Fans; bob: Movie Night; carol: Anime Club + Supporters
-            for plex, discord, verified in (("1001", "50001", True), ("1002", "50002", False), ("1003", "50003", True)):
+            for plex, discord, verified in (("1001", demo.ALICE, True), ("1002", demo.BOB, False), ("1003", demo.CAROL, True)):
                 s.add(DiscordLink(plex_user_id=plex, discord_user_id=discord, method="oauth" if verified else "username",
                                   verified=verified, linked_by="self"))
             for role, lib in ((demo.MOVIE_NIGHT, "1"), (demo.MOVIE_NIGHT, "4"), (demo.SERIES_FANS, "2"),
@@ -91,7 +91,7 @@ class SyncServiceTests(unittest.TestCase):
         self.live()
         self.svc.run_now(None, "first")
         with self.db.session() as s:
-            member = s.get(DiscordMember, "50003")
+            member = s.get(DiscordMember, demo.CAROL)
             member.role_ids = [demo.ANIME_CLUB]  # carol loses Supporters
         self.svc.run_now(["1003"], "role removed")
         self.assertEqual(self.gw.shares["1003"], {"3", "5"})
@@ -113,13 +113,13 @@ class SyncServiceTests(unittest.TestCase):
         self.live()
         self.svc.run_now(None, "first")
         with self.db.session() as s:
-            s.get(DiscordMember, "50001").in_guild = False
+            s.get(DiscordMember, demo.ALICE).in_guild = False
             s.add(ManualGrant(plex_user_id="1001", library_id="2", granted_by="admin:x"))
         self.svc.run_now(["1001"], "left")
         self.assertEqual(self.gw.shares["1001"], {"2"})  # role access dropped, manual kept
         with self.db.session() as s:
             app_settings.update(s, {"leave_policy": "keep_all"})
-            s.get(DiscordMember, "50002").in_guild = False
+            s.get(DiscordMember, demo.BOB).in_guild = False
         before = set(self.gw.shares["1002"])
         self.svc.run_now(["1002"], "left")
         self.assertEqual(self.gw.shares["1002"], before)

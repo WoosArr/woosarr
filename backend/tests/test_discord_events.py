@@ -65,7 +65,7 @@ class DiscordEventTests(unittest.TestCase):
         self.fire(self.bot.on_member_join(member(501, [r1])))
         self.triggers.clear()
         self.fire(self.bot.on_member_update(member(501, [r1]), member(501, [r1, r2])))
-        self.assertEqual(self.triggers, [(["11"], "discord roles changed for 501")])
+        self.assertEqual(self.triggers, [(["11"], "discord roles changed for Alice")])
         self.assertEqual(self.roles_of("501"), (["9001", "9002"], True))  # @everyone not stored
 
     def test_unrelated_update_and_other_guilds_ignored(self):
@@ -80,8 +80,8 @@ class DiscordEventTests(unittest.TestCase):
     def test_member_leaves(self):
         self.fire(self.bot.on_member_join(member(501, [role(9001)])))
         self.triggers.clear()
-        self.fire(self.bot.on_raw_member_remove(SimpleNamespace(guild_id=GUILD, user=SimpleNamespace(id=501))))
-        self.assertEqual(self.triggers, [(["11"], "discord member left 501")])
+        self.fire(self.bot.on_raw_member_remove(SimpleNamespace(guild_id=GUILD, user=SimpleNamespace(id=501, name="alice"))))
+        self.assertEqual(self.triggers, [(["11"], "discord member left: alice")])
         self.assertFalse(self.roles_of("501")[1])
 
     def test_role_lifecycle(self):
@@ -94,7 +94,7 @@ class DiscordEventTests(unittest.TestCase):
         with self.db.session() as s:
             self.assertEqual(s.get(DiscordRole, "9001").name, "Film Club")
         self.fire(self.bot.on_guild_role_delete(renamed))
-        self.assertEqual(self.triggers, [(["11"], "discord role 9001 deleted")])
+        self.assertEqual(self.triggers, [(["11"], "discord role Film Club deleted")])
         with self.db.session() as s:
             self.assertTrue(s.get(DiscordRole, "9001").deleted)
             self.assertEqual(s.scalars(select(DiscordMember.role_ids)).one(), [])

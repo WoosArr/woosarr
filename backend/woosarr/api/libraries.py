@@ -62,6 +62,6 @@ def patch_library(library_id: str, body: LibraryPatchIn, request: Request, db: D
         lib.is_exempt = body.is_exempt
         audit.record(db, principal.actor, "library_exempt" if body.is_exempt else "library_unexempt",
                      "library", library_id, title=lib.title)
-        request.app.state.sync.trigger(None, f"exemption changed for library {library_id}")
+        request.app.state.sync.trigger(None, f"exemption changed for {lib.title}")
     db.flush()
     return next(item for item in _all(db) if item.library_id == library_id)

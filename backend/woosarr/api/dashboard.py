@@ -161,9 +161,17 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "recent": [{"identifier": i.identifier, "created_at": i.created_at} for i in pending[:5]]}
 
     by_status = dict(db.execute(select(MediaRequest.status, func.count()).group_by(MediaRequest.status)).all())
+    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(5)))
+    plex_names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username).where(
+        PlexUser.plex_user_id.in_({r.plex_user_id for r in recent_rows if r.plex_user_id}))).all())
+    discord_names = {m.discord_user_id: m.display_name or m.username for m in db.scalars(select(DiscordMember).where(
+        DiscordMember.discord_user_id.in_({r.discord_user_id for r in recent_rows})))}
     recent_requests = [{"title": r.title, "year": r.year, "media_type": r.media_type, "status": r.status,
-                        "created_at": r.created_at}
-                       for r in db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(5))]
+                        "created_at": r.created_at,
+                        # Who asked: their Plex account (what Seerr requested as), else their Discord name.
+                        "plex_username": plex_names.get(r.plex_user_id) if r.plex_user_id else None,
+                        "discord_name": discord_names.get(r.discord_user_id)}
+                       for r in recent_rows]
     req_svc = getattr(request.app.state, "requests", None)
     requests = {"configured": bool(req_svc and req_svc.configured()), "by_status": by_status,
                 "last_7d": db.scalar(select(func.count()).select_from(MediaRequest).where(

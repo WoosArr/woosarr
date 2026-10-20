@@ -8,6 +8,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Users page: **Plex** and **Discord** tabs. The Discord tab lists the server's members with their roles and linked Plex account (All / Verified / Unverified / Linked / Unlinked, search), and **Add roles** / **Remove roles** for selected members with a Plex impact preview. New bot feature *Give and remove roles* (Manage Roles). Audited.
 - Dashboard *Requests* widget shows who asked (their Plex username).
 
+### Security
+- certifi 2026.10.19 (was 2026.7.22): drops the `emSign ECC Root CA - G3` root, whose eMudhra intermediates had compromised keys and could be used to impersonate any HTTPS site WooSarr connects to (plex.tv, Discord, Seerr). PYSEC-2026-4320.
+
 ### Changed
 - Development moved to the `develop` branch (now the default branch; pull requests go there). `main` is the release branch; only merges to `main` and version tags publish images.
 

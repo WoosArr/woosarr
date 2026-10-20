@@ -186,3 +186,7 @@ Pushes to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audi
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, change and share WooSarr freely; if you distribute a modified version, or let others use one over a network, you must make its source code available under the same licence.
 
 Versions published before 2026-10-19 (including v0.1.0) were released under the MIT licence.
+
+## Disclaimer
+
+WooSarr is an independent project. It is not affiliated with, endorsed by, or part of the [Servarr](https://wiki.servarr.com/) project or its apps (Sonarr, Radarr, Lidarr, Readarr, Prowlarr and others). The "-arr" in the name only nods to that family of self-hosted media tools.

@@ -34,9 +34,11 @@ async function seed(api: Awaited<ReturnType<typeof client>>) {
   for (const g of (await api("GET", "/api/v1/errors")) as { fingerprint: string; logger: string }[]) {
     if (g.logger !== "woosarr.accounts") await api("PUT", `/api/v1/errors/${g.fingerprint}/resolved`);
   }
-  // Role → library mappings (demo roles 9001-9005, libraries 1-6).
-  for (const [role, libs] of [["9001", ["1", "4"]], ["9002", ["2"]], ["9003", ["3"]], ["9004", ["4", "5"]]] as const) {
-    await api("PUT", `/api/v1/roles/${role}/libraries`, { library_ids: libs });
+  // Role → library mappings (libraries 1-6). Demo role ids are looked up by name.
+  const roleId = Object.fromEntries(((await api("GET", "/api/v1/roles")) as { role_id: string; name: string }[])
+    .map((r) => [r.name, r.role_id]));
+  for (const [role, libs] of [["Movie Night", ["1", "4"]], ["Series Fans", ["2"]], ["Anime Club", ["3"]], ["Supporters", ["4", "5"]]] as const) {
+    await api("PUT", `/api/v1/roles/${roleId[role]}/libraries`, { library_ids: libs });
   }
   await api("PATCH", "/api/v1/libraries/6", { is_exempt: true }); // Family Videos
   // Links: alice and bob on their own accounts, carol's account shared by a family (Carol + Frank).
@@ -48,9 +50,9 @@ async function seed(api: Awaited<ReturnType<typeof client>>) {
     content: "React below to pick the Plex libraries you'd like. Remove your reaction to give one back.",
     pin: true,
     options: [
-      { emoji: "🎬", role_id: "9001" },
-      { emoji: "📺", role_id: "9002" },
-      { emoji: "🍙", role_id: "9003" },
+      { emoji: "🎬", role_id: roleId["Movie Night"] },
+      { emoji: "📺", role_id: roleId["Series Fans"] },
+      { emoji: "🍙", role_id: roleId["Anime Club"] },
     ],
     legend: true,
     legend_template: "{emoji} {role} — {libraries}",

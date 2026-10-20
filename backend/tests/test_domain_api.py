@@ -1,6 +1,7 @@
 import unittest
 
 from tests.helpers import AppHarness
+from woosarr.dev.demo import MOVIE_NIGHT
 
 
 class DomainApiTests(unittest.TestCase):
@@ -32,7 +33,7 @@ class DomainApiTests(unittest.TestCase):
         self.assertEqual(self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50001"}).status_code, 409)
         self.assertEqual(self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "abc"}).status_code, 422)
 
-        self.c.put("/api/v1/roles/9001/libraries", json={"library_ids": ["1", "4"]})
+        self.c.put(f"/api/v1/roles/{MOVIE_NIGHT}/libraries", json={"library_ids": ["1", "4"]})
         libs = {lib["library_id"]: lib for lib in self.c.get("/api/v1/users/1001").json()["libraries"]}
         self.assertEqual(libs["1"]["sources"], ["role"])
         self.assertTrue(libs["1"]["shared"])
@@ -75,14 +76,14 @@ class DomainApiTests(unittest.TestCase):
     def test_role_mapping_preview_and_audit(self):
         self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
         self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50002"})
-        preview = self.c.post("/api/v1/roles/9001/preview", json={"library_ids": ["4"]}).json()
+        preview = self.c.post(f"/api/v1/roles/{MOVIE_NIGHT}/preview", json={"library_ids": ["4"]}).json()
         self.assertEqual(preview["users_gaining"], 2)
-        self.assertEqual(self.c.post("/api/v1/roles/9001/preview", json={"library_ids": ["999"]}).status_code, 404)
-        r = self.c.put("/api/v1/roles/9001/libraries", json={"library_ids": ["4"]})
+        self.assertEqual(self.c.post(f"/api/v1/roles/{MOVIE_NIGHT}/preview", json={"library_ids": ["999"]}).status_code, 404)
+        r = self.c.put(f"/api/v1/roles/{MOVIE_NIGHT}/libraries", json={"library_ids": ["4"]})
         self.assertEqual(r.status_code, 200)
         roles = {role["role_id"]: role for role in self.c.get("/api/v1/roles").json()}
-        self.assertEqual(roles["9001"]["library_ids"], ["4"])
-        self.assertEqual(roles["9001"]["linked_holders"], 2)
+        self.assertEqual(roles[MOVIE_NIGHT]["library_ids"], ["4"])
+        self.assertEqual(roles[MOVIE_NIGHT]["linked_holders"], 2)
         audit = self.c.get("/api/v1/audit", params={"action": "role_mapping_changed"}).json()["entries"]
         self.assertEqual(audit[0]["details"]["after"], ["4"])
         self.assertEqual(audit[0]["actor"], "admin:admin")

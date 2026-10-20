@@ -4,6 +4,8 @@
 
 Automatically grants and removes **Plex library access** based on **Discord roles**.
 
+[![Support WooSarr on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/woosai)
+
 ![WooSarr dashboard](docs/images/dashboard-dark.png)
 
 - **Discord roles → Plex libraries.** Map each role to libraries; members get the union of all their roles. Grants are **additive**: a library stays if any role, manual grant or exemption keeps it.

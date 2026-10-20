@@ -179,7 +179,7 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Pushes to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Development happens on `develop` (the default branch; pull requests go there) and every push runs CI. `main` is the release branch: merges to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 

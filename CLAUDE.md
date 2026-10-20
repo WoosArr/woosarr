@@ -13,7 +13,8 @@ WooSarr syncs Plex library access from Discord roles. Single Docker container (U
 - CI: `gh run list --workflow "Docker publish" --limit 3`
 
 ## Rules that matter
-- Always verify (run `make check`) before committing. Commit per task, message `P5-01: short description`, then **always `git push`**. Pushes to `main` publish a Docker image once CI and the image smoke test pass, so never commit half-done work.
+- **Branches:** work on `develop` (the default branch; PRs and merges target it). Pushes to `develop` run CI only. `main` is the release branch: merging `develop` into `main` (or pushing a `v*` tag) publishes a Docker image once CI and the image smoke test pass. Only merge to `main` when asked.
+- Always verify (run `make check`) before committing. Commit per task, message `P5-01: short description`, then **always `git push`** (to `develop`). Never commit half-done work. Stage files by name, never `git add -A`: other sessions may be editing the same tree.
 - There is no access to the deployed server. All diagnostics come from logs read through the API (`/api/v1/logs`), so new code must log enough (redacted) to be debugged that way.
 - Never commit, log or print secrets/tokens. Never put a complete token-shaped string in source (GitHub push protection blocks it); assemble canaries at runtime as `tests/test_redaction.py` does.
 - PyPI package for python-plexapi is **`PlexAPI`** (import `plexapi`).

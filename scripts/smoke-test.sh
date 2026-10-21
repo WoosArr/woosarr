@@ -34,6 +34,9 @@ code=$(curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/api/v1/lo
 curl -fsS "http://127.0.0.1:$PORT/api/v1/auth/status" | grep -q '"setup_required":true' || fail "auth status"
 docker logs "$NAME" 2>&1 | grep -q "first-run setup code" || fail "setup code not printed to container log"
 curl -fsS "http://127.0.0.1:$PORT/" | grep -qi "<div id=\"root\">" || fail "UI not served"
+# pip is removed from the image (build tool only; its bundled packages were flagged by Trivy).
+docker exec "$NAME" python -c "import importlib.util,sys; sys.exit(importlib.util.find_spec('pip') is not None)" \
+    || fail "pip is still in the image"
 
 echo "waiting for docker health status"
 i=0

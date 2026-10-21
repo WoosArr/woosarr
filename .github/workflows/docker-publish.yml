@@ -89,11 +89,13 @@ jobs:
           curl -fsS http://127.0.0.1:31339/api/health; echo
           docker compose -p woosarr-ci down
 
-      - name: Scan image for secrets (fails) and vulnerabilities (report)
+      - name: Scan image for secrets and fixable HIGH/CRITICAL vulnerabilities (both fail)
         run: |
           trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c "$@"; }
           trivy image --scanners secret --exit-code 1 --no-progress woosarr:smoke
-          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 --no-progress woosarr:smoke
+          # Fails only when a fix exists (rebuild or bump the pin); unfixed ones are reported.
+          trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress woosarr:smoke
+          trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 --no-progress woosarr:smoke
 
       # The slow part (arm64 under QEMU) happens here, while the tests run; nothing is pushed.
       - name: Build all platforms (fills the cache for publish)

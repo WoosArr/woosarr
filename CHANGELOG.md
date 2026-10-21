@@ -10,6 +10,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Build tooling: every GitHub Action to its newest release (pinned by commit), gitleaks 8.30.1, Trivy 0.76.1; pre-commit hooks pinned by commit.
 
 ### Security
+- **pip removed from the image.** It's only needed to build the image, and its bundled copies of certifi (the compromised-CA issue), urllib3, msgpack and pkg_resources showed up as 1 critical and 4 high vulnerabilities, even though WooSarr never runs them. The image scan now fails the build on any fixable high or critical vulnerability instead of only reporting it.
 - gitleaks 8.30.1 scans the whole history with no blanket exceptions: the whole-file allowlist for the redaction tests is gone (their fake password is now assembled at runtime), and two findings in old commits that aren't secrets are ignored by exact fingerprint (`.gitleaksignore`).
 
 ## [1.1.0] - 2026-10-21

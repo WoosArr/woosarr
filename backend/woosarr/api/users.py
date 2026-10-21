@@ -23,6 +23,7 @@ from woosarr.db.models import (
 )
 from woosarr.services import audit, impact, link_service
 from woosarr.services.access import library_sources, load_snapshot, user_state
+from woosarr.services.discord_bot import DiscordConfigError
 
 router = APIRouter(tags=["users"], dependencies=[Depends(require_admin)])
 
@@ -385,7 +386,8 @@ class MemberOut(BaseModel):
 @router.get("/discord/members", response_model=list[MemberOut])
 def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] = None, limit: int = 50) -> list[MemberOut]:
     links = dict(db.execute(select(DiscordLink.discord_user_id, DiscordLink.plex_user_id)).all())
-    stmt = select(DiscordMember).order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200))
+    stmt = (select(DiscordMember).where(DiscordMember.is_bot.is_(False))  # bots can't link a Plex account
+            .order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200)))
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(
@@ -397,3 +399,93 @@ def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] =
                   in_guild=m.in_guild, linked_plex_user_id=links.get(m.discord_user_id))
         for m in db.scalars(stmt)
     ]
+
+
+# ---- Users → Discord: server members and bulk role changes -------------------------------
+
+class MemberLinkOut(BaseModel):
+    plex_user_id: str
+    plex_username: str | None
+    verified: bool
+    method: str
+
+
+class DiscordMemberRow(BaseModel):
+    discord_user_id: str
+    username: str
+    display_name: str | None
+    roles: list[RoleRef]
+    link: MemberLinkOut | None
+
+
+@router.get("/discord/member-list", response_model=list[DiscordMemberRow])
+def discord_member_list(
+    db: DbDep, link: Annotated[Literal["verified", "unverified", "linked", "unlinked"] | None, Query()] = None,
+) -> list[DiscordMemberRow]:
+    """Members on the Discord server (from the bot's cache), with their roles and Plex link."""
+    roles = {r.role_id: r for r in db.scalars(select(DiscordRole).where(DiscordRole.deleted.is_(False)))}
+    links = {x.discord_user_id: x for x in db.scalars(select(DiscordLink))}
+    plex_names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username)).all())
+    out = []
+    for m in db.scalars(select(DiscordMember).where(DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False))
+                        .order_by(func.lower(func.coalesce(DiscordMember.display_name, DiscordMember.username)),
+                                  DiscordMember.username)):
+        x = links.get(m.discord_user_id)
+        if (link == "verified" and not (x and x.verified)) or (link == "unverified" and not (x and not x.verified)) \
+                or (link == "linked" and not x) or (link == "unlinked" and x):
+            continue
+        member_roles = sorted((roles[r] for r in m.role_ids or [] if r in roles), key=lambda r: -r.position)
+        out.append(DiscordMemberRow(
+            discord_user_id=m.discord_user_id, username=m.username, display_name=m.display_name,
+            roles=[RoleRef(role_id=r.role_id, name=r.name, color=r.color) for r in member_roles],
+            link=MemberLinkOut(plex_user_id=x.plex_user_id, plex_username=plex_names.get(x.plex_user_id),
+                               verified=x.verified, method=x.method) if x else None))
+    return out
+
+
+# Discord snowflakes (real ones have 17-20 digits; the demo uses short ids), as for reaction-post roles.
+RoleId = Annotated[str, Field(pattern=r"^\d{1,25}$")]
+
+
+class MemberRolesIn(BaseModel):
+    # Discord limits role edits per member; 200 at a time keeps a request to a sensible length.
+    discord_user_ids: Annotated[list[RoleId], Field(min_length=1, max_length=200)]
+    add_role_ids: Annotated[list[RoleId], Field(max_length=50)] = []
+    remove_role_ids: Annotated[list[RoleId], Field(max_length=50)] = []
+
+
+class RoleImpactOut(BaseModel):
+    plex_user_id: str
+    username: str
+    gain: list[str]
+    lose: list[str]
+
+
+@router.post("/discord/members/roles/preview", response_model=list[RoleImpactOut])
+def member_roles_preview(body: MemberRolesIn, db: DbDep) -> list[RoleImpactOut]:
+    """Which linked Plex accounts would gain or lose libraries (no Discord or Plex calls)."""
+    return [RoleImpactOut(**r) for r in impact.role_change_impact(db, body.discord_user_ids, body.add_role_ids,
+                                                                  body.remove_role_ids)]
+
+
+class MemberRolesResult(BaseModel):
+    discord_user_id: str
+    added: list[str]
+    removed: list[str]
+    error: str | None
+
+
+@router.post("/discord/members/roles", response_model=list[MemberRolesResult])
+async def member_roles_change(body: MemberRolesIn, request: Request, principal: AdminDep) -> list[MemberRolesResult]:
+    """Give and/or take Discord roles for the selected members (the bot does it; audited)."""
+    if not body.add_role_ids and not body.remove_role_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "choose roles to add or remove")
+    svc = request.app.state.discord
+    if svc is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Discord isn't available in demo mode")
+    try:
+        results = await svc.change_member_roles(body.discord_user_ids, body.add_role_ids, body.remove_role_ids,
+                                                principal.actor)
+    except DiscordConfigError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    return [MemberRolesResult(**r) for r in results]

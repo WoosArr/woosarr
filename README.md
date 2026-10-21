@@ -75,7 +75,7 @@ docker run -d --name woosarr \
   ghcr.io/woosarr/woosarr:latest
 ```
 
-Images are published for `linux/amd64` and `linux/arm64`.
+Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (current release), `1.0.0` / `1.0` (a version), `develop` (newest development build, for testing; back up `/config` first, database changes don't go backwards) and `sha-<commit>` (one exact build).
 
 ## First run
 
@@ -179,7 +179,7 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Pushes to `main` and version tags (`v1.2.3`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: merges to `main` (→ `latest`) and version tags (`v1.2.3` → `1.2.3`, `1.2`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 

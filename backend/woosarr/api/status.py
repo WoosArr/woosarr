@@ -76,7 +76,7 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
             "libraries": _count(db, Library, Library.removed.is_(False)),
             "exempt_libraries": _count(db, Library, Library.is_exempt.is_(True), Library.removed.is_(False)),
             "roles": _count(db, DiscordRole, DiscordRole.deleted.is_(False)),
-            "discord_members": _count(db, DiscordMember, DiscordMember.in_guild.is_(True)),
+            "discord_members": _count(db, DiscordMember, DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False)),
             "audit_entries_24h": _count(db, AuditLog, AuditLog.ts >= utcnow() - timedelta(hours=24)),
         },
         recent_warnings=recent_warnings,

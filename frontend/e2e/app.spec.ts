@@ -242,7 +242,7 @@ test("no serious accessibility violations on any page (light and dark)", async (
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/users?tab=discord", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -330,6 +330,34 @@ test("users page has a Linked tab between Unverified and Unlinked", async ({ pag
   await expect(tabs).toHaveText(["All", "Verified", "Unverified", "Linked", "Unlinked"]);
   await tabs.filter({ hasText: /^Linked$/ }).click();
   await expect(tabs.filter({ hasText: /^Linked$/ })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("users page Discord tab: members, filters and a role change preview", async ({ page }) => {
+  await login(page);
+  await page.goto("/users");
+  await page.getByRole("tab", { name: "Discord" }).click();
+  await expect(page).toHaveURL(/tab=discord/);
+  const table = page.getByRole("region", { name: "Discord members" });
+  await expect(table.getByRole("row", { name: /Frank/ })).toBeVisible();
+  const filters = page.getByRole("group", { name: "Link filter" }).getByRole("button");
+  await expect(filters).toHaveText(["All", "Verified", "Unverified", "Linked", "Unlinked"]);
+  await filters.filter({ hasText: /^Unlinked$/ }).click();
+  await expect(filters.filter({ hasText: /^Unlinked$/ })).toHaveAttribute("aria-pressed", "true");
+  await filters.filter({ hasText: /^All$/ }).click();
+
+  await page.getByLabel("Select Frank").check();
+  await page.getByRole("button", { name: /Add roles \(1\)/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Add Discord roles" });
+  await dialog.getByLabel("Supporters").check();
+  await expect(dialog.getByRole("heading", { name: "Plex impact" })).toBeVisible();
+  // The preview really ran (not stuck calculating): Frank isn't linked, so nothing changes.
+  await expect(dialog.getByText("No linked Plex account's libraries change.")).toBeVisible();
+  // Demo mode has no bot: the impact shows, but the change itself is blocked with the reason.
+  await expect(dialog.getByText(/demo mode/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /^Add 1 role$/ })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("tab", { name: "Plex" }).click();
+  await expect(page.getByRole("region", { name: "Plex users" })).toBeVisible();
 });
 
 test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {

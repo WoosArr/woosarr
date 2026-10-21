@@ -34,23 +34,27 @@ async function seed(api: Awaited<ReturnType<typeof client>>) {
   for (const g of (await api("GET", "/api/v1/errors")) as { fingerprint: string; logger: string }[]) {
     if (g.logger !== "woosarr.accounts") await api("PUT", `/api/v1/errors/${g.fingerprint}/resolved`);
   }
-  // Role → library mappings (demo roles 9001-9005, libraries 1-6).
-  for (const [role, libs] of [["9001", ["1", "4"]], ["9002", ["2"]], ["9003", ["3"]], ["9004", ["4", "5"]]] as const) {
-    await api("PUT", `/api/v1/roles/${role}/libraries`, { library_ids: libs });
+  // Role → library mappings (libraries 1-6). Demo role ids are looked up by name.
+  const roleId = Object.fromEntries(((await api("GET", "/api/v1/roles")) as { role_id: string; name: string }[])
+    .map((r) => [r.name, r.role_id]));
+  for (const [role, libs] of [["Movie Night", ["1", "4"]], ["Series Fans", ["2"]], ["Anime Club", ["3"]], ["Supporters", ["4", "5"]]] as const) {
+    await api("PUT", `/api/v1/roles/${roleId[role]}/libraries`, { library_ids: libs });
   }
   await api("PATCH", "/api/v1/libraries/6", { is_exempt: true }); // Family Videos
   // Links: alice and bob on their own accounts, carol's account shared by a family (Carol + Frank).
-  for (const [plex, discord] of [["1001", "50001"], ["1002", "50002"], ["1003", "50003"], ["1003", "50005"]]) {
-    await api("PUT", `/api/v1/users/${plex}/link`, { discord_user_id: discord });
+  const memberId = Object.fromEntries(((await api("GET", "/api/v1/discord/member-list")) as { discord_user_id: string; display_name: string }[])
+    .map((m) => [m.display_name, m.discord_user_id]));
+  for (const [plex, discord] of [["1001", "Alice"], ["1002", "Bob"], ["1003", "Carol"], ["1003", "Frank"]]) {
+    await api("PUT", `/api/v1/users/${plex}/link`, { discord_user_id: memberId[discord] });
   }
   await api("POST", "/api/v1/reaction-posts", {
     title: "Library roles",
     content: "React below to pick the Plex libraries you'd like. Remove your reaction to give one back.",
     pin: true,
     options: [
-      { emoji: "🎬", role_id: "9001" },
-      { emoji: "📺", role_id: "9002" },
-      { emoji: "🍙", role_id: "9003" },
+      { emoji: "🎬", role_id: roleId["Movie Night"] },
+      { emoji: "📺", role_id: roleId["Series Fans"] },
+      { emoji: "🍙", role_id: roleId["Anime Club"] },
     ],
     legend: true,
     legend_template: "{emoji} {role} — {libraries}",
@@ -74,7 +78,7 @@ test("documentation screenshots", async ({ page }) => {
   await seed(api);
   await page.waitForTimeout(2500); // the queued sync runs
 
-  await page.setViewportSize({ width: 1440, height: 1640 }); // the whole default dashboard
+  await page.setViewportSize({ width: 1440, height: 1720 }); // the whole default dashboard
   for (const mode of ["dark", "light"] as const) {
     await theme(page, mode);
     await page.goto("/");
@@ -86,6 +90,18 @@ test("documentation screenshots", async ({ page }) => {
   await page.goto("/users");
   await expect(page.getByText("Shared by 2")).toBeVisible();
   await shot(page, "users");
+
+  await page.goto("/users?tab=discord");
+  await expect(page.getByRole("region", { name: "Discord members" })).toBeVisible();
+  await shot(page, "users-discord");
+  await page.getByLabel("Select Frank").check();
+  await page.getByLabel("Select Bob").check();
+  await page.getByRole("button", { name: /Add roles/ }).click();
+  await page.getByRole("dialog").getByLabel("Anime Club").check();
+  await expect(page.getByRole("dialog").getByText(/gains/).first()).toBeVisible();
+  await page.waitForTimeout(400);
+  await page.getByRole("dialog").screenshot({ path: `${OUT}/discord-add-roles.png` });
+  await page.keyboard.press("Escape");
 
   await page.goto("/roles");
   await shot(page, "roles");

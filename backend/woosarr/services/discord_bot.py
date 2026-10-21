@@ -123,7 +123,7 @@ def _role(r: discord.Role) -> cache.RoleData:
 
 def _member(m: discord.Member) -> cache.MemberData:
     roles = tuple(str(r.id) for r in m.roles if not r.is_default())
-    return cache.MemberData(str(m.id), m.name, m.display_name, roles)
+    return cache.MemberData(str(m.id), m.name, m.display_name, roles, is_bot=bool(m.bot))
 
 
 class WooSarrBot(discord.Client):
@@ -230,19 +230,19 @@ class WooSarrBot(discord.Client):
             return
         pid = await self.service.run_db(cache.member_changed, _member(after))
         if pid:
-            self.service.trigger([pid], f"discord roles changed for {after.id}")
+            self.service.trigger([pid], f"discord roles changed for {after.display_name}")
 
     async def on_member_join(self, member: discord.Member) -> None:
         if self._ours(member.guild):
             pid = await self.service.run_db(cache.member_changed, _member(member))
             if pid:
-                self.service.trigger([pid], f"discord member joined {member.id}")
+                self.service.trigger([pid], f"discord member joined: {member.display_name}")
 
     async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
         if payload.guild_id == self.guild_id:
             pid = await self.service.run_db(cache.member_left, str(payload.user.id))
             if pid:
-                self.service.trigger([pid], f"discord member left {payload.user.id}")
+                self.service.trigger([pid], f"discord member left: {payload.user.name}")
 
     async def on_guild_role_create(self, role: discord.Role) -> None:
         if self._ours(role.guild):
@@ -268,7 +268,7 @@ class WooSarrBot(discord.Client):
         if self._ours(role.guild):
             affected = await self.service.run_db(cache.role_deleted, str(role.id))
             if affected:
-                self.service.trigger(affected, f"discord role {role.id} deleted")
+                self.service.trigger(affected, f"discord role {role.name} deleted")
             self.service.schedule_post_refresh()
 
 
@@ -282,7 +282,7 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         result = await self.service.run_db(link_service.link_by_username, str(interaction.user.id), str(self.name.value))
         if result.ok and result.plex_user_id:
-            self.service.trigger([result.plex_user_id], f"self-link by discord {interaction.user.id}")
+            self.service.trigger([result.plex_user_id], f"self-link by {interaction.user.display_name}")
         await interaction.response.send_message(result.message, ephemeral=True)
 
 
@@ -373,6 +373,88 @@ class _GuildFeatures:
         ok, why = features.available(self.feature_status(), key)
         if not ok:
             raise DiscordConfigError(why)
+
+    async def change_member_roles(self, member_ids: list[str], add: list[str], remove: list[str],
+                                  actor: str) -> list[dict[str, Any]]:
+        """Admin bulk edit (Users → Discord): give and/or take roles for many members.
+
+        Every role is checked first (exists, not @everyone, not managed by an integration, below the
+        bot's highest role) so nothing changes if one can't be used. Members who already have (or
+        lack) a role are skipped for it. The member cache is updated right away and their linked
+        Plex accounts are synced.
+        """
+        self.require("assign_roles")
+        if set(add) & set(remove):
+            raise DiscordConfigError("A role can't be added and removed at the same time.")
+        guild = self._guild()
+        top = guild.me.top_role.position
+        roles: dict[str, discord.Role] = {}
+        problems = []
+        for rid in dict.fromkeys([*add, *remove]):
+            role = guild.get_role(int(rid))
+            if role is None:
+                problems.append(f"role {rid} isn't in the server")
+            elif role.is_default():
+                problems.append("@everyone can't be given or taken")
+            elif role.managed:
+                problems.append(f"{role.name} is managed by a bot or integration")
+            elif role.position >= top:
+                problems.append(f"{role.name} is above the bot's highest role (move the bot's role up in "
+                                "Server Settings → Roles)")
+            else:
+                roles[rid] = role
+        if problems:
+            raise DiscordConfigError("; ".join(problems))
+        reason = f"WooSarr: changed by {actor}"[:500]
+        results: list[dict[str, Any]] = []
+        updated: list[cache.MemberData] = []
+        for mid in member_ids:
+            member = guild.get_member(int(mid))
+            if member is None:
+                results.append({"discord_user_id": mid, "added": [], "removed": [], "error": "not in the server"})
+                continue
+            if member.bot:
+                results.append({"discord_user_id": mid, "added": [], "removed": [], "error": "bots are skipped"})
+                continue
+            have = {str(r.id) for r in member.roles}
+            to_add = [r for r in add if r not in have]
+            to_remove = [r for r in remove if r in have]
+            row: dict[str, Any] = {"discord_user_id": mid, "added": [], "removed": [], "error": None}
+            try:
+                if to_add:
+                    await member.add_roles(*[roles[r] for r in to_add], reason=reason)
+                    row["added"] = to_add
+                if to_remove:
+                    await member.remove_roles(*[roles[r] for r in to_remove], reason=reason)
+                    row["removed"] = to_remove
+            except discord.Forbidden:
+                row["error"] = "Discord refused (Manage Roles missing or role hierarchy)"
+            except discord.HTTPException as exc:
+                row["error"] = f"Discord error {exc.status}"
+            if row["added"] or row["removed"]:
+                new_roles = (have | set(row["added"])) - set(row["removed"])
+                updated.append(cache.MemberData(mid, member.name, member.display_name,
+                                                tuple(r for r in new_roles if r != str(guild.id))))
+            results.append(row)
+
+        def save(s) -> list[str]:
+            pids = [cache.member_changed(s, m) for m in updated]
+            audit.record(s, actor, "discord_roles_changed_admin", "discord_role", ",".join(roles)[:100],
+                         add=list(add), remove=list(remove), members=len(member_ids),
+                         changed=[{k: r[k] for k in ("discord_user_id", "added", "removed")}
+                                  for r in results if r["added"] or r["removed"]][:200],
+                         errors=[{"discord_user_id": r["discord_user_id"], "error": r["error"]}
+                                 for r in results if r["error"]][:200])
+            return [p for p in pids if p]
+
+        affected = await self.run_db(save)
+        changed = sum(1 for r in results if r["added"] or r["removed"])
+        failed = sum(1 for r in results if r["error"])
+        log.info("bulk role change by %s: +%s -%s on %s of %s members (%s errors)", actor, add, remove, changed,
+                 len(member_ids), failed)
+        if affected:
+            self.trigger(affected, f"discord roles changed by {actor}")
+        return results
 
     async def create_role(self, name: str, color: int | None = None) -> tuple[str, str]:
         self.require("create_roles")

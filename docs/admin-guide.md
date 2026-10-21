@@ -42,6 +42,17 @@ The rules:
 - Link-status roles (Verified / Unverified / Linked), per-library roles and reaction posts (react to get a role): see `docs/discord-notes.md`.
 - Bot permissions per feature, and how to grant only what you need: `docs/discord-notes.md` → *Bot permissions by feature*.
 
+### Users page: Plex and Discord tabs
+
+- **Plex** (default): every Plex user, their linked Discord members, roles and where each library comes from; **Add libraries** / **Remove libraries** for the selected users; **Link** / **Add member**.
+- **Discord**: every member of your Discord server with their roles and linked Plex account, with the same *All / Verified / Unverified / Linked / Unlinked* filters and a search box. Select members, then:
+  - **Add roles**: tick roles to give everyone selected (members who already have one are skipped).
+  - **Remove roles**: ✓ all selected have it, – some do; untick a role to take it from everyone who has it.
+  - Both show a **Plex impact** preview: which linked Plex accounts would gain or lose which libraries through your role mappings (shared accounts use all their members' roles). The bot then makes the change in Discord and the linked accounts sync.
+  - Needs the bot feature *Give and remove roles* (Manage Roles; the bot's highest role above the roles it gives). Bot and integration roles, @everyone and roles above the bot's are refused before anything changes; each member's result is listed, and the change is audited (`discord_roles_changed_admin`). Up to 200 members at a time.
+
+![Users → Discord: add roles with a Plex impact preview](images/discord-add-roles.png)
+
 ### Removing access by hand
 
 Users page → select users → **Remove libraries**. Each library shows what the selected users have now (from the last sync): ✓ all have it, – some do, empty: nobody (disabled). Untick a library to remove it from everyone who has it; the dialog previews who loses what before you confirm, **Reset** clears your changes, and after removing, **Undo** gives everything back (including deleted manual grants; audited as `access_restored_admin`). It removes those libraries from the users in Plex now, together with any manual grants for them (dry-run respected, audited as `access_removed_admin`). For a linked user, libraries their Discord roles grant are kept and listed, because the next sync would add them back: remove the role in Discord or change the role mapping instead. For unlinked users WooSarr doesn't manage access, so nothing re-adds a removed library.

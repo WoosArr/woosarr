@@ -31,6 +31,10 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 1. Copy `unraid/woosarr.xml` to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml` on the Unraid box.
 2. Docker tab → Add Container → choose the *woosarr* template → Apply.
 
+## Trying a development build
+
+Edit the container and change **Repository** to `ghcr.io/woosarr/woosarr:develop` (newest build from the `develop` branch), or `ghcr.io/woosarr/woosarr:sha-<commit>` for one exact build; Apply. Back up `/mnt/user/appdata/woosarr` first: a development build may migrate the database forward, and older versions can't read it afterwards. Set it back to `:latest` to return to releases (once the release includes those changes). In Compose, set `WOOSARR_IMAGE=ghcr.io/woosarr/woosarr:develop`.
+
 ## Docker Compose
 
 [`compose.yaml`](../compose.yaml) in the repo root runs the same image with the same settings as the template. On Unraid today that's the *Docker Compose Manager* plugin (Apps); Unraid 8 builds Compose into the Docker page and Community Apps.

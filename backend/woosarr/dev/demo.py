@@ -28,19 +28,31 @@ USERS = [
     PlexUser("1005", "erin", "erin@example.com"),
 ]
 SHARES = {"1001": {"1", "2"}, "1002": {"1", "6"}, "1003": {"5"}, "1004": {"6"}, "1005": set()}
+# Discord-sized role ids (snowflakes are 17-20 digits), so the demo exercises real-length ids.
+MOVIE_NIGHT = "1184392045718302721"
+SERIES_FANS = "1184392162903261244"
+ANIME_CLUB = "1184392288517390357"
+SUPPORTERS = "1184392411049463868"
+MODERATORS = "1184392519735279716"
 ROLES = [
-    ("9001", "Movie Night", 0x9B59B6, 5),
-    ("9002", "Series Fans", 0x3498DB, 4),
-    ("9003", "Anime Club", 0xE67E22, 3),
-    ("9004", "Supporters", 0xF1C40F, 2),
-    ("9005", "Moderators", 0x2ECC71, 1),
+    (MOVIE_NIGHT, "Movie Night", 0x9B59B6, 5),
+    (SERIES_FANS, "Series Fans", 0x3498DB, 4),
+    (ANIME_CLUB, "Anime Club", 0xE67E22, 3),
+    (SUPPORTERS, "Supporters", 0xF1C40F, 2),
+    (MODERATORS, "Moderators", 0x2ECC71, 1),
 ]
+# Discord-sized member ids, too.
+ALICE = "748291035561803777"
+BOB = "748291188204560415"
+CAROL = "748291317952876544"
+ERIN = "748291442378301460"
+FRANK = "748291569020018699"
 MEMBERS = [
-    ("50001", "alice_d", "Alice", ["9001", "9002"]),
-    ("50002", "bobby", "Bob", ["9001"]),
-    ("50003", "carol.c", "Carol", ["9003", "9004"]),
-    ("50004", "erin_e", "Erin", []),
-    ("50005", "frank", "Frank", ["9002"]),
+    (ALICE, "alice_d", "Alice", [MOVIE_NIGHT, SERIES_FANS]),
+    (BOB, "bobby", "Bob", [MOVIE_NIGHT]),
+    (CAROL, "carol.c", "Carol", [ANIME_CLUB, SUPPORTERS]),
+    (ERIN, "erin_e", "Erin", []),
+    (FRANK, "frank", "Frank", [SERIES_FANS]),
 ]
 
 

@@ -612,7 +612,7 @@ const REQ_STATE: Record<string, [Tone, string]> = {
 
 function Requests({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="requests" /><Loading ins={ins} /></>;
-  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: { title: string; year: string; media_type: string; status: string; created_at: string }[] };
+  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: { title: string; year: string; media_type: string; status: string; created_at: string; plex_username: string | null; discord_name: string | null }[] };
   return (
     <>
       <Title id="requests"><Link to="/requests" className="small">Requests →</Link></Title>
@@ -626,8 +626,15 @@ function Requests({ ins }: { ins: Insights | null }) {
           </div>
           <ul className="dash-list small">
             {r.recent.map((x, i) => (
-              <li key={i} className="row spread">
-                <span>{x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}</span>
+              <li key={i} className="row spread" style={{ alignItems: "flex-start" }}>
+                <span>
+                  {x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}
+                  {x.plex_username || x.discord_name ? (
+                    <span className="muted" style={{ display: "block" }}>
+                      by {x.plex_username ?? x.discord_name}{x.plex_username ? "" : " (Discord)"}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
               </li>
             ))}

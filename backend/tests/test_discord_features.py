@@ -24,6 +24,7 @@ from woosarr.db.models import (
     RoleLibrary,
 )
 from woosarr.db.session import Database, make_engine, migrate
+from woosarr.dev.demo import MODERATORS, MOVIE_NIGHT, SERIES_FANS
 from woosarr.services import discord_features as F
 from woosarr.services import invites
 from woosarr.services.discord_bot import DiscordConfigError, DiscordService, normalize_emoji
@@ -493,37 +494,37 @@ class ReactionPostApiTests(unittest.TestCase):
 
     def test_crud_and_validation(self):
         body = {"title": "Pick", "content": "React for access", "options": [
-            {"emoji": "🎬", "label": "ignored", "role_id": "9001"}, {"emoji": "📺", "role_id": "9002"}]}
+            {"emoji": "🎬", "label": "ignored", "role_id": MOVIE_NIGHT}, {"emoji": "📺", "role_id": SERIES_FANS}]}
         r = self.c.post("/api/v1/reaction-posts", json=body)
         self.assertEqual(r.status_code, 201, r.text)
         pid = r.json()["id"]
         # The label is always the role's name.
         self.assertEqual([o["label"] for o in r.json()["options"]], ["Movie Night", "Series Fans"])
         with self.h.app.state.db.session() as s:
-            s.get(DiscordRole, "9001").name = "Film Club"  # renamed in Discord
+            s.get(DiscordRole, MOVIE_NIGHT).name = "Film Club"  # renamed in Discord
         self.assertEqual(self.c.get("/api/v1/reaction-posts").json()[0]["options"][0]["label"], "Film Club")
-        two_roles = dict(body, options=[{"emoji": "🎬", "role_ids": ["9001", "9002"]}])
+        two_roles = dict(body, options=[{"emoji": "🎬", "role_ids": [MOVIE_NIGHT, SERIES_FANS]}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=two_roles).status_code, 422)
         dup = dict(body, options=[body["options"][0], body["options"][0]])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=dup).status_code, 422)
         bad = dict(body, options=[{"emoji": "🎬", "role_id": "99999"}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=bad).status_code, 404)
         with self.h.app.state.db.session() as s:
-            s.get(DiscordRole, "9005").managed = True
-        bot_role = dict(body, options=[{"emoji": "🎬", "role_id": "9005"}])
+            s.get(DiscordRole, MODERATORS).managed = True
+        bot_role = dict(body, options=[{"emoji": "🎬", "role_id": MODERATORS}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=bot_role).status_code, 422)
         no_roles = dict(body, options=[{"emoji": "🎬"}])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=no_roles).status_code, 422)
-        many = dict(body, options=[{"emoji": f"<:e{i}:1000{i}>", "role_id": "9001"} for i in range(21)])
+        many = dict(body, options=[{"emoji": f"<:e{i}:1000{i}>", "role_id": MOVIE_NIGHT} for i in range(21)])
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=many).status_code, 422)
         self.assertEqual(self.c.post(f"/api/v1/reaction-posts/{pid}/publish", json={}).status_code, 409)  # demo
         self.assertEqual(len(self.c.get("/api/v1/reaction-posts").json()), 1)
         pv = self.c.post("/api/v1/reaction-posts/preview", json=dict(body, legend_header="Pick one")).json()
-        self.assertIn("Pick one\n🎬 <@&9001> — ", pv["text"])
+        self.assertIn(f"Pick one\n🎬 <@&{MOVIE_NIGHT}> — ", pv["text"])
         self.assertEqual(pv["length"], len(pv["text"]))
         out = self.c.get("/api/v1/reaction-posts").json()[0]
         self.assertFalse(out["outdated"])  # never posted
-        self.assertIn("<@&9002>", out["preview"])
+        self.assertIn(f"<@&{SERIES_FANS}>", out["preview"])
         long = dict(body, content="x" * 1990)
         self.assertEqual(self.c.put(f"/api/v1/reaction-posts/{pid}", json=long).status_code, 422)
         self.assertEqual(self.c.delete(f"/api/v1/reaction-posts/{pid}").status_code, 204)

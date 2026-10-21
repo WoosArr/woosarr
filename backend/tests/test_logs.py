@@ -54,6 +54,17 @@ class LoggingTests(unittest.TestCase):
         ring = logs.configure_logging(self.settings)
         self.assertEqual([e.message for e in ring.query(min_level=logging.WARNING)[0]], ["from before the upgrade"])
 
+    def test_short_discord_gateway_lag_is_info_long_lag_stays_a_warning(self):
+        gateway = logging.getLogger("discord.gateway")
+        msg = "Can't keep up, shard ID %s websocket is %.1fs behind."
+        gateway.warning(msg, None, 13.6)
+        gateway.warning(msg, None, 75.0)
+        entries = [e for e in self.ring.query(contains="keep up")[0]]
+        self.assertEqual([(e.level, e.message[-13:]) for e in entries],
+                         [("INFO", "13.6s behind."), ("WARNING", "75.0s behind.")])
+        self.assertEqual([e.message for e in self.ring.query(min_level=logging.WARNING, contains="keep up")[0]],
+                         ["Can't keep up, shard ID None websocket is 75.0s behind."])
+
     def test_canary_never_reaches_any_sink(self):
         self.log.info("token is %s", self.secret)
         try:

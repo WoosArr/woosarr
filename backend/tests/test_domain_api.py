@@ -1,6 +1,7 @@
 import unittest
 
 from tests.helpers import AppHarness
+from woosarr.dev.demo import ALICE, BOB, CAROL, MOVIE_NIGHT
 
 
 class DomainApiTests(unittest.TestCase):
@@ -22,17 +23,17 @@ class DomainApiTests(unittest.TestCase):
         self.assertEqual(body["counts"]["libraries"], 6)
 
     def test_link_unlink_and_sources(self):
-        r = self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
+        r = self.c.put("/api/v1/users/1001/link", json={"discord_user_id": ALICE})
         self.assertEqual(r.status_code, 200, r.text)
         user = r.json()
         self.assertTrue(user["link"]["verified"])
         self.assertEqual(user["link"]["method"], "admin")
         self.assertEqual({r["name"] for r in user["roles"]}, {"Movie Night", "Series Fans"})
         # Same Discord account can't be linked to a second Plex user.
-        self.assertEqual(self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50001"}).status_code, 409)
+        self.assertEqual(self.c.put("/api/v1/users/1002/link", json={"discord_user_id": ALICE}).status_code, 409)
         self.assertEqual(self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "abc"}).status_code, 422)
 
-        self.c.put("/api/v1/roles/9001/libraries", json={"library_ids": ["1", "4"]})
+        self.c.put(f"/api/v1/roles/{MOVIE_NIGHT}/libraries", json={"library_ids": ["1", "4"]})
         libs = {lib["library_id"]: lib for lib in self.c.get("/api/v1/users/1001").json()["libraries"]}
         self.assertEqual(libs["1"]["sources"], ["role"])
         self.assertTrue(libs["1"]["shared"])
@@ -58,31 +59,31 @@ class DomainApiTests(unittest.TestCase):
         self.assertLess(titles.index("anime"), titles.index("Zoo"))
 
     def test_admin_adds_and_removes_family_members(self):
-        self.assertEqual(self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"}).status_code, 200)
-        r = self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50002"})
+        self.assertEqual(self.c.put("/api/v1/users/1001/link", json={"discord_user_id": ALICE}).status_code, 200)
+        r = self.c.put("/api/v1/users/1001/link", json={"discord_user_id": BOB})
         self.assertEqual(r.status_code, 200, r.text)
         user = r.json()
-        self.assertEqual(sorted(x["discord_user_id"] for x in user["links"]), ["50001", "50002"])
+        self.assertEqual(sorted(x["discord_user_id"] for x in user["links"]), [ALICE, BOB])
         self.assertEqual(self.c.get("/api/v1/status").json()["counts"]["linked_users"], 1)  # one account
         self.assertEqual(self.c.delete("/api/v1/users/1001/link").status_code, 422)  # which member?
-        self.assertEqual(self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": "50003"}).status_code, 404)
-        r = self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": "50001"})
+        self.assertEqual(self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": CAROL}).status_code, 404)
+        r = self.c.delete("/api/v1/users/1001/link", params={"discord_user_id": ALICE})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual([x["discord_user_id"] for x in r.json()["links"]], ["50002"])
-        self.assertEqual(r.json()["link"]["discord_user_id"], "50002")
+        self.assertEqual([x["discord_user_id"] for x in r.json()["links"]], [BOB])
+        self.assertEqual(r.json()["link"]["discord_user_id"], BOB)
         self.assertIsNone(self.c.delete("/api/v1/users/1001/link").json()["link"])  # one left: no need to name it
 
     def test_role_mapping_preview_and_audit(self):
-        self.c.put("/api/v1/users/1001/link", json={"discord_user_id": "50001"})
-        self.c.put("/api/v1/users/1002/link", json={"discord_user_id": "50002"})
-        preview = self.c.post("/api/v1/roles/9001/preview", json={"library_ids": ["4"]}).json()
+        self.c.put("/api/v1/users/1001/link", json={"discord_user_id": ALICE})
+        self.c.put("/api/v1/users/1002/link", json={"discord_user_id": BOB})
+        preview = self.c.post(f"/api/v1/roles/{MOVIE_NIGHT}/preview", json={"library_ids": ["4"]}).json()
         self.assertEqual(preview["users_gaining"], 2)
-        self.assertEqual(self.c.post("/api/v1/roles/9001/preview", json={"library_ids": ["999"]}).status_code, 404)
-        r = self.c.put("/api/v1/roles/9001/libraries", json={"library_ids": ["4"]})
+        self.assertEqual(self.c.post(f"/api/v1/roles/{MOVIE_NIGHT}/preview", json={"library_ids": ["999"]}).status_code, 404)
+        r = self.c.put(f"/api/v1/roles/{MOVIE_NIGHT}/libraries", json={"library_ids": ["4"]})
         self.assertEqual(r.status_code, 200)
         roles = {role["role_id"]: role for role in self.c.get("/api/v1/roles").json()}
-        self.assertEqual(roles["9001"]["library_ids"], ["4"])
-        self.assertEqual(roles["9001"]["linked_holders"], 2)
+        self.assertEqual(roles[MOVIE_NIGHT]["library_ids"], ["4"])
+        self.assertEqual(roles[MOVIE_NIGHT]["linked_holders"], 2)
         audit = self.c.get("/api/v1/audit", params={"action": "role_mapping_changed"}).json()["entries"]
         self.assertEqual(audit[0]["details"]["after"], ["4"])
         self.assertEqual(audit[0]["actor"], "admin:admin")
@@ -122,7 +123,7 @@ class DomainApiTests(unittest.TestCase):
         self.assertEqual(self.c.post("/api/v1/sync", json={}).status_code, 202)
         self.assertEqual(self.c.post("/api/v1/sync", json={"plex_user_ids": ["1001"]}).json()["count"], 1)
         members = self.c.get("/api/v1/discord/members", params={"q": "ali"}).json()
-        self.assertEqual([m["discord_user_id"] for m in members], ["50001"])
+        self.assertEqual([m["discord_user_id"] for m in members], [ALICE])
 
     def test_audit_paging(self):
         for i in range(5):

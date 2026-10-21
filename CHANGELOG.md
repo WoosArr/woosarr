@@ -4,6 +4,31 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
+Users page with a Discord tab and bulk role changes, clearer dashboard and audit trail, a certificate security fix, and a hardened container. Update by pulling `latest` (or `1.1.0`).
+
+### Security
+- **certifi 2026.10.19** (was 2026.7.22): drops the `emSign ECC Root CA - G3` root, whose eMudhra intermediates had compromised keys and could be used to impersonate any HTTPS site WooSarr connects to (plex.tv, Discord, Seerr). PYSEC-2026-4320.
+- Container hardening: the Unraid template and README run WooSarr with `no-new-privileges` (re-create the container from the template to pick it up); `compose.yaml` also drops every Linux capability except the four the entrypoint needs.
+- Build pipeline: GitHub Actions pinned to commit SHAs and scanner images to digests, no tokens left in checkouts, default-deny token permissions, job time limits; Dependabot alerts on; `main` protected (pull request and passing checks required).
+
+### Added
+- **Users page: Plex and Discord tabs.** The Discord tab lists the server's members with their roles and linked Plex account (All / Verified / Unverified / Linked / Unlinked, search), with **Add roles** / **Remove roles** for selected members and a preview of which Plex libraries linked accounts would gain or lose. New bot feature *Give and remove roles* (Manage Roles). Audited.
+- Dashboard *Requests* widget shows who asked (their Plex username).
+- Every audited action has a readable name on the audit trail (before, about 50 showed raw codes such as `reaction_post_created`).
+- `ghcr.io/woosarr/woosarr:develop` images of the development branch, for testing (never `latest`).
+
+### Changed
+- "Last sync" and audit reasons use names instead of Discord ids ("role Movie Night mapping changed", "exemption changed for Family Videos", "discord roles changed for Alice").
+- Discord gateway lag under 60 s ("Can't keep up … behind", which discord.py recovers from by itself) is logged as INFO instead of raising an Alert; longer lag is still a warning.
+- Image builds and CI are faster (about 3 minutes instead of 6–8): dependency layers are cached per platform, and the image is built and smoke-tested alongside the tests.
+- Development happens on the `develop` branch (pull requests go there). `main` stays the default branch and is the release branch.
+
+### Fixed
+- Bots and integrations were listed as Discord members: selecting everyone on Users → Discord reported them as failures, and they counted as members who haven't linked. They're now marked in the member cache (filled in on the bot's next connect) and left out of member lists and counts.
+- The `latest` image tag is tied to `main` explicitly, so it keeps following releases whichever branch is GitHub's default.
+
 ## [1.0.0] - 2026-10-19
 
 First stable release. Highlights since 0.1.0: shared Plex accounts (families), Alerts with account events, the Discord bot's `/unlink`, `/invite`, `/help` and reaction posts, requests through Seerr, admin single sign-on, a customizable dashboard, Docker Compose support, and the move to the AGPL-3.0 licence.

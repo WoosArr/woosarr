@@ -165,6 +165,7 @@ const ACTION_LABEL: Record<string, string> = {
   discord_guild_selected: "Discord server chosen",
   discord_disconnected: "Discord disconnected",
   discord_role_created: "Discord role created",
+  discord_roles_changed_admin: "Discord roles changed by admin",
   discord_avatar_set: "Bot avatar changed",
   discord_avatar_failed: "Bot avatar change failed",
   seerr_connected: "Seerr connected",

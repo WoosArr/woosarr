@@ -54,6 +54,9 @@ FEATURES: tuple[Feature, ...] = (
             ("manage_roles",), needs_role_hierarchy=True),
     Feature("create_roles", "Create roles",
             "Create roles from WooSarr (link-status roles, a role per library).", ("manage_roles",)),
+    Feature("assign_roles", "Give and remove roles",
+            "Add or remove Discord roles for many members at once (Users → Discord). The bot's highest role "
+            "must be above the roles it gives.", ("manage_roles",)),
     Feature("reaction_posts", "Reaction posts",
             "Post a message with reactions; reacting gives the member Discord roles, removing the reaction "
             "takes them away (libraries follow from the role mappings).",

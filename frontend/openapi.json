@@ -741,6 +741,55 @@
         "title": "DiscordGuildIn",
         "type": "object"
       },
+      "DiscordMemberRow": {
+        "properties": {
+          "discord_user_id": {
+            "title": "Discord User Id",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberLinkOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/RoleRef"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "discord_user_id",
+          "username",
+          "display_name",
+          "roles",
+          "link"
+        ],
+        "title": "DiscordMemberRow",
+        "type": "object"
+      },
       "DiscordStatus": {
         "properties": {
           "avatar_url": {
@@ -1733,6 +1782,41 @@
         "title": "ManualGrantsOut",
         "type": "object"
       },
+      "MemberLinkOut": {
+        "properties": {
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          },
+          "plex_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plex Username"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "plex_user_id",
+          "plex_username",
+          "verified",
+          "method"
+        ],
+        "title": "MemberLinkOut",
+        "type": "object"
+      },
       "MemberOut": {
         "properties": {
           "discord_user_id": {
@@ -1778,6 +1862,86 @@
           "linked_plex_user_id"
         ],
         "title": "MemberOut",
+        "type": "object"
+      },
+      "MemberRolesIn": {
+        "properties": {
+          "add_role_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^\\d{1,25}$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Add Role Ids",
+            "type": "array"
+          },
+          "discord_user_ids": {
+            "items": {
+              "pattern": "^\\d{1,25}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Discord User Ids",
+            "type": "array"
+          },
+          "remove_role_ids": {
+            "default": [],
+            "items": {
+              "pattern": "^\\d{1,25}$",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Remove Role Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "discord_user_ids"
+        ],
+        "title": "MemberRolesIn",
+        "type": "object"
+      },
+      "MemberRolesResult": {
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "discord_user_id": {
+            "title": "Discord User Id",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "discord_user_id",
+          "added",
+          "removed",
+          "error"
+        ],
+        "title": "MemberRolesResult",
         "type": "object"
       },
       "Ok": {
@@ -3295,6 +3459,40 @@
         "title": "RoleCreated",
         "type": "object"
       },
+      "RoleImpactOut": {
+        "properties": {
+          "gain": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gain",
+            "type": "array"
+          },
+          "lose": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Lose",
+            "type": "array"
+          },
+          "plex_user_id": {
+            "title": "Plex User Id",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plex_user_id",
+          "username",
+          "gain",
+          "lose"
+        ],
+        "title": "RoleImpactOut",
+        "type": "object"
+      },
       "RoleLibrariesIn": {
         "properties": {
           "library_ids": {
@@ -4121,7 +4319,7 @@
   },
   "info": {
     "title": "WooSarr",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -4998,6 +5196,66 @@
         ]
       }
     },
+    "/api/v1/discord/member-list": {
+      "get": {
+        "description": "Members on the Discord server (from the bot's cache), with their roles and Plex link.",
+        "operationId": "discord_member_list_api_v1_discord_member_list_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "link",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "verified",
+                    "unverified",
+                    "linked",
+                    "unlinked"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Link"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DiscordMemberRow"
+                  },
+                  "title": "Response Discord Member List Api V1 Discord Member List Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discord Member List",
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/discord/members": {
       "get": {
         "operationId": "discord_members_api_v1_discord_members_get",
@@ -5057,6 +5315,98 @@
           }
         },
         "summary": "Discord Members",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/discord/members/roles": {
+      "post": {
+        "description": "Give and/or take Discord roles for the selected members (the bot does it; audited).",
+        "operationId": "member_roles_change_api_v1_discord_members_roles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRolesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MemberRolesResult"
+                  },
+                  "title": "Response Member Roles Change Api V1 Discord Members Roles Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Member Roles Change",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/discord/members/roles/preview": {
+      "post": {
+        "description": "Which linked Plex accounts would gain or lose libraries (no Discord or Plex calls).",
+        "operationId": "member_roles_preview_api_v1_discord_members_roles_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRolesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoleImpactOut"
+                  },
+                  "title": "Response Member Roles Preview Api V1 Discord Members Roles Preview Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Member Roles Preview",
         "tags": [
           "users"
         ]

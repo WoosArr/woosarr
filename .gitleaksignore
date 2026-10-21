@@ -1,0 +1,6 @@
+# gitleaks: findings in old commits that are not secrets (one exact fingerprint each,
+# so anything new in these files is still reported). Checked 2026-10-21.
+# Plan prose (the P3-01 task description) matched by the generic API-key rule.
+b285b883f57f0cf0a7c9e49cdd5e692752eb034b:docs/action-plan.md:generic-api-key:168
+# Fake password canary for the log-redaction tests; now assembled at runtime.
+2d3ee836aede623254b84dd2bf04b1ef38b32cef:backend/tests/test_redaction.py:generic-api-key:10

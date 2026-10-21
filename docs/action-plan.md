@@ -33,7 +33,7 @@
 # Everything (repo root): venv in backend/.venv, lint + tests for both halves, UI build
 make install && make check
 make dev                     # backend on :31337 with ./config (git-ignored) and the built UI
-# Backend by hand (CI uses Python 3.12)
+# Backend by hand (CI and the image use Python 3.14)
 cd backend && pip install -e ".[dev]" && ruff check . && python -m pytest -q
 # Frontend by hand
 cd frontend && npm ci && npm test && npm run build
@@ -52,7 +52,7 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 
 | ID | Decision | Status | Answer |
 |----|----------|--------|--------|
-| D1 | Backend | DECIDED | Python 3.12, FastAPI, `discord.py`, **python-plexapi** (install name on PyPI: **`PlexAPI`**, import `plexapi`). plexapi.dev TypeScript SDK rejected (generated, beta, no library-sharing methods found). |
+| D1 | Backend | DECIDED | Python 3.14 (was 3.12 until 2026-10-21), FastAPI, `discord.py`, **python-plexapi** (install name on PyPI: **`PlexAPI`**, import `plexapi`). plexapi.dev TypeScript SDK rejected (generated, beta, no library-sharing methods found). |
 | D1a | Frontend types | DECIDED | Generate TS types from FastAPI's OpenAPI schema (`openapi-typescript`). |
 | D1b | Plex boundary | DECIDED | All Plex access via our `PlexGateway` interface (`backend/woosarr/plex_gateway.py`). |
 | D2 | Frontend | DECIDED | React + TypeScript + Vite; built to static files served by FastAPI (one container, one port). |
@@ -197,6 +197,7 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P2-12** GitHub default branch back to `main` (2026-10-21, owner's request) so visitors see the release; all commits still go to `develop` only, `main` changes only by release merges. Publishing never depended on the default branch (`latest` keys on `refs/heads/main`). *Verify:* `gh api repos/WoosArr/woosarr -q .default_branch` = `main`.
 - [x] **P2-13** Branch protection on `main` (2026-10-21): PR required (0 approvals: single maintainer), required checks `backend`, `frontend`, `e2e`, `secret-scan` (from `ci.yml` on `pull_request`, which now runs on every PR: a path filter would leave docs-only release PRs pending), no force pushes or deletion, enforced for admins. Releases: PR `develop` → `main`, merge commit (never squash/rebase). *Verify:* `gh api repos/WoosArr/woosarr/branches/main -q .protected` = true.
 - [x] **P12-08** Release **1.1.0** (2026-10-21): version bump, CHANGELOG `[1.1.0]`, PR `develop` → `main` through the protected-branch flow (checks, merge commit), tag `v1.1.0`, GitHub release from the CHANGELOG. Done: PR #1 merged (`2ddff48`), `latest` = `1.1.0` = `1.1` (amd64 + arm64), GitHub release. Found: version tags also set `latest` (metadata-action `latest=auto`); now `flavor: latest=false`, so only `main` sets it. *Verify:* `ghcr.io/woosarr/woosarr:1.1.0` pullable, `latest` = `1.1.0`.
+- [x] **P10-11** Updates 2026-10-21: Python 3.14 (image `python:3.14-slim` floats to the newest patch, 3.14.8 today; CI `check-latest` → 3.14.9; 3.15 blocked by PyYAML having no cp315 wheels), Node 24 LTS (26 not LTS yet), React 19, FastAPI 0.158 etc. via `make lock` (SQLAlchemy held at 2.1.5: 2.1.6 has no Linux wheels yet), TypeScript held at 5.9 (`openapi-typescript` peer `typescript ^5`), all Actions to newest majors (Node 24 runtime; no removed inputs in use), gitleaks 8.30.1 / Trivy 0.76.1 by digest, pre-commit hooks frozen by SHA. gitleaks 8.30.1 found two non-secrets in old commits (plan prose; the redaction test's fake password): ignored by fingerprint, the path allowlist removed, the canary split. Audits: pip-audit, npm audit clean; gitleaks history + tree clean. *Verify:* CI green incl. Trivy report; `make check`; `make e2e`.
 - [x] **P7-16** Audit trail labels every audited action (was 13 of ~60; e.g. `reaction_post_created` showed raw), with a readable fallback; `tests/test_audit_labels.py` walks every `audit.record(...)` call (AST) and fails if one has no label. *Verify:* that test.
 - [x] **P7-17** Dashboard *Requests* widget shows who asked: the Plex username the request was made as (else the Discord name, marked "(Discord)"); `recent` in insights carries `plex_username` / `discord_name`. *Verify:* `test_insights`.
 - [x] **P7-18** Users page tabs: **Plex** (the previous page) and **Discord**: server members (`GET /api/v1/discord/member-list?link=`) with roles and Plex link, same filters; bulk **Add roles** / **Remove roles** (`POST /api/v1/discord/members/roles`, ≤ 200 members; roles checked first: exists, not @everyone, not managed, below the bot's top role; per-member results; cache updated and linked accounts synced; audited `discord_roles_changed_admin`) with a Plex impact preview (`…/roles/preview`, `impact.role_change_impact`, ignores dry-run, shared accounts union). New feature `assign_roles` (Manage Roles). Dialog opens for preview even when the bot can't apply (reason shown). *Verify:* `tests/test_discord_members.py`, Playwright `users page Discord tab…` (+ axe), `make screenshots`.

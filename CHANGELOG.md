@@ -4,6 +4,14 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Changed
+- Runtime **Python 3.14** (was 3.12; the image tracks the newest 3.14 patch) and **Node 24 LTS** for the UI build (was 22). Python 3.15 waits until every dependency ships ready-built packages for it (PyYAML doesn't yet).
+- **React 19** (was 18); FastAPI 0.158, Starlette 1.9, websockets 17.3, pydantic-settings 2.16.1, Vite 8.3.5, Playwright 1.64.1. TypeScript stays on 5.9 (the API type generator doesn't support TypeScript 7 yet); SQLAlchemy stays on 2.1.5 until 2.1.6 has Linux packages.
+- Build tooling: every GitHub Action to its newest release (pinned by commit), gitleaks 8.30.1, Trivy 0.76.1; pre-commit hooks pinned by commit.
+
+### Security
+- gitleaks 8.30.1 scans the whole history with no blanket exceptions: the whole-file allowlist for the redaction tests is gone (their fake password is now assembled at runtime), and two findings in old commits that aren't secrets are ignored by exact fingerprint (`.gitleaksignore`).
+
 ## [1.1.0] - 2026-10-21
 
 Users page with a Discord tab and bulk role changes, clearer dashboard and audit trail, a certificate security fix, and a hardened container. Update by pulling `latest` (or `1.1.0`).

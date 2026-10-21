@@ -2,7 +2,7 @@
 
 # ---- Stage 1: build the React UI ----
 # Static output is the same on every platform, so build it natively (no QEMU).
-FROM --platform=$BUILDPLATFORM node:22-alpine AS ui
+FROM --platform=$BUILDPLATFORM node:24-alpine AS ui
 WORKDIR /ui
 COPY frontend/package.json ./
 # Use the lockfile when present (npm ci), otherwise fall back to npm install.
@@ -12,7 +12,8 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 2: runtime ----
-FROM python:3.12-slim AS runtime
+# Floating minor tag: each build gets the newest 3.14 patch and Debian security fixes.
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

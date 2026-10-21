@@ -7,7 +7,7 @@ name = "woosarr"
 version = "1.1.0"
 description = "Sync Plex library access from Discord roles"
 license = "AGPL-3.0-only"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   # Minimums are versions the test suite has run against (P10-05).
   "fastapi>=0.143",
@@ -44,7 +44,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 # Alembic writes these; keep them as generated.
 extend-exclude = ["woosarr/db/migrations/versions"]
 

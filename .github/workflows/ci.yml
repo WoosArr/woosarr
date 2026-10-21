@@ -4,11 +4,9 @@ name: CI
 # and tags) so an image is only built and published when these checks pass.
 
 on:
+  # Every pull request runs (no path filter): main requires these checks before a merge,
+  # and a skipped run would leave a docs-only release PR waiting forever.
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "LICENSE"
   workflow_call:
 
 permissions:

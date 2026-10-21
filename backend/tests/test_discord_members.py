@@ -36,7 +36,8 @@ def seed(db):
                    DiscordMember(discord_user_id="500001", username="alice_d", display_name="Alice", role_ids=[MOVIES]),
                    DiscordMember(discord_user_id="500002", username="bobby", display_name="Bob", role_ids=[]),
                    DiscordMember(discord_user_id="500003", username="carl", display_name=None, role_ids=[TV]),
-                   DiscordMember(discord_user_id="500004", username="gone", role_ids=[], in_guild=False)])
+                   DiscordMember(discord_user_id="500004", username="gone", role_ids=[], in_guild=False),
+                   DiscordMember(discord_user_id="500006", username="musicbot", role_ids=[MOVIES], is_bot=True)])
         s.flush()
         s.add_all([RoleLibrary(role_id=MOVIES, library_id="1"), RoleLibrary(role_id=TV, library_id="2"),
                    LibraryState(plex_user_id="11", library_id="1"),
@@ -62,7 +63,7 @@ class MemberApiTests(unittest.TestCase):
 
     def test_member_list_with_roles_links_and_filters(self):
         rows = {m["discord_user_id"]: m for m in self.c.get("/api/v1/discord/member-list").json()}
-        self.assertEqual(sorted(rows), ["500001", "500002", "500003"])  # left the server: not listed
+        self.assertEqual(sorted(rows), ["500001", "500002", "500003"])  # left the server, or a bot: not listed
         alice = rows["500001"]
         self.assertEqual([r["name"] for r in alice["roles"]], ["Movie Night"])
         self.assertEqual((alice["link"]["plex_username"], alice["link"]["verified"]), ("alice", True))
@@ -71,6 +72,14 @@ class MemberApiTests(unittest.TestCase):
         self.assertEqual(self.ids("unverified"), ["500002"])
         self.assertEqual(sorted(self.ids("linked")), ["500001", "500002"])
         self.assertEqual(self.ids("unlinked"), ["500003"])
+
+    def test_bots_are_left_out_of_member_counts_and_link_search(self):
+        counts = self.c.get("/api/v1/status").json()["counts"]
+        self.assertEqual(counts["discord_members"], 3)
+        links = self.c.get("/api/v1/dashboard/insights").json()["links"]
+        self.assertEqual((links["members"], links["members_unlinked"]), (3, 1))
+        found = [m["discord_user_id"] for m in self.c.get("/api/v1/discord/members", params={"q": "music"}).json()]
+        self.assertEqual(found, [])
 
     def test_impact_preview_follows_role_mappings(self):
         r = self.c.post("/api/v1/discord/members/roles/preview",

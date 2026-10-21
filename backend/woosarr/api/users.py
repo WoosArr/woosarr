@@ -386,7 +386,8 @@ class MemberOut(BaseModel):
 @router.get("/discord/members", response_model=list[MemberOut])
 def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] = None, limit: int = 50) -> list[MemberOut]:
     links = dict(db.execute(select(DiscordLink.discord_user_id, DiscordLink.plex_user_id)).all())
-    stmt = select(DiscordMember).order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200))
+    stmt = (select(DiscordMember).where(DiscordMember.is_bot.is_(False))  # bots can't link a Plex account
+            .order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200)))
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(
@@ -426,7 +427,7 @@ def discord_member_list(
     links = {x.discord_user_id: x for x in db.scalars(select(DiscordLink))}
     plex_names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username)).all())
     out = []
-    for m in db.scalars(select(DiscordMember).where(DiscordMember.in_guild.is_(True))
+    for m in db.scalars(select(DiscordMember).where(DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False))
                         .order_by(func.lower(func.coalesce(DiscordMember.display_name, DiscordMember.username)),
                                   DiscordMember.username)):
         x = links.get(m.discord_user_id)

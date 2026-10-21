@@ -34,6 +34,7 @@ class MemberData:
     username: str
     display_name: str | None
     role_ids: tuple[str, ...]
+    is_bot: bool = False
 
 
 def _linked_plex_id(session: Session, discord_user_id: str) -> str | None:
@@ -79,7 +80,7 @@ def member_changed(session: Session, member: MemberData, in_guild: bool = True) 
         created = session.execute(
             insert(DiscordMember).values(discord_user_id=member.discord_user_id, username=member.username,
                                          display_name=member.display_name, role_ids=roles, in_guild=in_guild,
-                                         synced_at=utcnow())
+                                         is_bot=member.is_bot, synced_at=utcnow())
             .on_conflict_do_nothing(index_elements=[DiscordMember.discord_user_id])).rowcount
         row = session.scalars(select(DiscordMember).where(DiscordMember.discord_user_id == member.discord_user_id)
                               .execution_options(populate_existing=True)).one()
@@ -91,6 +92,7 @@ def member_changed(session: Session, member: MemberData, in_guild: bool = True) 
         changed = sorted(row.role_ids or []) != roles or row.in_guild != in_guild
         row.username, row.display_name, row.role_ids, row.in_guild = (
             member.username, member.display_name, roles, in_guild)
+        row.is_bot = member.is_bot
         row.synced_at = utcnow()
     if not changed:
         return None

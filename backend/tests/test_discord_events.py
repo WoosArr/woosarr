@@ -28,9 +28,9 @@ def role(rid, name="r", default=False, guild=GUILD):
 EVERYONE = role(GUILD, "@everyone", default=True)
 
 
-def member(uid, roles, guild=GUILD, name="alice"):
+def member(uid, roles, guild=GUILD, name="alice", bot=False):
     return SimpleNamespace(id=uid, name=name, display_name=name.title(), roles=[EVERYONE, *roles],
-                           guild=SimpleNamespace(id=guild))
+                           guild=SimpleNamespace(id=guild), bot=bot)
 
 
 class DiscordEventTests(unittest.TestCase):
@@ -98,6 +98,11 @@ class DiscordEventTests(unittest.TestCase):
         with self.db.session() as s:
             self.assertTrue(s.get(DiscordRole, "9001").deleted)
             self.assertEqual(s.scalars(select(DiscordMember.role_ids)).one(), [])
+
+    def test_bots_are_marked_in_the_cache(self):
+        self.fire(self.bot.on_member_join(member(601, [], name="musicbot", bot=True)))
+        with self.db.session() as s:
+            self.assertTrue(s.get(DiscordMember, "601").is_bot)
 
     def test_link_command_is_registered_for_the_guild(self):
         cmds = self.bot.tree.get_commands(guild=SimpleNamespace(id=GUILD))

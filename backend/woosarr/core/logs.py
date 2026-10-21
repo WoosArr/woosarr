@@ -149,9 +149,34 @@ CAPPED_LOGGERS = ("discord", "discord.http", "discord.gateway", "discord.client"
                   "charset_normalizer")
 
 
+class DiscordLagFilter(logging.Filter):
+    """discord.py warns "Can't keep up, … websocket is N s behind" whenever a heartbeat reply is
+    over 10 s late. Short lags are Discord/network hiccups it recovers from by itself, and nothing
+    an admin can act on, so below LAG_WARN_SECONDS they're logged as INFO (still in the log, not
+    an Alert). A stalled WooSarr event loop shows up separately as "heartbeat blocked"."""
+
+    LAG_WARN_SECONDS = 60.0
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.WARNING and str(record.msg).startswith("Can't keep up"):
+            try:
+                lag = float(record.args[-1]) if isinstance(record.args, tuple) and record.args else None
+            except (TypeError, ValueError):
+                lag = None
+            if lag is not None and lag < self.LAG_WARN_SECONDS:
+                record.levelno, record.levelname = logging.INFO, "INFO"
+        return True
+
+
+_LAG_FILTER = DiscordLagFilter()
+
+
 def cap_library_loggers() -> None:
     for name in CAPPED_LOGGERS:
         logging.getLogger(name).setLevel(logging.INFO)
+    gateway = logging.getLogger("discord.gateway")
+    if _LAG_FILTER not in gateway.filters:
+        gateway.addFilter(_LAG_FILTER)
 
 
 _PROBLEM_LEVELS = ('"level": "WARNING"', '"level": "ERROR"', '"level": "CRITICAL"')

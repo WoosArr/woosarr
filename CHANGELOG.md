@@ -8,6 +8,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Users page: **Plex** and **Discord** tabs. The Discord tab lists the server's members with their roles and linked Plex account (All / Verified / Unverified / Linked / Unlinked, search), and **Add roles** / **Remove roles** for selected members with a Plex impact preview. New bot feature *Give and remove roles* (Manage Roles). Audited.
 - Dashboard *Requests* widget shows who asked (their Plex username).
 
+### Fixed
+- Bots and integrations were listed as Discord members: selecting everyone on Users → Discord reported them as failures, and they counted as members who haven't linked. They're now marked in the member cache (filled in on the bot's next connect) and left out of member lists and counts.
+- Discord gateway lag under 60 s ("Can't keep up … behind", which discord.py recovers from by itself) is logged as INFO instead of raising an Alert; longer lag is still a warning.
+
 ### Security
 - certifi 2026.10.19 (was 2026.7.22): drops the `emSign ECC Root CA - G3` root, whose eMudhra intermediates had compromised keys and could be used to impersonate any HTTPS site WooSarr connects to (plex.tv, Discord, Seerr). PYSEC-2026-4320.
 

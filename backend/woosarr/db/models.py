@@ -186,6 +186,8 @@ class DiscordMember(Base):
     display_name: Mapped[str | None] = mapped_column(String(100))
     role_ids: Mapped[list[str]] = mapped_column(default=list)
     in_guild: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Other bots and integrations: not people, so left out of member lists and counts.
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     synced_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 

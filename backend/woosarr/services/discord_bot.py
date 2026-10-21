@@ -123,7 +123,7 @@ def _role(r: discord.Role) -> cache.RoleData:
 
 def _member(m: discord.Member) -> cache.MemberData:
     roles = tuple(str(r.id) for r in m.roles if not r.is_default())
-    return cache.MemberData(str(m.id), m.name, m.display_name, roles)
+    return cache.MemberData(str(m.id), m.name, m.display_name, roles, is_bot=bool(m.bot))
 
 
 class WooSarrBot(discord.Client):

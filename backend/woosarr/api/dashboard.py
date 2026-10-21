@@ -120,7 +120,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
             linked_accounts[link.plex_user_id] = linked_accounts.get(link.plex_user_id, False) or link.verified
     linked_discord = {link.discord_user_id for link in links}
     member_roles = db.execute(select(DiscordMember.discord_user_id, DiscordMember.role_ids)
-                              .where(DiscordMember.in_guild.is_(True))).all()
+                              .where(DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False))).all()
     members = [m.discord_user_id for m in member_roles]
 
     # Access changes per day: applied changes, or planned ones while in dry-run.

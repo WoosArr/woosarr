@@ -343,7 +343,7 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
     try {
       if (resolve) await api.put(`/api/v1/errors/${g.fingerprint}/resolved`);
       else await api.del(`/api/v1/errors/${g.fingerprint}/resolved`);
-      toast.ok(resolve ? "Marked resolved. If it happens again, it shows up here again." : "Shown again.");
+      toast.ok(resolve ? "Marked resolved." : "Shown again.");
       ctx.reloadErrors();
     } catch (e) {
       toast.error(e);

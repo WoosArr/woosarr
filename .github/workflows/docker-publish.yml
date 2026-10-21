@@ -140,6 +140,10 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # latest=auto would also tag every v* release as latest (an older hotfix tag would
+          # move latest backwards); latest comes only from main, via the raw rule below.
+          flavor: |
+            latest=false
           tags: |
             # Explicit refs, not {{is_default_branch}}: latest must follow main whichever branch is default.
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}

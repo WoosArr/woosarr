@@ -5,6 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Fixed
+- **Resolve** on an alert hid new occurrences of the same problem for 24 hours. It now hides only what had happened when you resolved it; if the problem happens again, the alert is back right away. Alerts resolved before this update follow the new rule too.
 - A slow disk could freeze WooSarr: log lines were written to `/config/logs` from the main event loop, and one write that took over 10 s (live, 2026-10-21) stalled the Discord connection and every web request ("heartbeat blocked for more than 10 seconds"). Log files and container output are now written by a background thread; the Logs page and Alerts stay immediate.
 
 ### Changed

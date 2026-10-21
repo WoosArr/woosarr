@@ -4,6 +4,7 @@ and the Users page "linked" filter."""
 import logging
 import time
 import unittest
+from datetime import timedelta
 
 from tests.helpers import PASSWORD, AppHarness
 from woosarr.db.models import (
@@ -49,7 +50,7 @@ class DashboardApiTests(unittest.TestCase):
     def errors(self, level="WARNING"):
         return {g["message"].split(" ", 1)[0]: g for g in self.c.get(f"/api/v1/errors?level={level}").json()}
 
-    def test_group_resolve_hides_for_24h_and_unresolve(self):
+    def test_resolve_hides_what_happened_and_repeats_show_again(self):
         base_w, base_e = self.status()
         for i in range(3):
             self.log.error("boom-a while publishing post %s", i)
@@ -65,21 +66,24 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertEqual((body["count"], body["hidden"], body["resolved_by"]), (0, 3, "admin:admin"))
+        self.assertIsNotNone(body["resolved_until"])  # when it was resolved
         self.assertEqual(self.status(), (base_w + 1, base_e + 1))  # only boom-b left
-        self.log.error("boom-a while publishing post 99")  # within 24 h: still hidden
-        self.assertEqual(self.status(), (base_w + 1, base_e + 1))
-        expired_at = utcnow()
         time.sleep(0.01)
 
-        # Once the 24 h are over, new occurrences show again (older ones stay hidden).
-        with self.h.app.state.db.session() as s:
-            s.get(ErrorResolution, fp).until = expired_at
-        self.log.error("boom-a while publishing post 100")
-        self.assertEqual((self.errors()["boom-a"]["count"], self.errors()["boom-a"]["hidden"]), (1, 4))
+        # Happens again right away: it's back (only the 3 earlier ones stay hidden).
+        self.log.error("boom-a while publishing post 99")
+        self.assertEqual((self.errors()["boom-a"]["count"], self.errors()["boom-a"]["hidden"]), (1, 3))
+        self.assertEqual(self.status(), (base_w + 1, base_e + 2))
         self.assertEqual(self.errors()["boom-a"]["resolved_by"], "admin:admin")  # still says who resolved the older ones
 
+        # A resolution saved by an older version (until = resolve time + 24 h) hides no repeats either.
+        with self.h.app.state.db.session() as s:
+            s.get(ErrorResolution, fp).until = utcnow() + timedelta(hours=24)
+        self.log.error("boom-a while publishing post 100")
+        self.assertEqual((self.errors()["boom-a"]["count"], self.errors()["boom-a"]["hidden"]), (2, 3))
+
         self.assertEqual(self.c.delete(f"/api/v1/errors/{fp}/resolved").status_code, 204)
-        self.assertEqual(self.errors()["boom-a"]["count"], 5)
+        self.assertEqual(self.errors()["boom-a"]["count"], 5)  # unresolved: all of them
         self.assertEqual(self.c.delete(f"/api/v1/errors/{fp}/resolved").status_code, 404)
         self.assertEqual(self.c.put("/api/v1/errors/0123456789abcdef/resolved").status_code, 404)
         self.assertEqual(self.c.put("/api/v1/errors/NOT-HEX/resolved").status_code, 422)

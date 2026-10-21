@@ -62,13 +62,13 @@ def list_errors(db: DbDep, level: Annotated[Literal["WARNING", "ERROR"], Query()
 @router.put("/errors/{fingerprint}/resolved", response_model=ErrorGroupOut)
 def resolve_error(fingerprint: Annotated[str, Path(pattern=r"^[0-9a-f]{16}$")], db: DbDep,
                   principal: AdminDep) -> ErrorGroupOut:
-    """Hide this problem's occurrences from the dashboard for 24 h."""
+    """Hide this problem's occurrences so far from the dashboard; a new one shows again."""
     group = next((g for g in _groups(db, "WARNING") if g.fingerprint == fingerprint), None)
     if group is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such alert")
-    row = error_digest.resolve(db, group, principal.actor)
+    error_digest.resolve(db, group, principal.actor)
     audit.record(db, principal.actor, "error_resolved", "log_group", fingerprint, level=group.level,
-                 logger=group.logger, message=group.message[:200], until=row.until.isoformat())
+                 logger=group.logger, message=group.message[:200])
     db.flush()
     group = next(g for g in _groups(db, "WARNING") if g.fingerprint == fingerprint)
     return ErrorGroupOut(**{k: getattr(group, k) for k in ErrorGroupOut.model_fields})

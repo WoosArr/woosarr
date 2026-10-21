@@ -343,7 +343,7 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
     try {
       if (resolve) await api.put(`/api/v1/errors/${g.fingerprint}/resolved`);
       else await api.del(`/api/v1/errors/${g.fingerprint}/resolved`);
-      toast.ok(resolve ? "Marked resolved; hidden from the dashboard for 24 hours." : "Shown again.");
+      toast.ok(resolve ? "Marked resolved. If it happens again, it shows up here again." : "Shown again.");
       ctx.reloadErrors();
     } catch (e) {
       toast.error(e);
@@ -384,7 +384,7 @@ function ErrorsWidget({ ctx }: { ctx: Ctx }) {
                 <li key={g.fingerprint} className="row">
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="dash-msg muted">{g.message}</div>
-                    <div className="small muted">Resolved by {g.resolved_by?.replace(/^admin:/, "")}{new Date(g.resolved_until!) > new Date() ? `; hidden until ${new Date(g.resolved_until!).toLocaleString()}` : ""}</div>
+                    <div className="small muted">Resolved by {g.resolved_by?.replace(/^admin:/, "")} on {new Date(g.resolved_until!).toLocaleString()}</div>
                   </div>
                   <button className="btn ghost sm" onClick={() => void act(g, false)}>Unresolve</button>
                 </li>

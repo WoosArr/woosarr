@@ -5625,7 +5625,7 @@
         ]
       },
       "put": {
-        "description": "Hide this problem's occurrences from the dashboard for 24 h.",
+        "description": "Hide this problem's occurrences so far from the dashboard; a new one shows again.",
         "operationId": "resolve_error_api_v1_errors__fingerprint__resolved_put",
         "parameters": [
           {

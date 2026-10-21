@@ -141,7 +141,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Not {{is_default_branch}}: the default branch is develop, latest is main only.
+            # Explicit refs, not {{is_default_branch}}: latest must follow main whichever branch is default.
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=semver,pattern={{version}}

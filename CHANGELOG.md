@@ -16,7 +16,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - certifi 2026.10.19 (was 2026.7.22): drops the `emSign ECC Root CA - G3` root, whose eMudhra intermediates had compromised keys and could be used to impersonate any HTTPS site WooSarr connects to (plex.tv, Discord, Seerr). PYSEC-2026-4320.
 
 ### Changed
-- Development moved to the `develop` branch (now the default branch; pull requests go there). `main` is the release branch; only merges to `main` and version tags publish images.
+- Development moved to the `develop` branch (pull requests go there). `main` stays the default branch and is the release branch: only merges to `main` and version tags publish release images; `develop` publishes a `:develop` image.
 
 ## [1.0.0] - 2026-10-19
 

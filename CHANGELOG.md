@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Fixed
+- A slow disk could freeze WooSarr: log lines were written to `/config/logs` from the main event loop, and one write that took over 10 s (live, 2026-10-21) stalled the Discord connection and every web request ("heartbeat blocked for more than 10 seconds"). Log files and container output are now written by a background thread; the Logs page and Alerts stay immediate.
+
 ### Changed
 - Runtime **Python 3.14** (was 3.12; the image tracks the newest 3.14 patch) and **Node 24 LTS** for the UI build (was 22). Python 3.15 waits until every dependency ships ready-built packages for it (PyYAML doesn't yet).
 - **React 19** (was 18); FastAPI 0.158, Starlette 1.9, websockets 17.3, pydantic-settings 2.16.1, Vite 8.3.5, Playwright 1.64.1. TypeScript stays on 5.9 (the API type generator doesn't support TypeScript 7 yet); SQLAlchemy stays on 2.1.5 until 2.1.6 has Linux packages.

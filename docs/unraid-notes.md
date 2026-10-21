@@ -24,6 +24,7 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 - **Stop/update:** Unraid stops containers with `docker stop` (SIGTERM, 10 s then SIGKILL). Uvicorn shuts down within `timeout_graceful_shutdown=5`. CI's `scripts/smoke-test.sh` asserts stop < 10 s.
 - **Persistence:** everything stateful is under `/config`; the image is replaceable. Database migrations run on start. Losing `secrets/master.key` means stored secrets must be re-entered (admin guide → *Backup and restore*).
 - **Plain HTTP:** port 31337 is not TLS. Users who expose it should put it behind a reverse proxy (README → *HTTPS and reverse proxies*).
+- **Disk speed:** keep `appdata` on a cache pool (share setting *Primary storage: Cache*). On a spun-down array disk a write can take seconds; since 1.1.x WooSarr writes its logs from a background thread so that can't freeze it, but the database still waits for the disk.
 - **Logs:** `/config/logs/woosarr.log` (everything) and `/config/logs/alerts.log` (warnings and errors only, kept longer); the Docker tab's log view shows the container's stdout.
 
 ## Installing before CA listing

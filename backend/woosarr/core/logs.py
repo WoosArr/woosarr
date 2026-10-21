@@ -12,10 +12,13 @@ installed earlier instead of stacking duplicates.
 
 from __future__ import annotations
 
+import atexit
 import collections
+import copy
 import json
 import logging
 import logging.handlers
+import queue
 import threading
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -129,8 +132,20 @@ class RingBufferHandler(logging.Handler):
 
 class _State:
     def __init__(self) -> None:
-        self.handlers: list[logging.Handler] = []
+        self.handlers: list[logging.Handler] = []  # on the root logger
         self.buffer: RingBufferHandler | None = None
+        self.sinks: list[logging.Handler] = []  # written by the background thread
+        self.queue: queue.Queue[logging.LogRecord] | None = None
+        self.listener: logging.handlers.QueueListener | None = None
+
+
+class _Enqueue(logging.handlers.QueueHandler):
+    """Hands records to the writer thread. The redaction filter on this handler has
+    already rendered the message and traceback to text, so records go as they are
+    (the default prepare() would fold the traceback into the message)."""
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        return copy.copy(record)
 
 
 _state = _State()
@@ -206,11 +221,40 @@ def read_problems(log_file: Path, backups: int) -> list[LogEntry]:
     return out
 
 
-def configure_logging(settings: Settings) -> RingBufferHandler:
+def flush() -> None:
+    """Wait until the writer thread has written everything logged so far (tests, shutdown)."""
+    if _state.queue is not None:
+        _state.queue.join()
+    for sink in _state.sinks:
+        sink.flush()
+
+
+def shutdown() -> None:
+    """Write out what's queued, stop the writer thread and detach every handler."""
     root = logging.getLogger()
-    for handler in _state.handlers:
+    if _state.listener is not None:
+        _state.listener.stop()  # drains the queue first
+        _state.listener = None
+    for handler in [*_state.handlers, *_state.sinks]:
         root.removeHandler(handler)
         handler.close()
+    _state.handlers, _state.sinks, _state.queue = [], [], None
+
+
+atexit.register(shutdown)
+
+
+def configure_logging(settings: Settings) -> RingBufferHandler:
+    """Root logging: a redacting queue handler (the event loop never touches a disk or pipe)
+    whose background thread writes stderr, woosarr.log and alerts.log, plus the in-memory
+    ring buffer behind the Logs page and Alerts (memory only, so it stays synchronous).
+
+    Live incident 2026-10-21: a file flush blocked the event loop for over 10 s (slow /config
+    disk on Unraid), stalling the Discord heartbeat and every request. Writing files from a
+    thread keeps the loop free whatever the disk does.
+    """
+    shutdown()
+    root = logging.getLogger()
 
     formatter: logging.Formatter = (
         JsonFormatter() if settings.log_format == "json" else logging.Formatter(TEXT_FORMAT)
@@ -243,11 +287,18 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
                else read_problems(settings.alerts_file, settings.alerts_file_backups))
     ring.preload(earlier)
 
-    handlers: list[logging.Handler] = [stream, file_handler, alerts_handler, ring]
-    for handler in handlers:
+    sinks: list[logging.Handler] = [stream, file_handler, alerts_handler]
+    records: queue.Queue[logging.LogRecord] = queue.Queue()
+    enqueue = _Enqueue(records)
+    handlers: list[logging.Handler] = [enqueue, ring]
+    # Redact before a record is queued (and again at each sink, which is cheap).
+    for handler in [*handlers, *sinks]:
         redaction.install(handler)
+    for handler in handlers:
         root.addHandler(handler)
     root.setLevel(settings.log_level)
+    listener = logging.handlers.QueueListener(records, *sinks, respect_handler_level=True)
+    listener.start()
 
     # Make library loggers propagate to the redacting root handlers instead of
     # writing through handlers of their own.
@@ -259,6 +310,7 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     cap_library_loggers()
     _state.handlers = handlers
     _state.buffer = ring
+    _state.sinks, _state.queue, _state.listener = sinks, records, listener
     if earlier:
         logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from %s for Alerts",
                                                min(len(earlier), ring.PROBLEMS_CAPACITY),

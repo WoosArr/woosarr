@@ -68,14 +68,12 @@ class AppTests(unittest.TestCase):
 
     def test_log_file_download(self):
         logging.getLogger("woosarr.test").info("persisted line")
-        for h in logs._state.handlers:
-            h.flush()
+        logs.flush()
         r = self.client.get("/api/v1/logs/file")
         self.assertEqual(r.status_code, 200)
         self.assertIn("persisted line", r.text)
         logging.getLogger("woosarr.test").warning("lasting warning")
-        for h in logs._state.handlers:
-            h.flush()
+        logs.flush()
         r = self.client.get("/api/v1/logs/file", params={"name": "alerts"})
         self.assertIn("lasting warning", r.text)
         self.assertNotIn("persisted line", r.text)

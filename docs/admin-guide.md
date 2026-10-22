@@ -42,6 +42,10 @@ The rules:
 - Link-status roles (Verified / Unverified / Linked), per-library roles and reaction posts (react to get a role): see `docs/discord-notes.md`.
 - Bot permissions per feature, and how to grant only what you need: `docs/discord-notes.md` → *Bot permissions by feature*.
 
+### Custom emoji
+
+The **Custom Emoji** page searches emoji.gg, OpenMoji and slackmojis and adds emoji to your Discord server (animated ones are hidden unless you turn *Hide animated* off); it also renames and deletes the server's emoji. Added emoji appear in the reaction post picker straight away. Previews are fetched by WooSarr, never by your browser. Details, limits and the permissions the bot needs: [Discord notes → Custom emoji](discord-notes.md#custom-emoji).
+
 ### Users page: Plex and Discord tabs
 
 - **Plex** (default): every Plex user, their linked Discord members, roles and where each library comes from; **Add libraries** / **Remove libraries** for the selected users; **Link** / **Add member**.

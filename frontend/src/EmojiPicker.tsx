@@ -14,10 +14,10 @@ interface ServerEmoji {
   available: boolean;
 }
 
-let serverEmojiCache: Promise<ServerEmoji[]> | null = null;
+// Fetched each time the picker opens, so emoji added on the Custom Emoji page (or in
+// Discord) show up without reloading the page.
 function loadServerEmoji(): Promise<ServerEmoji[]> {
-  serverEmojiCache ??= api.get<ServerEmoji[]>("/api/v1/discord/emojis").catch(() => []);
-  return serverEmojiCache;
+  return api.get<ServerEmoji[]>("/api/v1/discord/emojis").catch(() => []);
 }
 
 export function EmojiDisplay({ value, size = 20 }: { value: string; size?: number }) {
@@ -32,19 +32,22 @@ export function EmojiPicker({ value, onChange, label }: { value: string; onChang
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [server, setServer] = useState<ServerEmoji[]>([]);
+  // Animated emoji only work for members with Nitro: hidden unless asked for.
+  const [hideAnimated, setHideAnimated] = useState(true);
   const box = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    void loadServerEmoji().then(setServer);
+    let live = true;
+    void loadServerEmoji().then((list) => live && setServer(list));
     search.current?.focus();
     const onDoc = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
     document.addEventListener("mousedown", onDoc);
     box.current?.addEventListener("keydown", onKey);
     const el = box.current;
-    return () => { document.removeEventListener("mousedown", onDoc); el?.removeEventListener("keydown", onKey); };
+    return () => { live = false; document.removeEventListener("mousedown", onDoc); el?.removeEventListener("keydown", onKey); };
   }, [open]);
 
   const needle = q.trim().toLowerCase();
@@ -53,7 +56,8 @@ export function EmojiPicker({ value, onChange, label }: { value: string; onChang
     () => COMMON_EMOJI.filter(([e, k]) => !needle || e === needle || k.split(" ").some((w) => w.startsWith(needle))),
     [needle],
   );
-  const custom = server.filter((e) => e.available && (!needle || e.name.toLowerCase().includes(needle)));
+  const custom = server.filter((e) => e.available && !(hideAnimated && e.animated) && (!needle || e.name.toLowerCase().includes(needle)));
+  const animatedCount = server.filter((e) => e.available && e.animated).length;
   const pick = (v: string) => { onChange(v); setOpen(false); setQ(""); };
 
   return (
@@ -67,6 +71,12 @@ export function EmojiPicker({ value, onChange, label }: { value: string; onChang
       {open ? (
         <div className="emoji-popover" role="dialog" aria-label="Choose an emoji">
           <input ref={search} type="search" placeholder="Search emoji (e.g. movie, tv, anime)…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search emoji" />
+          {animatedCount ? (
+            <label className="check small" style={{ marginTop: 6 }}>
+              <input type="checkbox" checked={hideAnimated} onChange={(e) => setHideAnimated(e.target.checked)} />
+              <span>Hide animated <span className="muted">({animatedCount}; members need Nitro to use them)</span></span>
+            </label>
+          ) : null}
           {custom.length ? (
             <>
               <div className="small muted emoji-section">This server</div>

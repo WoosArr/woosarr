@@ -19,6 +19,7 @@ from woosarr.api import api_keys as api_keys_api
 from woosarr.api import audit_api, requests_api
 from woosarr.api import auth as auth_api
 from woosarr.api import dashboard as dashboard_api
+from woosarr.api import emoji as emoji_api
 from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
@@ -37,7 +38,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import media_requests
+from woosarr.services import emoji_library, media_requests
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -83,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     plex_service: PlexService | None = None
     discord_service: DiscordService | None = None
+    emoji_lib = emoji_library.EmojiLibrary(settings.config_dir / "cache" / "emoji", demo=settings.demo)
     if settings.demo:
         from woosarr.dev import demo
 
@@ -106,13 +108,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if gateway() is not None:
             sync.trigger(None, "startup", delay=1)
         poller = None
+        emoji_refresh = None
+        if not settings.demo:
+            emoji_refresh = asyncio.create_task(emoji_library.run_refresher(emoji_lib), name="woosarr-emoji-refresh")
         if discord_service is not None:
             await discord_service.start()
             poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
-        if poller is not None:
-            poller.cancel()
+        for task in (poller, emoji_refresh):
+            if task is not None:
+                task.cancel()
         if discord_service is not None:
             await discord_service.stop()
         sync.stop()
@@ -129,6 +135,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.plex_gateway = gateway
     app.state.plex = plex_service
     app.state.discord = discord_service
+    app.state.emoji_library = emoji_lib
+    app.state.emoji_guild = discord_service if discord_service is not None else demo.DemoEmojiGuild()
     app.state.requests = request_service
     app.state.plex_status = (
         plex_service.status if plex_service else lambda: {"configured": True, "connected": True, "detail": "demo data"}
@@ -176,7 +184,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
-                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api, dashboard_api):
+                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api, dashboard_api,
+                   emoji_api):
         v1.include_router(module.router)
     v1.include_router(oidc_api.public)
     v1.include_router(oidc_api.admin)

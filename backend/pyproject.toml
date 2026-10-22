@@ -25,6 +25,8 @@ dependencies = [
   "pydantic>=2.14",
   "pydantic-settings>=2.16",
   "python-multipart>=0.0.9",
+  # Custom Emoji page: resize and convert images to Discord's emoji limits.
+  "pillow>=13.0",
 ]
 
 [project.optional-dependencies]

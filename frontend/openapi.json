@@ -973,6 +973,36 @@
         "title": "DiscoveryOut",
         "type": "object"
       },
+      "EmojiAddIn": {
+        "properties": {
+          "id": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9_]{2,32}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "name"
+        ],
+        "title": "EmojiAddIn",
+        "type": "object"
+      },
       "EmojiOut": {
         "properties": {
           "animated": {
@@ -1009,6 +1039,162 @@
           "available"
         ],
         "title": "EmojiOut",
+        "type": "object"
+      },
+      "EmojiRenameIn": {
+        "properties": {
+          "name": {
+            "pattern": "^[A-Za-z0-9_]{2,32}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "EmojiRenameIn",
+        "type": "object"
+      },
+      "EmojiSearchOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryEmojiOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "boolean"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "more"
+        ],
+        "title": "EmojiSearchOut",
+        "type": "object"
+      },
+      "EmojiSlotsOut": {
+        "properties": {
+          "animated": {
+            "title": "Animated",
+            "type": "integer"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "static": {
+            "title": "Static",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "static",
+          "animated"
+        ],
+        "title": "EmojiSlotsOut",
+        "type": "object"
+      },
+      "EmojiSourceOut": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "license",
+          "live",
+          "count",
+          "updated_at",
+          "checked_at",
+          "version",
+          "error"
+        ],
+        "title": "EmojiSourceOut",
         "type": "object"
       },
       "ErrorGroupOut": {
@@ -1503,6 +1689,66 @@
           "shared"
         ],
         "title": "LibraryAccess",
+        "type": "object"
+      },
+      "LibraryEmojiOut": {
+        "properties": {
+          "animated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animated"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "credit": {
+            "title": "Credit",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "name",
+          "title",
+          "category",
+          "animated",
+          "page",
+          "credit"
+        ],
+        "title": "LibraryEmojiOut",
         "type": "object"
       },
       "LibraryOut": {
@@ -5086,6 +5332,114 @@
         ]
       }
     },
+    "/api/v1/discord/emojis/slots": {
+      "get": {
+        "operationId": "slots_api_v1_discord_emojis_slots_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiSlotsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Slots",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/discord/emojis/{emoji_id}": {
+      "delete": {
+        "operationId": "delete_api_v1_discord_emojis__emoji_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "emoji_id",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{1,25}$",
+              "title": "Emoji Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete",
+        "tags": [
+          "emoji"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_api_v1_discord_emojis__emoji_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "emoji_id",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{1,25}$",
+              "title": "Emoji Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmojiRenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
     "/api/v1/discord/guild": {
       "put": {
         "operationId": "discord_set_guild_api_v1_discord_guild_put",
@@ -5534,6 +5888,218 @@
         "summary": "Discord Set Token",
         "tags": [
           "integrations"
+        ]
+      }
+    },
+    "/api/v1/emoji/add": {
+      "post": {
+        "operationId": "add_api_v1_emoji_add_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmojiAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/preview/{source}/{item_id}": {
+      "get": {
+        "operationId": "preview_api_v1_emoji_preview__source___item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "emojigg",
+                "openmoji",
+                "slackmojis"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,64}$",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/gif": {},
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/search": {
+      "get": {
+        "operationId": "search_api_v1_emoji_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "emojigg",
+                "openmoji",
+                "slackmojis"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 100,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hide_animated",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Hide Animated",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 120,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiSearchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/sources": {
+      "get": {
+        "operationId": "sources_api_v1_emoji_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EmojiSourceOut"
+                  },
+                  "title": "Response Sources Api V1 Emoji Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sources",
+        "tags": [
+          "emoji"
         ]
       }
     },

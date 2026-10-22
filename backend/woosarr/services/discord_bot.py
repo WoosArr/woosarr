@@ -132,6 +132,9 @@ class WooSarrBot(discord.Client):
         intents.guilds = True
         intents.members = True
         intents.guild_reactions = True  # reaction posts (not privileged)
+        # Emoji added, renamed or deleted (in Discord or from the Custom Emoji page) reach the
+        # cache right away; without this, guild.emojis stayed as it was at connect time.
+        intents.emojis_and_stickers = True  # not privileged
         super().__init__(intents=intents)
         self.service = service
         self.guild_id = guild_id
@@ -321,6 +324,11 @@ def option_role_ids(option: dict) -> set[str]:
     return {str(r) for r in option.get("role_ids") or []}
 
 
+def _emoji_dict(e: discord.Emoji) -> dict[str, object]:
+    return {"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
+            "url": str(e.url), "available": bool(getattr(e, "available", True))}
+
+
 def normalize_emoji(text: str) -> str:
     """Canonical form used for storage and comparison (unicode or <:name:id>)."""
     return str(discord.PartialEmoji.from_str(text.strip()))
@@ -471,8 +479,63 @@ class _GuildFeatures:
     async def list_emojis(self) -> list[dict[str, object]]:
         """The server's custom emoji, for the reaction post picker."""
         guild = self._guild()
-        return [{"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
-                 "url": str(e.url), "available": bool(getattr(e, "available", True))} for e in guild.emojis]
+        return [_emoji_dict(e) for e in guild.emojis]
+
+    def emoji_slots(self) -> dict[str, int]:
+        guild = self._guild()
+        return {"limit": int(guild.emoji_limit), "static": sum(1 for e in guild.emojis if not e.animated),
+                "animated": sum(1 for e in guild.emojis if e.animated)}
+
+    async def add_emoji(self, name: str, image: bytes, animated: bool, reason: str) -> dict[str, object]:
+        """Upload a custom emoji (Custom Emoji page). Static and animated emoji have separate slots."""
+        self.require("custom_emoji")
+        guild = self._guild()
+        slots = self.emoji_slots()
+        kind = "animated" if animated else "static"
+        if slots[kind] >= slots["limit"]:
+            raise DiscordConfigError(f"The server has no free {kind} emoji slots ({slots[kind]} of {slots['limit']}).")
+        if any(e.name == name for e in guild.emojis):
+            raise DiscordConfigError(f"The server already has an emoji called :{name}:.")
+        try:
+            emoji = await guild.create_custom_emoji(name=name, image=image, reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji upload refused name=%s bytes=%d animated=%s status=%s code=%s",
+                        name, len(image), animated, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused the emoji: {exc.text or exc.status}") from None
+        log.info("discord: emoji added id=%s name=%s animated=%s bytes=%d", emoji.id, emoji.name, emoji.animated,
+                 len(image))
+        return _emoji_dict(emoji)
+
+    def _server_emoji(self, emoji_id: str) -> discord.Emoji:
+        emoji = next((e for e in self._guild().emojis if str(e.id) == emoji_id), None)
+        if emoji is None:
+            raise DiscordConfigError("That emoji isn't on the server any more.")
+        return emoji
+
+    async def rename_emoji(self, emoji_id: str, name: str, reason: str) -> tuple[dict[str, object], str]:
+        """(the renamed emoji, its old text)."""
+        self.require("custom_emoji")
+        emoji = self._server_emoji(emoji_id)
+        old = str(emoji)
+        try:
+            emoji = await emoji.edit(name=name, reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji rename refused id=%s status=%s code=%s", emoji_id, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused the rename: {exc.text or exc.status}") from None
+        log.info("discord: emoji renamed id=%s %s -> %s", emoji_id, old, emoji.name)
+        return _emoji_dict(emoji), old
+
+    async def delete_emoji(self, emoji_id: str, reason: str) -> dict[str, object]:
+        self.require("custom_emoji")
+        emoji = self._server_emoji(emoji_id)
+        gone = _emoji_dict(emoji)
+        try:
+            await emoji.delete(reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji delete refused id=%s status=%s code=%s", emoji_id, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused to delete the emoji: {exc.text or exc.status}") from None
+        log.info("discord: emoji deleted id=%s name=%s", emoji_id, gone["name"])
+        return gone
 
     async def list_channels(self) -> list[dict[str, str]]:
         guild = self._guild()

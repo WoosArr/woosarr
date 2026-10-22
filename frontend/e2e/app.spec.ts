@@ -45,7 +45,7 @@ test("first-run setup creates the admin and lands on the dashboard", async ({ pa
 
 test("sidebar navigation reaches every page", async ({ page }) => {
   await login(page);
-  for (const name of ["Users", "Roles", "Libraries", "Reaction Posts", "Requests", "Logs", "Settings", "Integrations", "Dashboard"]) {
+  for (const name of ["Users", "Roles", "Libraries", "Reaction Posts", "Custom Emoji", "Requests", "Logs", "Settings", "Integrations", "Dashboard"]) {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }
@@ -237,12 +237,12 @@ test("going live needs confirmation; sign out returns to login", async ({ page }
 });
 
 test("no serious accessibility violations on any page (light and dark)", async ({ page }) => {
-  test.setTimeout(150_000); // 13 pages x 2 themes
+  test.setTimeout(180_000); // 16 pages x 2 themes
   await login(page);
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/users?tab=discord", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/users?tab=discord", "/roles", "/libraries", "/reactions", "/emoji", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -253,6 +253,55 @@ test("no serious accessibility violations on any page (light and dark)", async (
     }
   }
   expect(problems).toEqual([]);
+});
+
+test("custom emoji: search, hide animated, add, use in a reaction post, rename, delete", async ({ page }) => {
+  await login(page);
+  await page.goto("/emoji");
+  const results = page.getByRole("list", { name: "Emoji results" });
+  await expect(results.getByRole("button", { name: "blob_wave: add to server" })).toBeVisible();
+  // Animated emoji are hidden until the switch is turned off.
+  await expect(results.getByRole("button", { name: /party_parrot/ })).toHaveCount(0);
+  await page.getByRole("switch", { name: "Hide animated" }).uncheck();
+  await expect(results.getByRole("button", { name: /party_parrot/ })).toBeVisible();
+  // Previews come from WooSarr, not the source site.
+  const src = await results.getByRole("button", { name: /party_parrot/ }).locator("img").getAttribute("src");
+  expect(src).toMatch(/^\/api\/v1\/emoji\/preview\/emojigg\//);
+
+  await page.getByRole("tab", { name: "OpenMoji" }).click();
+  await page.getByLabel("Search emoji").fill("popcorn");
+  await results.getByRole("button", { name: "popcorn: add to server" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add to Discord" });
+  await dialog.getByLabel("Name").fill("bad name");
+  await expect(dialog.getByRole("button", { name: "Add to server" })).toBeDisabled();
+  await dialog.getByLabel("Name").fill("movie_popcorn");
+  await dialog.getByRole("button", { name: "Add to server" }).click();
+  await expect(page.getByText(":movie_popcorn: added to the server.")).toBeVisible();
+  const server = page.getByRole("list", { name: "Server emoji" });
+  await expect(server.getByText(":movie_popcorn:")).toBeVisible();
+  await expect(page.getByText(/Static 1 of 50/)).toBeVisible();
+
+  await page.getByRole("tab", { name: "slackmojis" }).click();
+  await expect(page.getByText("Search slackmojis", { exact: true })).toBeVisible();
+
+  // The reaction post picker fetches the server's emoji each time it opens.
+  await page.goto("/reactions");
+  await page.getByRole("button", { name: "New post" }).click();
+  const editor = page.getByRole("dialog");
+  await editor.getByRole("button", { name: "Emoji 1: choose emoji" }).click();
+  await editor.getByRole("button", { name: ":movie_popcorn:" }).click();
+  await expect(editor.getByLabel("Emoji 1", { exact: true })).toHaveValue(/^<:movie_popcorn:\d+>$/);
+  await editor.getByRole("button", { name: "Close" }).click();
+
+  await page.goto("/emoji");
+  await server.getByRole("button", { name: "Rename :movie_popcorn:" }).click();
+  const rename = page.getByRole("dialog", { name: "Rename :movie_popcorn:" });
+  await rename.getByLabel("Name").fill("popcorn_time");
+  await rename.getByRole("button", { name: "Rename" }).click();
+  await expect(server.getByText(":popcorn_time:")).toBeVisible();
+  await server.getByRole("button", { name: "Delete :popcorn_time:" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No custom emoji yet.", { exact: false })).toBeVisible();
 });
 
 test("request command name can be renamed but not to a reserved name", async ({ page }) => {

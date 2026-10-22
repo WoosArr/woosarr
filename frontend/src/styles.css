@@ -412,3 +412,16 @@ td .row { gap: 4px; }
 .donut-unit { font-size: 9px; fill: var(--text-muted); }
 .donut-legend { flex-direction: column; margin: 0; flex: 1 1 120px; }
 .dash-w.w-xs .donut-legend { flex-basis: 100%; }
+
+/* Custom Emoji page */
+.server-emoji { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 6px; }
+.server-emoji li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px 4px 8px; min-width: 0; }
+.server-emoji .emoji-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-emoji img, .library-grid img, .emoji-large { object-fit: contain; }
+.library-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.library-grid button { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 8px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.library-grid button:hover, .library-grid button:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.library-grid button > span.small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag-gif { font-size: 0.65rem; font-weight: 700; padding: 1px 4px; border-radius: 4px; background: var(--accent-soft); color: var(--accent-strong); }
+.tag-gif.corner { position: absolute; top: 4px; right: 4px; }
+.emoji-large { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px; background: var(--surface); }

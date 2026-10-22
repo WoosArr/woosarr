@@ -13,10 +13,11 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | **Give and remove roles** | Add or remove roles for many members at once (Users → Discord) | **Manage Roles** | The bot's highest role must be **above** the roles it gives or takes |
 | **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |
 | **Public requests** | Post requests in the requests channel mentioning the member; reply there and update the post's status | **View Channels, Send Messages, Embed Links, Read Message History** (in that channel) | Only when *Settings → Requests → Visibility* is **Public**; private requests need none of these |
+| **Add and update emoji** | Custom Emoji page: add emoji from emoji.gg, OpenMoji or slackmojis; rename and delete server emoji | **Create Expressions** (add) and **Manage Expressions** (rename/delete any emoji) | Server emoji slots (50 static + 50 animated without boosts) |
 | **Pin reaction posts** | Pin the post | **Pin Messages** | Optional; without it the post is still sent, just not pinned |
 | **Create the reaction channel** | Create the channel if it doesn't exist | **Manage Channels** | Optional; pick an existing channel instead |
 
-Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Add Reactions `64`, Read Message History `65536`, Pin Messages `2251799813685248`. All features: `2251800082205776`.
+Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Add Reactions `64`, Read Message History `65536`, Manage Expressions `1073741824`, Create Expressions `8796093022208`, Pin Messages `2251799813685248`. All features: `2260597248969808`.
 
 Channel overrides win over server permissions: if a reaction post channel denies the bot *Send Messages* or *Add Reactions*, the channel list marks it "bot can't post here".
 
@@ -102,6 +103,19 @@ Reaction Posts page:
 4. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 5. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.
 6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
+
+## Custom emoji
+
+Custom Emoji page (sidebar):
+
+![Custom Emoji page: the server's emoji, and the emoji.gg library with animated emoji shown](images/custom-emoji.png)
+
+- **Libraries:** three tabs. **emoji.gg** (about 5,400 emoji) and **OpenMoji** (about 2,500, CC BY-SA 4.0: credit OpenMoji where you use them) are downloaded lists that WooSarr keeps in `/config/cache/emoji`, checked at startup (unless checked in the last hour) and then daily; emoji.gg's NSFW category is never shown. If a download fails, the copy from last time is kept, the tab says so, and it's retried an hour later. **slackmojis** has no full list, so it is searched live as you type.
+- **Hide animated** (on by default): animated emoji can only be used by members with Discord Nitro and use a separate set of slots. A slackmojis GIF that is really a single frame counts as static.
+- **Previews** are fetched by WooSarr, not your browser: only from each source's own image host (`cdn3.emoji.gg`, `cdn.jsdelivr.net`, `emojis.slackmojis.com`), over HTTPS, without following redirects, at most 8 MB, and only PNG, GIF, JPEG or WebP. They are cached on disk (up to 200 MB, oldest dropped first).
+- **Add to server:** pick an emoji, check its name (2-32 letters, digits or underscores; prefilled from the title) and add it. WooSarr converts it to fit Discord's limits: still images become a PNG of at most 128 px; animations stay GIFs and are resized frame by frame only if they're over 256 KB. The Discord audit log shows *Added from emoji.gg by admin:… (WooSarr)*; WooSarr's audit trail records the source, the emoji's page and its credit.
+- **On your server:** the server's emoji with the used slots (static and animated: 50 each, more with server boosts), **Rename** and **Delete**. Renaming an emoji that a reaction post uses updates the post's options (reactions are matched by name and id). Deleting one that a post still uses is refused; remove it from the post first.
+- The bot needs **Create Expressions** to add emoji and **Manage Expressions** to rename and delete them (including emoji others added). The bot receives emoji changes made in Discord straight away (the *guild emojis* intent, not privileged), so the reaction post picker is always current.
 
 ## Bot avatar
 

@@ -14,6 +14,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change.
 - **Exemptions and manual grants.** Exempt libraries are never touched by roles; admins can grant or remove libraries per user.
 - **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role) and link-status roles (Verified / Unverified / Linked).
+- **Custom Emoji:** search emoji.gg, OpenMoji and slackmojis and add emoji to your Discord server (animated ones hidden unless you want them); rename and delete server emoji.
 - **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, and hear back when it's available ([docs/requests.md](docs/requests.md)).
 - **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
 - **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs.
@@ -157,7 +158,7 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 | Doc | For |
 |-----|-----|
 | [Admin guide](docs/admin-guide.md) | How access is decided, Discord commands, shared accounts, dashboard and alerts, troubleshooting, backups, environment variables |
-| [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, link-status roles, bot avatar |
+| [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, custom emoji, link-status roles, bot avatar |
 | [Requests](docs/requests.md) | `/request` through Seerr: setup, who may request, public or private, diagnostics |
 | [Single sign-on](docs/sso.md) | OIDC providers for admin sign-in |
 | [Plex notes](docs/plex-notes.md) | How WooSarr talks to Plex and what was verified on a real server |

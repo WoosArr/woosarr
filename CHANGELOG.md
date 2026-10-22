@@ -4,18 +4,23 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-21
+
+Security and reliability update: no vulnerable copies of certifi and friends left in the image, WooSarr can no longer freeze on a slow disk, alerts that come back after you resolve them show again, and current runtimes (Python 3.14, Node 24, React 19). Update by pulling `latest` (or `1.1.1`).
+
+### Security
+- **pip removed from the image.** It's only needed to build the image, and its bundled copies of certifi (the compromised-CA issue), urllib3, msgpack and pkg_resources showed up as 1 critical and 4 high vulnerabilities, even though WooSarr never runs them. The image scan now fails the build on any fixable high or critical vulnerability instead of only reporting it.
+- gitleaks 8.30.1 scans the whole history with no blanket exceptions: the whole-file allowlist for the redaction tests is gone (their fake password is now assembled at runtime), and two findings in old commits that aren't secrets are ignored by exact fingerprint (`.gitleaksignore`).
+
 ### Fixed
 - **Resolve** on an alert hid new occurrences of the same problem for 24 hours. It now hides only what had happened when you resolved it; if the problem happens again, the alert is back right away. Alerts resolved before this update follow the new rule too.
 - A slow disk could freeze WooSarr: log lines were written to `/config/logs` from the main event loop, and one write that took over 10 s (live, 2026-10-21) stalled the Discord connection and every web request ("heartbeat blocked for more than 10 seconds"). Log files and container output are now written by a background thread; the Logs page and Alerts stay immediate.
+- Version tags also moved the `latest` image tag (a later hotfix tag for an older version would have moved it backwards); `latest` now comes only from `main`.
 
 ### Changed
 - Runtime **Python 3.14** (was 3.12; the image tracks the newest 3.14 patch) and **Node 24 LTS** for the UI build (was 22). Python 3.15 waits until every dependency ships ready-built packages for it (PyYAML doesn't yet).
 - **React 19** (was 18); FastAPI 0.159, SQLAlchemy 2.1.6, Starlette 1.9, websockets 17.3, pydantic-settings 2.16.1, Vite 8.3.5, Playwright 1.64.1. TypeScript stays on 5.9 (the API type generator doesn't support TypeScript 7 yet).
 - Build tooling: every GitHub Action to its newest release (pinned by commit), gitleaks 8.30.1, Trivy 0.76.1; pre-commit hooks pinned by commit.
-
-### Security
-- **pip removed from the image.** It's only needed to build the image, and its bundled copies of certifi (the compromised-CA issue), urllib3, msgpack and pkg_resources showed up as 1 critical and 4 high vulnerabilities, even though WooSarr never runs them. The image scan now fails the build on any fixable high or critical vulnerability instead of only reporting it.
-- gitleaks 8.30.1 scans the whole history with no blanket exceptions: the whole-file allowlist for the redaction tests is gone (their fake password is now assembled at runtime), and two findings in old commits that aren't secrets are ignored by exact fingerprint (`.gitleaksignore`).
 
 ## [1.1.0] - 2026-10-21
 

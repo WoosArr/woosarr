@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "woosarr"
-version = "1.1.0"
+version = "1.1.1"
 description = "Sync Plex library access from Discord roles"
 license = "AGPL-3.0-only"
 requires-python = ">=3.14"

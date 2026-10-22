@@ -180,7 +180,7 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: merges to `main` (→ `latest`) and version tags (`v1.2.3` → `1.2.3`, `1.2`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: each release is a merge to `main` plus a version tag on it (`v1.2.3` → `1.2.3`, `1.2` and, for the newest release, `latest`, all one image). They run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 

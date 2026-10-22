@@ -4,8 +4,10 @@ name: Docker publish
 # image to GHCR only if CI passes. Uses the built-in GITHUB_TOKEN; no stored registry
 # credentials. Pull requests run CI only (see ci.yml).
 #
-# Image tags: main → latest; develop → develop; v1.2.3 → 1.2.3 and 1.2; every build
-# also gets sha-<commit>. `latest` never comes from develop.
+# Image tags: develop → develop; v1.2.3 → 1.2.3, 1.2 and (if it's the newest release)
+# latest; every build also gets sha-<commit>. A release is one image carrying all its
+# tags. Pushes to main (the release merge) are tested and built but not published:
+# the version tag on the merge commit publishes that same commit.
 
 on:
   push:
@@ -113,6 +115,8 @@ jobs:
   publish:
     name: Publish to GHCR
     needs: [ci, image]
+    # main is published by its version tag (same commit), so latest and X.Y.Z are one image.
+    if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -137,18 +141,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # latest only for the highest X.Y.Z tag: an older hotfix tag (or a pre-release like
+      # v1.2.0-rc1) must not move latest backwards.
+      - name: Is this the newest release?
+        id: newest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          newest=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'v*.*.*' \
+            | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          echo "newest release tag: ${newest:-none}; this tag: $TAG"
+          if [ "$newest" = "$TAG" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # latest=auto would also tag every v* release as latest (an older hotfix tag would
-          # move latest backwards); latest comes only from main, via the raw rule below.
+          # latest=auto would tag every v* release as latest (an older hotfix tag would move it
+          # backwards); latest comes only from the newest release tag, via the raw rule below.
           flavor: |
             latest=false
           tags: |
-            # Explicit refs, not {{is_default_branch}}: latest must follow main whichever branch is default.
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ steps.newest.outputs.latest == 'true' }}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

@@ -10,7 +10,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ### Changed
 - Runtime **Python 3.14** (was 3.12; the image tracks the newest 3.14 patch) and **Node 24 LTS** for the UI build (was 22). Python 3.15 waits until every dependency ships ready-built packages for it (PyYAML doesn't yet).
-- **React 19** (was 18); FastAPI 0.158, Starlette 1.9, websockets 17.3, pydantic-settings 2.16.1, Vite 8.3.5, Playwright 1.64.1. TypeScript stays on 5.9 (the API type generator doesn't support TypeScript 7 yet); SQLAlchemy stays on 2.1.5 until 2.1.6 has Linux packages.
+- **React 19** (was 18); FastAPI 0.159, SQLAlchemy 2.1.6, Starlette 1.9, websockets 17.3, pydantic-settings 2.16.1, Vite 8.3.5, Playwright 1.64.1. TypeScript stays on 5.9 (the API type generator doesn't support TypeScript 7 yet).
 - Build tooling: every GitHub Action to its newest release (pinned by commit), gitleaks 8.30.1, Trivy 0.76.1; pre-commit hooks pinned by commit.
 
 ### Security

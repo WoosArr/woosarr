@@ -1,6 +1,7 @@
 import json
 import logging
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -24,15 +25,11 @@ class LoggingTests(unittest.TestCase):
 
     def tearDown(self):
         redaction.registry.clear()
-        for h in logs._state.handlers:
-            logging.getLogger().removeHandler(h)
-            h.close()
-        logs._state.handlers = []
+        logs.shutdown()
         self.tmp.cleanup()
 
     def _flush(self):
-        for h in logs._state.handlers:
-            h.flush()
+        logs.flush()
 
     def test_warnings_survive_a_restart(self):
         self.log.info("just info")
@@ -64,6 +61,35 @@ class LoggingTests(unittest.TestCase):
                          [("INFO", "13.6s behind."), ("WARNING", "75.0s behind.")])
         self.assertEqual([e.message for e in self.ring.query(min_level=logging.WARNING, contains="keep up")[0]],
                          ["Can't keep up, shard ID None websocket is 75.0s behind."])
+
+    def test_file_writes_happen_off_the_calling_thread(self):
+        # Live 2026-10-21: a slow disk blocked the event loop inside a log flush. Writing
+        # is now done by a background thread; a stalled sink must not stall the caller.
+        import time
+        stall = threading.Event()
+        slow = logs._state.sinks[1]  # woosarr.log
+        original = slow.emit
+        slow.emit = lambda record: (stall.wait(5), original(record))
+        try:
+            start = time.monotonic()
+            self.log.info("while the disk is slow")
+            self.assertLess(time.monotonic() - start, 0.5)
+            self.assertTrue(any("while the disk is slow" in e.message for e in self.ring.query()[0]))  # Logs page: immediate
+        finally:
+            stall.set()
+            slow.emit = original
+        self._flush()
+        self.assertIn("while the disk is slow", self.settings.log_file.read_text())
+
+    def test_traceback_stays_a_separate_field_in_the_file(self):
+        try:
+            raise ValueError("boom")
+        except ValueError:
+            self.log.exception("it failed")
+        self._flush()
+        line = next(json.loads(x) for x in self.settings.log_file.read_text().splitlines() if "it failed" in x)
+        self.assertEqual(line["message"], "it failed")
+        self.assertIn("ValueError: boom", line["exc"])
 
     def test_canary_never_reaches_any_sink(self):
         self.log.info("token is %s", self.secret)
@@ -128,9 +154,6 @@ class LibraryLoggerCapTests(unittest.TestCase):
             logging.getLogger("discord.gateway").debug("event dump")
             logging.getLogger("woosarr.sync").debug("our debug")
             messages = [e.message for e in ring.query()[0]]
-            for h in logs._state.handlers:
-                logging.getLogger().removeHandler(h)
-                h.close()
-            logs._state.handlers = []
+            logs.shutdown()
         self.assertIn("our debug", messages)
         self.assertNotIn("event dump", messages)

@@ -31,8 +31,7 @@ class RedactionAuditTests(unittest.TestCase):
         self.h.close()
 
     def sinks(self) -> str:
-        for handler in logs._state.handlers:
-            handler.flush()
+        logs.flush()  # the files are written by the logging thread
         ring = "\n".join(f"{e.message}\n{e.exc or ''}" for e in logs.buffer().query(limit=5000)[0])
         return ring + self.h.settings.log_file.read_text()
 

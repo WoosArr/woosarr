@@ -9,9 +9,9 @@ Two sources, no time window:
   (family) account by signing in with Plex, or an admin added a member to an account
   others are linked to. Grouped per kind, Plex account and Discord member.
 
-Resolving a group hides its occurrences up to 24 h after the resolve time from the
-dashboard (the Logs page still shows everything); if it happens again after that,
-it's back. A resolution is kept as long as anything it hides still exists.
+Resolving a group hides the occurrences that happened up to that moment (the Logs page
+still shows everything). If it happens again, even a minute later, the group is back:
+a resolution never hides anything new. It's kept as long as anything it hides still exists.
 """
 
 from __future__ import annotations
@@ -20,15 +20,13 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import logs as logcore
 from woosarr.db.models import AuditLog, DiscordMember, ErrorResolution, PlexUser, utcnow
-
-RESOLVE_FOR = timedelta(hours=24)
 
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE)
 _NUM = re.compile(r"\d+")
@@ -193,7 +191,9 @@ def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
         g.message, g.last_ts = message, ts
         g.exc = exc or g.exc
         res = resolutions.get(fp)
-        if res is not None and _ts(ts) <= res.until:
+        # resolved_at, not `until`: older rows carried until = resolve time + 24 h, which hid
+        # repeats; only what had already happened is hidden now.
+        if res is not None and _ts(ts) <= res.resolved_at:
             g.hidden += 1
         else:
             g.count += 1
@@ -211,9 +211,9 @@ def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
         res = resolutions.get(fp)
         if res is not None:
             g.resolved_by = res.resolved_by
-            g.resolved_until = res.until
+            g.resolved_until = res.resolved_at  # when it was resolved (field name kept for the API)
     # A resolution that has expired and hides nothing that still exists is no longer needed.
-    stale = [fp for fp, r in resolutions.items() if r.until < now and fp not in out]
+    stale = [fp for fp, r in resolutions.items() if r.resolved_at < now and fp not in out]
     if stale:
         session.execute(delete(ErrorResolution).where(ErrorResolution.fingerprint.in_(stale)))
     return sorted(out.values(), key=lambda g: g.last_ts, reverse=True)
@@ -237,7 +237,7 @@ def resolve(session: Session, group: Group, actor: str) -> ErrorResolution:
         row = ErrorResolution(fingerprint=group.fingerprint)
         session.add(row)
     row.level, row.logger, row.message = group.level, group.logger[:100], group.message[:300]
-    row.resolved_at, row.resolved_by, row.until = now, actor, now + RESOLVE_FOR
+    row.resolved_at, row.resolved_by, row.until = now, actor, now
     return row
 
 

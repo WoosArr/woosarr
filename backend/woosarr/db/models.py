@@ -314,7 +314,7 @@ class MediaRequest(Base):
 
 class ErrorResolution(Base):
     """An admin marked an alert group resolved: the dashboard hides its
-    occurrences until `until` (resolve time + 24 h)."""
+    occurrences up to `resolved_at` (new ones show again). `until` is kept equal to it."""
 
     __tablename__ = "error_resolutions"
     fingerprint: Mapped[str] = mapped_column(String(16), primary_key=True)

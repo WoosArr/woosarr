@@ -1,6 +1,5 @@
 """Shared test fixtures: an app on a temp /config and a logged-in client."""
 
-import logging
 import tempfile
 from pathlib import Path
 
@@ -48,8 +47,5 @@ class AppHarness:
 
     def close(self):
         self.app.state.db.engine.dispose()
-        for h in logs._state.handlers:
-            logging.getLogger().removeHandler(h)
-            h.close()
-        logs._state.handlers = []
+        logs.shutdown()
         self.tmp.cleanup()

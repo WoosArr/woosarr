@@ -84,6 +84,20 @@ class EmojiLibraryError(Exception):
     """Something the admin should see (bad image, source unreachable, unknown emoji)."""
 
 
+class _HttpError(EmojiLibraryError):
+    def __init__(self, status: int) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
+
+
+# Images the source no longer has (its index can list emoji whose file was removed): not asked for
+# again for a day, and left out of search results.
+MISSING_STATUSES = {403, 404, 410}
+MISSING_SECONDS = 24 * 3600
+# Downloads at once per source: a page of previews mustn't open dozens of connections to one host.
+MAX_PARALLEL_PER_SOURCE = 6
+
+
 @dataclass(frozen=True)
 class LibraryEmoji:
     source: str
@@ -263,6 +277,11 @@ class EmojiLibrary:
         self._previews = cache_dir / "previews"
         self._demo = demo
         self._http = session or requests.Session()
+        if session is None:
+            adapter = requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=MAX_PARALLEL_PER_SOURCE + 2)
+            self._http.mount("https://", adapter)
+        self._slots = {s: threading.BoundedSemaphore(MAX_PARALLEL_PER_SOURCE) for s in SOURCES}
+        self._missing: dict[str, float] = {}  # image url -> when the source said it's gone
         self._http.headers["User-Agent"] = USER_AGENT
         self._indexes: dict[str, _Index] = {"emojigg": _Index(), "openmoji": _Index()}
         self._seen: OrderedDict[str, LibraryEmoji] = OrderedDict()  # slackmojis results, for previews/adding
@@ -390,7 +409,9 @@ class EmojiLibrary:
         if not idx.items and idx.error:
             raise EmojiLibraryError(f"{LABELS[source]} couldn't be downloaded: {idx.error}")
         terms = q.lower().split()
-        hits = [e for e in idx.items if all(t in e.search for t in terms) and not (hide_animated and e.animated)]
+        gone = self._gone()
+        hits = [e for e in idx.items if all(t in e.search for t in terms) and not (hide_animated and e.animated)
+                and e.preview not in gone]
         if terms:
             want = "_".join(terms)
             hits.sort(key=lambda e: (e.name.lower() != want, not e.name.lower().startswith(terms[0]), -e.rank))
@@ -407,7 +428,8 @@ class EmojiLibrary:
         page, more = 0, True
         while more and len(collected) < offset + limit and page < 25:
             items, more = self._slackmojis_page(q, page)
-            collected += [e for e in items if not (hide_animated and e.animated)]
+            gone = self._gone()
+            collected += [e for e in items if not (hide_animated and e.animated) and e.preview not in gone]
             page += 1
         return collected[offset:offset + limit], len(collected), more or len(collected) > offset + limit
 
@@ -452,7 +474,7 @@ class EmojiLibrary:
         def check(e: LibraryEmoji) -> tuple[str, bool | None]:
             try:
                 return e.id, is_animated(self.preview_bytes(e)[0])
-            except EmojiLibraryError:
+            except Exception:  # noqa: BLE001 - an unreadable preview just stays "not known"
                 return e.id, None
 
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -496,8 +518,20 @@ class EmojiLibrary:
         if host.scheme != "https" or host.hostname not in IMAGE_HOSTS[item.source]:
             log.warning("emoji library: refused image url host=%s source=%s", host.hostname, item.source)
             raise EmojiLibraryError("that image isn't on the source's image host")
+        if url in self._gone():
+            raise EmojiLibraryError(f"{LABELS[item.source]} no longer has this image")
         try:
-            data = self._get(url, MAX_IMAGE_BYTES)
+            with self._slots[item.source]:
+                data = self._get(url, MAX_IMAGE_BYTES)
+        except _HttpError as exc:
+            if exc.status in MISSING_STATUSES:
+                with self._lock:
+                    self._missing[url] = time.time()
+                log.info("emoji library: image gone from source (HTTP %s), hidden for a day source=%s id=%s",
+                         exc.status, item.source, item.id)
+                raise EmojiLibraryError(f"{LABELS[item.source]} no longer has this image") from None
+            log.warning("emoji library: image fetch failed source=%s id=%s: %s", item.source, item.id, exc)
+            raise EmojiLibraryError(f"{LABELS[item.source]} didn't send the image: {exc}") from None
         except (requests.RequestException, EmojiLibraryError) as exc:
             log.warning("emoji library: image fetch failed source=%s id=%s: %s", item.source, item.id, _describe(exc))
             raise EmojiLibraryError(f"{LABELS[item.source]} didn't send the image: {_describe(exc)}") from None
@@ -505,25 +539,48 @@ class EmojiLibrary:
         if kind is None:
             log.warning("emoji library: not an image source=%s id=%s bytes=%d", item.source, item.id, len(data))
             raise EmojiLibraryError("the source sent something that isn't a PNG, GIF, JPEG or WebP image")
-        _write_atomic(path, data)
-        self._account(len(data))
+        try:
+            _write_atomic(path, data)
+            self._account(len(data))
+        except OSError as exc:  # the cache is a convenience: serve the image anyway
+            log.warning("emoji library: preview not cached (%s): %s", type(exc).__name__, exc)
         return data, kind
+
+    def _gone(self) -> set[str]:
+        now = time.time()
+        with self._lock:
+            for url in [u for u, t in self._missing.items() if now - t > MISSING_SECONDS]:
+                del self._missing[url]
+            return set(self._missing)
+
+    def _cached_files(self) -> list[tuple[Path, int, float]]:
+        """(path, size, mtime) of cached previews; skips downloads still being written and files
+        another request removed meanwhile."""
+        out = []
+        for p in self._previews.glob("*"):
+            if p.suffix == ".tmp":
+                continue
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            out.append((p, st.st_size, st.st_mtime))
+        return out
 
     def _account(self, added: int) -> None:
         with self._lock:
             if self._cache_bytes is None:
-                self._cache_bytes = sum(p.stat().st_size for p in self._previews.glob("*") if p.is_file())
+                self._cache_bytes = sum(size for _, size, _ in self._cached_files())
             else:
                 self._cache_bytes += added
             if self._cache_bytes <= PREVIEW_CACHE_BYTES:
                 return
-            files = sorted((p for p in self._previews.glob("*") if p.is_file()), key=lambda p: p.stat().st_mtime)
-            total = sum(p.stat().st_size for p in files)
+            files = sorted(self._cached_files(), key=lambda f: f[2])
+            total = sum(size for _, size, _ in files)
             removed = 0
-            for p in files:
+            for p, size, _ in files:
                 if total <= PREVIEW_CACHE_BYTES * 0.8:
                     break
-                size = p.stat().st_size
                 p.unlink(missing_ok=True)
                 total -= size
                 removed += 1
@@ -534,7 +591,7 @@ class EmojiLibrary:
         """GET without redirects, refusing bodies over limit."""
         with self._http.get(url, timeout=(5, 30), stream=True, allow_redirects=False) as r:
             if r.status_code != 200:
-                raise EmojiLibraryError(f"HTTP {r.status_code}")
+                raise _HttpError(r.status_code)
             if int(r.headers.get("Content-Length") or 0) > limit:
                 raise EmojiLibraryError("response too large")
             buf = bytearray()
@@ -563,7 +620,8 @@ def _describe(exc: Exception) -> str:
 
 def _write_atomic(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    # Unique per thread: two requests for the same preview can download it at once.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
 

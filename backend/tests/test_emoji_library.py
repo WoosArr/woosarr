@@ -165,6 +165,42 @@ class LibraryTests(unittest.TestCase):
         with self.assertRaises(el.EmojiLibraryError):
             lib.item("emojigg", "3")
 
+    def test_same_preview_fetched_at_once_by_many_requests(self):
+        # Live 500s: two requests downloading one preview shared a temp file, and the second rename failed.
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        gate = threading.Barrier(8)
+
+        def slow_png():
+            gate.wait(timeout=5)  # every request is mid-download before any writes
+            return FakeResponse(body=png())
+
+        routes = gg_routes()
+        routes["https://cdn3.emoji.gg/emojis/1_pepe.png"] = slow_png
+        lib, _ = self.lib(routes)
+        lib.refresh(force=True)
+        item = lib.item("emojigg", "1")
+        with mock.patch.object(el, "MAX_PARALLEL_PER_SOURCE", 8):
+            lib._slots["emojigg"] = el.threading.BoundedSemaphore(8)
+            with self.assertNoLogs("woosarr.emoji", "WARNING"), ThreadPoolExecutor(8) as pool:
+                kinds = list(pool.map(lambda _: lib.preview_bytes(item)[1], range(8)))
+        self.assertEqual(kinds, ["image/png"] * 8)
+        self.assertEqual([p.name for p in (self.dir / "previews").iterdir() if p.suffix == ".tmp"], [])
+
+    def test_images_gone_from_the_source_are_hidden_and_not_asked_for_again(self):
+        routes = gg_routes()
+        routes["https://cdn3.emoji.gg/emojis/1_pepe.png"] = lambda: FakeResponse(403)
+        lib, http = self.lib(routes)
+        lib.refresh(force=True)
+        for _ in range(3):
+            with self.assertRaisesRegex(el.EmojiLibraryError, "no longer has"):
+                lib.preview_bytes(lib.item("emojigg", "1"))
+        self.assertEqual(sum(1 for c in http.calls if c[0].endswith("1_pepe.png")), 1)
+        self.assertEqual([i.id for i in lib.search("emojigg", "pepe", False, 0, 10)[0]], ["2"])
+        with mock.patch.object(el.time, "time", return_value=el.time.time() + el.MISSING_SECONDS + 1):
+            self.assertEqual(lib.search("emojigg", "pepe", False, 0, 10)[1], 2)  # asked again a day later
+
     def test_oversized_downloads_are_refused(self):
         routes = gg_routes()
         routes["https://cdn3.emoji.gg/emojis/1_pepe.png"] = lambda: FakeResponse(

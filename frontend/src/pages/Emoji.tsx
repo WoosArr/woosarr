@@ -194,7 +194,8 @@ function Library({ blocked, onAdded }: { blocked: string | null; onAdded: () => 
             {items.map((e) => (
               <li key={`${e.source}-${e.id}`}>
                 <button type="button" onClick={() => setAdding(e)} title={`${e.title}${e.category ? ` · ${e.category}` : ""}`} aria-label={`${e.title}: add to server`}>
-                  <img src={`/api/v1/emoji/preview/${e.source}/${encodeURIComponent(e.id)}`} alt="" width={48} height={48} loading="lazy" />
+                  <img src={`/api/v1/emoji/preview/${e.source}/${encodeURIComponent(e.id)}`} alt="" width={48} height={48} loading="lazy"
+                    onError={(ev) => { ev.currentTarget.style.visibility = "hidden"; }} />
                   <span className="small">{e.name}</span>
                   {e.animated ? <span className="tag-gif corner" title="Animated">GIF</span> : null}
                 </button>

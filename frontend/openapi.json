@@ -3026,6 +3026,14 @@
             "title": "Message Id",
             "type": "string"
           },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
           "pinned": {
             "title": "Pinned",
             "type": "boolean"
@@ -3062,6 +3070,106 @@
         "title": "PurgeOut",
         "type": "object"
       },
+      "ReactionChange": {
+        "properties": {
+          "emoji": {
+            "title": "Emoji",
+            "type": "string"
+          },
+          "members": {
+            "title": "Members",
+            "type": "integer"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "new_emoji": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Emoji"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "title": "Role Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "emoji",
+          "new_emoji",
+          "role_id",
+          "role_name",
+          "members",
+          "names"
+        ],
+        "title": "ReactionChange",
+        "type": "object"
+      },
+      "ReactionChangesOut": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ReactionChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "clear_impact": {
+            "items": {
+              "$ref": "#/components/schemas/RoleImpactOut"
+            },
+            "title": "Clear Impact",
+            "type": "array"
+          },
+          "clear_losing": {
+            "title": "Clear Losing",
+            "type": "integer"
+          },
+          "keep_impact": {
+            "items": {
+              "$ref": "#/components/schemas/RoleImpactOut"
+            },
+            "title": "Keep Impact",
+            "type": "array"
+          },
+          "keep_losing": {
+            "title": "Keep Losing",
+            "type": "integer"
+          },
+          "moved": {
+            "title": "Moved",
+            "type": "boolean"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "published",
+          "moved",
+          "changes",
+          "keep_losing",
+          "keep_impact",
+          "clear_losing",
+          "clear_impact"
+        ],
+        "title": "ReactionChangesOut",
+        "type": "object"
+      },
       "ReactionOption": {
         "properties": {
           "emoji": {
@@ -3069,6 +3177,14 @@
             "minLength": 1,
             "title": "Emoji",
             "type": "string"
+          },
+          "former": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Former",
+            "type": "array"
           },
           "label": {
             "default": "",
@@ -3180,6 +3296,10 @@
             ],
             "title": "Channel Id"
           },
+          "clear_old_reactions": {
+            "title": "Clear Old Reactions",
+            "type": "boolean"
+          },
           "content": {
             "maxLength": 2000,
             "minLength": 1,
@@ -3285,9 +3405,86 @@
           "reactions",
           "preview",
           "preview_length",
-          "outdated"
+          "outdated",
+          "clear_old_reactions"
         ],
         "title": "ReactionPostOut",
+        "type": "object"
+      },
+      "ReactionPostUpdate": {
+        "properties": {
+          "channel_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "keep_old_reactions": {
+            "default": true,
+            "title": "Keep Old Reactions",
+            "type": "boolean"
+          },
+          "legend": {
+            "default": true,
+            "title": "Legend",
+            "type": "boolean"
+          },
+          "legend_header": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Legend Header",
+            "type": "string"
+          },
+          "legend_template": {
+            "default": "{emoji} {role} \u2014 {libraries}",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Legend Template",
+            "type": "string"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReactionOption"
+            },
+            "maxItems": 20,
+            "title": "Options",
+            "type": "array"
+          },
+          "pin": {
+            "default": true,
+            "title": "Pin",
+            "type": "boolean"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "ReactionPostUpdate",
         "type": "object"
       },
       "RemoveAccessIn": {
@@ -7296,7 +7493,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReactionPostIn"
+                "$ref": "#/components/schemas/ReactionPostUpdate"
               }
             }
           },
@@ -7377,6 +7574,59 @@
           }
         },
         "summary": "Publish",
+        "tags": [
+          "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts/{post_id}/reaction-changes": {
+      "post": {
+        "description": "What saving these options would do to members who already reacted (no Discord calls).",
+        "operationId": "reaction_changes_api_v1_reaction_posts__post_id__reaction_changes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionPostIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionChangesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reaction Changes",
         "tags": [
           "reaction-posts"
         ]

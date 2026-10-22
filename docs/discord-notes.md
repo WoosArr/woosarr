@@ -14,14 +14,15 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |
 | **Public requests** | Post requests in the requests channel mentioning the member; reply there and update the post's status | **View Channels, Send Messages, Embed Links, Read Message History** (in that channel) | Only when *Settings → Requests → Visibility* is **Public**; private requests need none of these |
 | **Add and update emoji** | Custom Emoji page: add emoji from emoji.gg, OpenMoji or slackmojis; rename and delete server emoji | **Create Expressions** (add) and **Manage Expressions** (rename/delete any emoji) | Server emoji slots (50 static + 50 animated without boosts) |
+| **Clear old reactions** | When you change a reaction post's emoji and turn off *Keep old reactions working*, remove members' old reactions from the message | **Manage Messages** (in that channel) | Optional; without it the old reactions stay on the message but no longer give roles |
 | **Pin reaction posts** | Pin the post | **Pin Messages** | Optional; without it the post is still sent, just not pinned |
 | **Create the reaction channel** | Create the channel if it doesn't exist | **Manage Channels** | Optional; pick an existing channel instead |
 
-Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Add Reactions `64`, Read Message History `65536`, Manage Expressions `1073741824`, Create Expressions `8796093022208`, Pin Messages `2251799813685248`. All features: `2260597248969808`.
+Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Manage Messages `8192`, Add Reactions `64`, Read Message History `65536`, Manage Expressions `1073741824`, Create Expressions `8796093022208`, Pin Messages `2251799813685248`. All features: `2260597248978000`.
 
 Channel overrides win over server permissions: if a reaction post channel denies the bot *Send Messages* or *Add Reactions*, the channel list marks it "bot can't post here".
 
-WooSarr never needs Administrator, Kick/Ban, Manage Messages or Message Content.
+WooSarr never needs Administrator, Kick/Ban or Message Content; Manage Messages only for the optional *Clear old reactions*.
 
 Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
@@ -102,7 +103,8 @@ Reaction Posts page:
 3. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
 4. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 5. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.
-6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
+6. **Changing a published post's emoji or removing a reaction:** the editor lists the members who reacted with each emoji that's going away and what they'll lose, with the Plex impact. For an emoji you replaced, **Keep old reactions working** (on by default) means reactions with the old emoji keep giving the role; the bot takes its own old reaction off so new members use the new one, and WooSarr forgets the old emoji once nobody reacts with it. Turn it off to remove the old reactions when you update the post (needs **Manage Messages**; without it they stay on the message but stop counting); those members get the role back by reacting with the new emoji. Members who reacted to a reaction you removed lose its role when you update the post (their reactions stay on the message). Moving the post to another channel posts a new message, so nobody's reactions carry over.
+7. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
 
 ## Custom emoji
 

@@ -7,7 +7,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ### Added
 - **Custom Emoji page.** Search **emoji.gg**, **OpenMoji** and **slackmojis** and add emoji to your Discord server in a click; rename and delete the server's emoji on the same page. Emoji you add show up straight away in the reaction post picker. *Hide animated* (on by default) leaves out animated emoji, which members can only use with Discord Nitro. WooSarr fetches the previews itself (your browser never contacts those sites), downloads the emoji.gg and OpenMoji lists at startup and once a day (NSFW emoji excluded), and resizes images to fit Discord (128 px, 256 KB, animations kept). Renaming an emoji that a reaction post uses updates the post; deleting one that a post uses is refused. The bot needs the **Create Expressions** and **Manage Expressions** permissions ([Discord notes](docs/discord-notes.md#bot-permissions-by-feature)).
 
+- **Changing a reaction post's emoji keeps members' roles.** Reactions with the old emoji keep giving the role (the bot takes its own old reaction off so new members use the new one), or turn off *Keep old reactions working* to have the old reactions removed when you update the post (needs **Manage Messages**). Before saving, the editor shows who reacted with each emoji that's going away, who'd lose a role, and the Plex impact.
+
 ### Fixed
+- Members who had reacted with an emoji that was then changed or removed from a reaction post kept that role for good, even after taking their reaction off. Now the role is removed when the post is updated (unless the old reaction is kept working).
 - The reaction post emoji picker shows emoji added to the server since WooSarr started (it fetched the list once per session, and the bot didn't receive emoji updates from Discord). It now also has a *Hide animated* switch.
 
 ## [1.1.1] - 2026-10-21

@@ -159,7 +159,10 @@ async def rename(request: Request, emoji_id: ServerEmojiId, body: EmojiRenameIn,
     def follow(s) -> list[str]:
         changed = []
         for post in s.scalars(select(ReactionPost)):
-            opts = [dict(o, emoji=new) if normalize_emoji(o.get("emoji", "")) == old else o for o in post.options or []]
+            opts = [dict(o, emoji=new if normalize_emoji(o.get("emoji", "")) == old else o.get("emoji", ""),
+                         **({"former": [new if normalize_emoji(e) == old else e for e in o["former"]]}
+                            if o.get("former") else {}))
+                    for o in post.options or []]
             if opts != post.options:
                 post.options = opts
                 changed.append(post.title)

@@ -261,7 +261,9 @@ class ReactionPost(Base):
     channel_id: Mapped[str | None] = mapped_column(String(32))
     message_id: Mapped[str | None] = mapped_column(String(32), unique=True)
     pin: Mapped[bool] = mapped_column(Boolean, default=True)
-    # [{"emoji": "🎬", "role_id": "1234…", "label": "<role name>"}, ...]; one role per reaction
+    # [{"emoji": "🎬", "role_id": "1234…", "label": "<role name>", "former": ["🍿"]}, ...]; one role per
+    # reaction. "former": emoji the option used before; reactions with them still count (kept old
+    # reactions), and an entry is dropped once nobody's reaction uses it.
     options: Mapped[list[Any]] = mapped_column(JSON, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Legend under the message: one line per reaction (services/reaction_text.py).
@@ -269,6 +271,11 @@ class ReactionPost(Base):
     legend_template: Mapped[str] = mapped_column(String(300), default="{emoji} {role} — {libraries}",
                                                  server_default="{emoji} {role} — {libraries}")
     legend_header: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    # Emoji taken out since the last publish ([{"emoji", "role_id"}]): their reactions no longer count,
+    # and the next publish removes the roles members got from them, then forgets them.
+    retired_options: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default="[]")
+    # The next publish also removes the reactions for emoji the post no longer uses (Manage Messages).
+    clear_old_reactions: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # Exactly what was last posted, to edit the message only when the text changes.
     rendered_content: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

@@ -48,6 +48,7 @@ export type SeerrStatus = Schemas["SeerrStatus"];
 export type SeerrTest = Schemas["SeerrTest"];
 export type RequestOut = Schemas["RequestOut"];
 export type EmojiOut = Schemas["EmojiOut"];
+export type ReactionChangesOut = Schemas["ReactionChangesOut"];
 export type EmojiSourceOut = Schemas["EmojiSourceOut"];
 export type LibraryEmojiOut = Schemas["LibraryEmojiOut"];
 export type EmojiSearchOut = Schemas["EmojiSearchOut"];

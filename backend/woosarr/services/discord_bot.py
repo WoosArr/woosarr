@@ -324,6 +324,11 @@ def option_role_ids(option: dict) -> set[str]:
     return {str(r) for r in option.get("role_ids") or []}
 
 
+def option_emojis(option: dict) -> list[str]:
+    """The option's emoji, then its former ones (old reactions kept working after an emoji change)."""
+    return [normalize_emoji(e) for e in [option.get("emoji", ""), *(option.get("former") or [])] if e]
+
+
 def _emoji_dict(e: discord.Emoji) -> dict[str, object]:
     return {"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
             "url": str(e.url), "available": bool(getattr(e, "available", True))}
@@ -560,7 +565,8 @@ class _GuildFeatures:
                 raise DiscordConfigError("reaction post not found")
             return {"channel_id": post.channel_id, "message_id": post.message_id,
                     "content": reaction_text.render_post(s, post),
-                    "pin": post.pin, "options": list(post.options or []), "title": post.title}
+                    "pin": post.pin, "options": list(post.options or []), "title": post.title,
+                    "clear": post.clear_old_reactions}
 
         post = await self.run_db(load)
         if not post["options"]:
@@ -587,6 +593,7 @@ class _GuildFeatures:
                                      "again.")
         message = None
         pinned = False
+        notes: list[str] = []
         try:
             if post["message_id"] and str(channel.id) == post["channel_id"]:
                 try:
@@ -606,6 +613,8 @@ class _GuildFeatures:
                             raise DiscordConfigError(f"Discord can't use the emoji {emoji} (deleted, or from a "
                                                      "server the bot isn't in). Pick another one.") from None
                         raise
+            notes += await self._retire_reactions(message, guild, post_id, set(emojis),
+                                                  {e for o in post["options"] for e in option_emojis(o)}, post["clear"])
             if post["pin"]:
                 ok, why = features.available(self.feature_status(), "pin_posts")
                 if ok:
@@ -632,9 +641,56 @@ class _GuildFeatures:
                          channel=channel.name, message_id=str(message.id), pinned=pinned)
 
         await self.run_db(save)
-        await self.reconcile_reactions()
+
+        # Roles members had through emoji this publish retires are removed by the reconcile below.
+        def retire(s):
+            before = self._reaction_roles(s, with_retired=True)[1]
+            row = s.get(ReactionPost, post_id)
+            if row.retired_options:
+                log.info("reaction post %s: emoji retired: %s", post_id,
+                         " ".join(str(r.get("emoji")) for r in row.retired_options))
+            row.retired_options, row.clear_old_reactions = [], False
+            return before
+
+        await self.reconcile_reactions(before=await self.run_db(retire))
         return {"channel_id": str(channel.id), "channel": channel.name, "message_id": str(message.id),
-                "pinned": pinned, "jump_url": message.jump_url}
+                "pinned": pinned, "jump_url": message.jump_url, "notes": notes}
+
+    async def _retire_reactions(self, message: discord.Message, guild: discord.Guild, post_id: int,
+                                current: set[str], counted: set[str], clear: bool) -> list[str]:
+        """Emoji the post no longer shows: the bot takes its own reaction off (so nobody picks a dead
+        one); with clear, everyone's reactions for emoji that no longer count are removed too."""
+        notes: list[str] = []
+        clear_ok, why = features.available(self.feature_status(), "clear_reactions")
+        removed_own, cleared = [], []
+        for reaction in message.reactions:
+            emoji = normalize_emoji(str(reaction.emoji))
+            if emoji in current:
+                continue
+            if clear and emoji not in counted and clear_ok:
+                try:
+                    await message.clear_reaction(reaction.emoji)
+                    cleared.append(emoji)
+                    continue
+                except discord.HTTPException as exc:
+                    log.warning("reaction post %s: couldn't clear %s reactions: %s %s", post_id, emoji, exc.status,
+                                exc.text)
+                    clear_ok, why = False, f"Discord refused ({exc.status})"
+            if reaction.me:
+                try:
+                    await message.remove_reaction(reaction.emoji, guild.me)
+                    removed_own.append(emoji)
+                except discord.HTTPException as exc:
+                    log.warning("reaction post %s: couldn't take the bot's %s reaction off: %s %s", post_id, emoji,
+                                exc.status, exc.text)
+        if clear and not clear_ok and any(normalize_emoji(str(r.emoji)) not in counted for r in message.reactions):
+            log.warning("reaction post %s: old reactions not cleared: %s", post_id, why)
+            notes.append(f"Old reactions weren't removed ({why}); they stay on the message but no longer give "
+                         "roles.")
+        if removed_own or cleared:
+            log.info("reaction post %s: bot reactions removed=%s, all reactions cleared=%s", post_id,
+                     " ".join(removed_own) or "-", " ".join(cleared) or "-")
+        return notes
 
     async def unpublish_post(self, channel_id: str | None, message_id: str | None) -> None:
         if not channel_id or not message_id:
@@ -649,15 +705,20 @@ class _GuildFeatures:
             log.warning("could not delete reaction post message %s: %s", message_id, exc)
 
     @staticmethod
-    def _reaction_roles(session) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[str]]]:
-        """(message_id, emoji) -> role ids for enabled posts, and member -> roles wanted by reactions."""
+    def _reaction_roles(session, override: dict[int, list[dict]] | None = None, with_retired: bool = False
+                        ) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[str]]]:
+        """(message_id, emoji) -> role ids for enabled posts, and member -> roles wanted by reactions.
+        override: post id -> options to use instead of the saved ones (previews). with_retired: also
+        count emoji taken out since the last publish (what members have now, before that publish)."""
         options: dict[tuple[str, str], set[str]] = {}
         by_post: dict[int, str] = {}
         for post in session.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True),
                                                                ReactionPost.message_id.is_not(None))):
             by_post[post.id] = post.message_id
-            for o in post.options or []:
-                options.setdefault((post.message_id, normalize_emoji(o["emoji"])), set()).update(option_role_ids(o))
+            opts = list((override or {}).get(post.id, post.options) or [])
+            for o in opts + (list(post.retired_options or []) if with_retired else []):
+                for emoji in option_emojis(o):
+                    options.setdefault((post.message_id, emoji), set()).update(option_role_ids(o))
         wanted: dict[str, set[str]] = {}
         for r in session.scalars(select(Reaction)):
             roles = options.get((by_post.get(r.post_id, ""), r.emoji))
@@ -691,7 +752,7 @@ class _GuildFeatures:
 
         def work(s):
             post = s.scalar(select(ReactionPost).where(ReactionPost.message_id == message_id))
-            if post is None or not any(normalize_emoji(o["emoji"]) == emoji for o in post.options or []):
+            if post is None or not any(emoji in option_emojis(o) for o in post.options or []):
                 return None
             row = s.get(Reaction, (post.id, discord_user_id, emoji))
             if added and row is None:
@@ -722,17 +783,22 @@ class _GuildFeatures:
             await self._apply_member_roles(guild, discord_user_id, set(), roles - still_wanted,
                                            "WooSarr reaction role removed")
 
-    async def reconcile_reactions(self) -> None:
+    async def reconcile_reactions(self, before: dict[str, set[str]] | None = None) -> None:
         """Re-read every published post's reactions (catches changes made while offline)
-        and give/remove the reaction roles to match."""
+        and give/remove the reaction roles to match. before: the roles members had from reactions,
+        when the caller knows better than the saved options (a publish retiring emoji)."""
         try:
             guild = self._guild()
         except DiscordConfigError:
             return
-        posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id, [o["emoji"] for o in p.options or []])
+        posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id,
+                                              # Retired emoji are still read: the next publish needs them.
+                                              [e for o in [*(p.options or []), *(p.retired_options or [])]
+                                               for e in option_emojis(o)])
                                              for p in s.scalars(select(ReactionPost).where(
                                                  ReactionPost.message_id.is_not(None)))])
-        before = await self.run_db(lambda s: self._reaction_roles(s)[1])
+        if before is None:
+            before = await self.run_db(lambda s: self._reaction_roles(s)[1])
         for post_id, channel_id, message_id, emojis in posts:
             channel = guild.get_channel(int(channel_id)) if channel_id else None
             if not isinstance(channel, discord.TextChannel):
@@ -743,7 +809,7 @@ class _GuildFeatures:
             except (discord.NotFound, discord.Forbidden) as exc:
                 log.warning("reaction post %s: message %s unavailable (%s)", post_id, message_id, exc)
                 continue
-            wanted = {normalize_emoji(e) for e in emojis}
+            wanted = set(emojis)
             rows: set[tuple[str, str]] = set()
             for reaction in msg.reactions:
                 emoji = normalize_emoji(str(reaction.emoji))
@@ -757,6 +823,16 @@ class _GuildFeatures:
                 s.execute(delete(Reaction).where(Reaction.post_id == post_id))
                 for uid, emoji in rows:
                     s.add(Reaction(post_id=post_id, discord_user_id=uid, emoji=emoji))
+                # A former emoji nobody reacts with any more has done its job.
+                used = {emoji for _, emoji in rows}
+                post = s.get(ReactionPost, post_id)
+                options = [dict(o, former=[e for e in o.get("former") or [] if normalize_emoji(e) in used])
+                           if o.get("former") else o for o in post.options or []]
+                if options != post.options:
+                    dropped = [e for o in post.options or [] for e in o.get("former") or []
+                               if normalize_emoji(e) not in used]
+                    post.options = [{k: v for k, v in o.items() if k != "former" or v} for o in options]
+                    log.info("reaction post %s: old emoji no longer used, dropped: %s", post_id, " ".join(dropped))
 
             await self.run_db(replace)
             log.info("reaction post %s: %s reactions read", post_id, len(rows))

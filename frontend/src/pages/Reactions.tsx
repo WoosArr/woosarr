@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
+import { api, type ChannelOut, type LibraryOut, type PublishOut, type ReactionChangesOut, type ReactionPostIn, type ReactionPostOut, type RoleCreated, type RoleOut } from "../api";
 import { EmojiDisplay, EmojiPicker } from "../EmojiPicker";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
-import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, ago, useConfirm, useLoad, useToast } from "../ui";
+import { ImpactList } from "../Impact";
+import { Badge, Empty, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
 
 type Option = ReactionPostIn["options"] extends (infer O)[] | undefined ? O : never;
 const NEW_ROLE = "__new__";
@@ -35,7 +36,7 @@ const BLANK: ReactionPostIn = {
   legend: true,
   legend_template: DEFAULT_LINE,
   legend_header: "",
-  options: [{ emoji: "🎬", role_id: "", label: "", text: "" }],
+  options: [{ emoji: "🎬", role_id: "", label: "", text: "", former: [] }],
 };
 
 export default function ReactionsPage() {
@@ -125,6 +126,20 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
     }, 300);
     return () => { live = false; clearTimeout(t); };
   }, [draftKey]);
+  // A published post whose emoji change: what happens to members who already reacted.
+  const [keepOld, setKeepOld] = useState(!post?.clear_old_reactions);
+  const [changes, setChanges] = useState<ReactionChangesOut | null>(null);
+  const changesKey = JSON.stringify([draft.channel_id, (draft.options ?? []).map((o) => [o.emoji, o.role_id])]);
+  useEffect(() => {
+    if (!post?.message_id) return;
+    let live = true;
+    const t = setTimeout(() => {
+      const body = { ...draft, options: (draft.options ?? []).filter((o) => o.emoji && o.role_id) };
+      api.post<ReactionChangesOut>(`/api/v1/reaction-posts/${post.id}/reaction-changes`, body)
+        .then((r) => live && setChanges(r), () => live && setChanges(null));
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [changesKey]);
   const [newChannel, setNewChannel] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -156,7 +171,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
     setError(null);
     try {
       return post
-        ? await api.put<ReactionPostOut>(`/api/v1/reaction-posts/${post.id}`, draft)
+        ? await api.put<ReactionPostOut>(`/api/v1/reaction-posts/${post.id}`, { ...draft, keep_old_reactions: keepOld })
         : await api.post<ReactionPostOut>("/api/v1/reaction-posts", draft);
     } catch (e) {
       setError(e);
@@ -187,6 +202,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
       const out = await api.post<PublishOut>(`/api/v1/reaction-posts/${saved.id}/publish`,
         { new_channel_name: draft.channel_id ? null : newChannel || null });
       toast.ok(`Posted in #${out.channel}${out.pinned ? " and pinned" : ""}.`);
+      for (const note of out.notes ?? []) toast.info(note);
     } catch (e) {
       // The changes are saved either way; say why Discord wasn't updated.
       toast.error(new Error(`Saved, but ${post?.message_id ? "the Discord post wasn't updated" : "not posted"}: `
@@ -283,6 +299,12 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
                   <Icon name="trash" size={14} />
                 </button>
               </div>
+              {o.former?.length && post?.options.some((p) => p.role_id === o.role_id && p.emoji === o.emoji) ? (
+                <p className="small muted" style={{ margin: "6px 0 0" }}>
+                  Old emoji still giving this role: {o.former.map((e) => <EmojiDisplay key={e} value={e} size={16} />)}
+                  {" "}(until nobody reacts with {o.former.length === 1 ? "it" : "them"})
+                </p>
+              ) : null}
               {draft.legend ?? true ? (
                 <div style={{ marginTop: 8 }}>
                   <Field label="Custom line for this reaction (optional)" hint="Leave empty to use the line above. Same placeholders.">
@@ -302,8 +324,12 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
               {!available("create_roles") ? <p className="small muted" style={{ margin: "6px 0 0" }}>{why("create_roles")}</p> : null}
             </div>
           ))}
-          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", role_id: "", label: "", text: "" }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
+          <div><button className="btn sm" disabled={options.length >= 20} onClick={() => setDraft({ ...draft, options: [...options, { emoji: "", role_id: "", label: "", text: "", former: [] }] })}><Icon name="plus" size={14} /> Add reaction</button></div>
         </fieldset>
+        {changes && (changes.changes.length || changes.moved) ? (
+          <OldReactions changes={changes} keep={keepOld} onKeep={setKeepOld} titles={libraryTitles}
+            clearBlocked={available("clear_reactions") ? null : why("clear_reactions")} />
+        ) : null}
         <div>
           <div className="row spread">
             <h3 style={{ margin: 0 }}>Preview</h3>
@@ -317,5 +343,50 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Members who reacted with emoji this edit takes out, and the choice of keeping those reactions working. */
+function OldReactions({ changes, keep, onKeep, titles, clearBlocked }: {
+  changes: ReactionChangesOut; keep: boolean; onKeep: (v: boolean) => void; titles: Map<string, string>; clearBlocked: string | null;
+}) {
+  const people = (n: number) => `${n} member${n === 1 ? "" : "s"}`;
+  const replaced = changes.changes.filter((c) => c.new_emoji);
+  const losing = keep ? changes.keep_losing : changes.clear_losing;
+  return (
+    <div className="card flat" aria-labelledby="old-reactions" aria-live="polite">
+      <h3 id="old-reactions" style={{ marginTop: 0 }}>Members who already reacted</h3>
+      {changes.moved ? (
+        <p className="small">A new channel means a new message: nobody's reactions carry over, so members lose these roles until they react again.</p>
+      ) : null}
+      <ul className="small" style={{ paddingLeft: 18, margin: "0 0 8px" }}>
+        {changes.changes.map((c) => (
+          <li key={c.emoji}>
+            <EmojiDisplay value={c.emoji} size={16} />
+            {c.new_emoji ? <> → <EmojiDisplay value={c.new_emoji} size={16} /></> : null}
+            {" "}<strong>{c.role_name}</strong>{!c.new_emoji && !changes.moved ? " (reaction removed)" : ""}: {people(c.members)}
+            <span className="muted"> ({c.names.join(", ")}{c.members > c.names.length ? ", …" : ""})</span>
+          </li>
+        ))}
+      </ul>
+      {!changes.moved && replaced.length ? (
+        <>
+          <Switch checked={keep} onChange={onKeep} label="Keep old reactions working" />
+          <p className="small muted" style={{ margin: "6px 0 0" }}>
+            {keep
+              ? "Members keep their roles: reactions with the old emoji still count until they're taken off. The bot removes its own old reaction, so new members use the new emoji."
+              : "Old reactions stop counting and are removed from the message when you update the post; those members get the role back by reacting with the new emoji."}
+          </p>
+          {!keep && clearBlocked ? (
+            <div className="banner warn small" style={{ marginTop: 8 }}><Icon name="alert" /><div>{clearBlocked}. The old reactions will stay on the message but won't give roles.</div></div>
+          ) : null}
+        </>
+      ) : null}
+      {changes.changes.some((c) => !c.new_emoji) && !changes.moved ? (
+        <p className="small muted" style={{ margin: "6px 0 0" }}>Members who reacted to a removed reaction lose its role when you update the post.</p>
+      ) : null}
+      <p className="small" style={{ margin: "8px 0 4px" }}><strong>{losing ? `${people(losing)} ${losing === 1 ? "loses" : "lose"} a role` : "Nobody loses a role"}</strong> when you update the post.</p>
+      <ImpactList titles={titles} changes={keep ? changes.keep_impact : changes.clear_impact} empty="No linked Plex account's libraries change." />
+    </div>
   );
 }

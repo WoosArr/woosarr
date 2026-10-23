@@ -33,6 +33,8 @@ router = APIRouter(tags=["status"], dependencies=[Depends(require_admin)])
 class IntegrationStatus(BaseModel):
     configured: bool
     connected: bool
+    # Set up and still starting (the Discord bot logging in): in progress, not a problem.
+    connecting: bool = False
     detail: str | None = None
 
 
@@ -64,10 +66,10 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     return StatusOut(
         version=__version__,
         dry_run=settings.dry_run,
-        plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"], detail=plex.get("detail")),
-        discord=IntegrationStatus(
-            configured=discord["configured"], connected=discord["connected"], detail=discord.get("detail")
-        ),
+        plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"],
+                               connecting=bool(plex.get("connecting")), detail=plex.get("detail")),
+        discord=IntegrationStatus(configured=discord["configured"], connected=discord["connected"],
+                                  connecting=bool(discord.get("connecting")), detail=discord.get("detail")),
         sync=state.sync.status(),
         counts={
             "plex_users": _count(db, PlexUser, PlexUser.removed.is_(False)),

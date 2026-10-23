@@ -176,7 +176,7 @@ export default function DashboardPage() {
       ) : null}
 
       {editing ? (
-        <p className="small muted">Move, resize or hide widgets, then <strong>Save layout</strong>. The layout is saved for your admin account.</p>
+        <p className="small muted">Move, resize or hide widgets, then <strong>Save layout</strong>. Hidden widgets and <strong>Blank space</strong> (for spacing) are under <a href="#hidden-widgets">More widgets</a> at the bottom. The layout is saved for your admin account.</p>
       ) : null}
 
       <div className="dash-grid">
@@ -215,7 +215,7 @@ export default function DashboardPage() {
           <h2 id="hidden-widgets">More widgets</h2>
           <ul className="dash-hidden">
             <li className="row spread">
-              <span title="Empty, for spacing; add as many as you like">Blank space <span className="small muted">(repeatable)</span></span>
+              <span>Blank space <span className="small muted">— empty, for spacing (add as many as you like)</span></span>
               <button className="btn sm" onClick={() => setEditing([...shown, { id: nextSpacer(widgets), size: "s", view: "default", hidden: false }, ...hidden])}>
                 <Icon name="plus" size={14} /> Add
               </button>
@@ -336,9 +336,11 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
     <div className="card flat">
       <div className="row spread">
         <span className="row"><Icon name={icon} /> <strong>{name}</strong></span>
-        {s.connected ? <Badge tone="ok">Connected</Badge> : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
+        {s.connected ? <Badge tone="ok">Connected</Badge>
+          : s.connecting ? <Badge tone="info" icon="refresh">Connecting…</Badge>
+          : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
       </div>
-      {s.detail ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
+      {s.detail && !s.connecting ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
       {!s.configured ? <Link to="/setup" className="small">Set up {name} →</Link> : null}
     </div>
   );

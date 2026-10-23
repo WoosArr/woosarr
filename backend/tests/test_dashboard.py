@@ -81,6 +81,12 @@ class DashboardApiTests(unittest.TestCase):
         dup = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "spacer-1"}, {"id": "spacer-1"}]})
         self.assertEqual(dup.status_code, 422)
 
+    def test_connections_say_connecting_while_the_bot_starts(self):
+        self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True,
+                                                   "detail": "Connecting…"}
+        d = self.c.get("/api/v1/status").json()["discord"]
+        self.assertEqual((d["connected"], d["connecting"]), (False, True))
+
     def test_banner_counts_problems_and_occurrences(self):
         for _ in range(5):
             self.log.error("Ignoring exception in autocomplete (User: %s)", 100000000000000000 + _)

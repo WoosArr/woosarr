@@ -1492,6 +1492,11 @@
             "title": "Connected",
             "type": "boolean"
           },
+          "connecting": {
+            "default": false,
+            "title": "Connecting",
+            "type": "boolean"
+          },
           "detail": {
             "anyOf": [
               {

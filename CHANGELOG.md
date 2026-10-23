@@ -21,6 +21,8 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- The dashboard's Connections widget showed a red *Disconnected* while the Discord bot was still connecting; it now shows *Connecting…*.
+- Customize → *More widgets*: each entry has a border, and *Blank space* has its own row (the Customize hint says where to find it).
 - Integrations (and the Seerr card) showed *Not set up* while still loading; they now show *Checking…* (or *Connecting…* for Discord).
 - The dashboard banner counted every occurrence ("5 unresolved errors" for one alert that happened 5 times), so it looked like errors were missing from Alerts. It now counts problems, like the Alerts widget: "1 unresolved error (5 times)".
 - Typing a title in the request command searched Seerr on every keystroke, and the suggestions Discord had already discarded showed up as errors in Alerts. WooSarr now waits a moment and searches only for what the member has typed so far, and logs answers Discord discarded quietly (a late answer to a command is a one-line warning).

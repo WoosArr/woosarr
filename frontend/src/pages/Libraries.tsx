@@ -12,6 +12,19 @@ export default function LibrariesPage() {
   const toast = useToast();
   const { available, why } = useDiscordFeatures();
   const [roleFor, setRoleFor] = useState<LibraryOut | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  // Same as the dashboard's: a full sync, which also re-reads the libraries from Plex.
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      await api.post("/api/v1/sync", {});
+      toast.ok("Full sync queued.");
+      setTimeout(() => { void libs.reload(); void server.reload(); setSyncing(false); }, 2500);
+    } catch (e) {
+      toast.error(e);
+      setSyncing(false);
+    }
+  };
 
   const setExempt = async (lib: LibraryOut, exempt: boolean) => {
     const ok = await confirm({
@@ -35,7 +48,11 @@ export default function LibrariesPage() {
 
   return (
     <>
-      <PageHead title="Libraries" sub="Libraries on your Plex server, which roles grant them, and which ones are exempt." />
+      <PageHead title="Libraries" sub="Libraries on your Plex server, which roles grant them, and which ones are exempt.">
+        <button className="btn primary" disabled={syncing} onClick={() => void syncNow()}>
+          <Icon name="refresh" /> Sync now
+        </button>
+      </PageHead>
       {server.data ? (
         <div className="card row spread" style={{ marginBottom: 16 }}>
           <span className="row">

@@ -72,6 +72,10 @@ def update_admin(admin_id: int, body: AdminPatchIn, db: DbDep, principal: AdminD
         user.is_active = True
         audit.record(db, principal.actor, "admin_enabled", "admin", str(user.id))
     if body.password is not None:
+        if user.auth_source != "local":
+            # Setting one would quietly turn a single sign-on admin into a password admin.
+            raise HTTPException(status.HTTP_409_CONFLICT,
+                                f"{user.username} signs in with single sign-on and has no WooSarr password")
         try:
             user.password_hash = auth.hash_password(body.password)
         except ValueError as exc:

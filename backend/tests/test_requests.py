@@ -321,6 +321,36 @@ class PollTests(Base):
         with self.db.session() as s:
             self.assertEqual(s.scalars(select(MediaRequest)).one().status, "available")
 
+    def test_old_open_requests_are_still_checked_and_listed(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        from woosarr.services import media_requests
+        with self.db.session() as s:
+            s.scalars(select(MediaRequest)).one().created_at = utcnow() - timedelta(days=400)
+        self.seerr.set_request_status(self.rid, status=2, media_status=3)
+        self.assertEqual([n.state for n in self.svc.poll()], ["approved"])  # was skipped after 60 days
+        with self.db.session() as s:
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], ["approved"])
+        self.assertEqual(media_requests.POLL_SECONDS, 1800)
+
+    def test_finished_requests_leave_the_list_after_a_week(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        from woosarr.services import media_requests
+        self.svc.submit("501", False, "movie", 157336)  # a second, still open
+        self.seerr.set_request_status(self.rid, status=2, media_status=5)
+        self.svc.poll()  # the first one becomes available
+        with self.db.session() as s:
+            self.assertEqual(sorted(r["status"] for r in media_requests.recent(s)), ["available", "pending"])
+            for r in s.scalars(select(MediaRequest)):
+                r.created_at = utcnow() - timedelta(days=30)
+                if r.status == "available":
+                    r.updated_at = utcnow() - timedelta(days=8)
+        with self.db.session() as s:
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], ["pending"])
+
     def test_notify_off_and_deleted(self):
         self.settings(request_notify=False)
         self.seerr.set_request_status(self.rid, status=3)

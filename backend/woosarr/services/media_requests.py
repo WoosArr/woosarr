@@ -45,10 +45,12 @@ USER_CACHE_SECONDS = 600
 SEARCH_CACHE_SECONDS = 60
 OPEN_STATES = ("pending", "approved", "partially_available")
 NOTIFY_STATES = ("approved", "declined", "failed", "partially_available", "available")
-TRACK_DAYS = 60
+# Finished requests (available, declined, failed, removed in Seerr) leave the Requests page this
+# long after they finished; open ones stay, and are checked, however old they are.
+CLOSED_VISIBLE_DAYS = 7
 # Seerr searches (suggestions + /request text) per member: each one is a TMDB call.
 SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS = 30, 60
-POLL_SECONDS = 300
+POLL_SECONDS = 1800
 
 STATE_TEXT = {
     "pending": "waiting for approval",
@@ -372,8 +374,7 @@ class RequestService:
         with self._db.session() as s:
             notify = app_settings.load(s).request_notify
             rows = [(r.id, r.seerr_request_id) for r in s.scalars(select(MediaRequest).where(
-                MediaRequest.status.in_(OPEN_STATES),
-                MediaRequest.created_at >= utcnow() - timedelta(days=TRACK_DAYS)))]
+                MediaRequest.status.in_(OPEN_STATES)))]
         out: list[Notice] = []
         changed = 0
         for row_id, request_id in rows:
@@ -407,7 +408,19 @@ class RequestService:
 
 
 def recent(session: Session, limit: int = 200) -> list[dict[str, Any]]:
-    rows = session.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(limit)).all()
+    """The Requests page: every open request, plus finished ones from the last week (newest first;
+    limit caps the finished ones). A finished request's updated_at is when its status last changed,
+    since only open requests are re-checked."""
+    newest = MediaRequest.created_at.desc()
+    open_rows = session.scalars(select(MediaRequest).where(MediaRequest.status.in_(OPEN_STATES)).order_by(newest))
+    closed = session.scalars(select(MediaRequest).where(
+        MediaRequest.status.not_in(OPEN_STATES),
+        MediaRequest.updated_at >= utcnow() - timedelta(days=CLOSED_VISIBLE_DAYS)).order_by(newest).limit(limit))
+    rows = sorted([*open_rows, *closed], key=lambda r: r.created_at, reverse=True)
+    return rows_out(session, rows)
+
+
+def rows_out(session: Session, rows: list[MediaRequest]) -> list[dict[str, Any]]:
     members = {m.discord_user_id: m for m in session.scalars(select(DiscordMember).where(
         DiscordMember.discord_user_id.in_({r.discord_user_id for r in rows})))}
     plex = dict(session.execute(select(PlexUser.plex_user_id, PlexUser.username).where(

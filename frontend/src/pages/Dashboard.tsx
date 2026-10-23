@@ -53,6 +53,8 @@ const TITLES: Record<WidgetId, string> = {
   activity: "Recent activity",
   libraries: "Library access",
   roles: "Discord role members",
+  open_requests: "Open request list",
+  role_libraries: "Roles that grant libraries",
   requests: "Requests",
   invites: "Plex invites",
   setup: "Setup checklist",
@@ -296,6 +298,10 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       return <Roles ins={ins} />;
     case "requests":
       return <Requests ins={ins} />;
+    case "open_requests":
+      return <OpenRequests ins={ins} />;
+    case "role_libraries":
+      return <RoleLibraries ins={ins} />;
     case "invites":
       return <Invites ins={ins} />;
     case "setup":
@@ -607,6 +613,71 @@ function Roles({ ins }: { ins: Insights | null }) {
   );
 }
 
+type RoleLibRow = { role_id: string; name: string; color: number; members: number; linked: number; libraries: string[] };
+
+function RoleLibraries({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="role_libraries" /><Loading ins={ins} /></>;
+  const roles = ins.role_libraries as RoleLibRow[];
+  return (
+    <>
+      <Title id="role_libraries"><Link to="/roles" className="small">Roles →</Link></Title>
+      {roles.length === 0 ? <p className="muted small">No role grants libraries yet. Map roles to libraries on the <Link to="/roles">Roles</Link> page.</p> : (
+        <ul className="dash-list small">
+          {roles.slice(0, 10).map((r) => (
+            <li key={r.role_id}>
+              <div className="row spread" style={{ alignItems: "flex-start" }}>
+                <span className="row" style={{ gap: 6 }}>
+                  <span className="role-dot" aria-hidden="true" style={r.color ? { background: `#${r.color.toString(16).padStart(6, "0")}` } : undefined} />
+                  <strong>{r.name}</strong>
+                </span>
+                <span className="muted">{r.members} member{r.members === 1 ? "" : "s"} · {r.linked} linked</span>
+              </div>
+              <div className="muted">{r.libraries.join(", ")}</div>
+            </li>
+          ))}
+          {roles.length > 10 ? <li className="muted small">…and {roles.length - 10} more on the <Link to="/roles">Roles</Link> page</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
+type RequestRow = { title: string; year: string; media_type: string; status: string; created_at: string; plex_username: string | null; discord_name: string | null };
+
+function RequestItem({ x }: { x: RequestRow }) {
+  return (
+    <li className="row spread" style={{ alignItems: "flex-start" }}>
+      <span>
+        {x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}
+        {x.plex_username || x.discord_name ? (
+          <span className="muted" style={{ display: "block" }}>
+            by {x.plex_username ?? x.discord_name}{x.plex_username ? "" : " (Discord)"}
+          </span>
+        ) : null}
+      </span>
+      <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
+    </li>
+  );
+}
+
+function OpenRequests({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="open_requests" /><Loading ins={ins} /></>;
+  const r = ins.requests as { configured: boolean; open: RequestRow[]; open_count: number };
+  return (
+    <>
+      <Title id="open_requests"><Link to="/requests" className="small">Requests →</Link></Title>
+      {!r.configured && r.open_count === 0 ? (
+        <p className="small muted">Connect Seerr on the <Link to="/setup">Integrations</Link> page so members can request movies and shows from Discord.</p>
+      ) : r.open_count === 0 ? <p className="small muted">No open requests: everything requested is available, declined or done.</p> : (
+        <ul className="dash-list small">
+          {r.open.map((x, i) => <RequestItem key={i} x={x} />)}
+          {r.open_count > r.open.length ? <li className="muted small">…and {r.open_count - r.open.length} more on the <Link to="/requests">Requests</Link> page</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
 const REQ_STATE: Record<string, [Tone, string]> = {
   pending: ["warn", "Waiting"], approved: ["info", "Approved"], declined: ["danger", "Declined"], failed: ["danger", "Failed"],
   partially_available: ["accent", "Partly available"], available: ["ok", "Available"], deleted: ["neutral", "Removed"],
@@ -614,7 +685,7 @@ const REQ_STATE: Record<string, [Tone, string]> = {
 
 function Requests({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="requests" /><Loading ins={ins} /></>;
-  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: { title: string; year: string; media_type: string; status: string; created_at: string; plex_username: string | null; discord_name: string | null }[] };
+  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: RequestRow[] };
   return (
     <>
       <Title id="requests"><Link to="/requests" className="small">Requests →</Link></Title>
@@ -627,19 +698,7 @@ function Requests({ ins }: { ins: Insights | null }) {
             <span className="small muted">{r.last_7d} this week</span>
           </div>
           <ul className="dash-list small">
-            {r.recent.map((x, i) => (
-              <li key={i} className="row spread" style={{ alignItems: "flex-start" }}>
-                <span>
-                  {x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}
-                  {x.plex_username || x.discord_name ? (
-                    <span className="muted" style={{ display: "block" }}>
-                      by {x.plex_username ?? x.discord_name}{x.plex_username ? "" : " (Discord)"}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
-              </li>
-            ))}
+            {r.recent.map((x, i) => <RequestItem key={i} x={x} />)}
           </ul>
         </>
       )}

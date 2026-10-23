@@ -49,11 +49,12 @@ export default function RequestsPage() {
         <p className="small muted">
           {name ? <>Members request with <code>/{name}</code>. </> : <>The request command registers when the bot is connected. </>}
           Who may request and the command's name are in <Link to="/settings?tab=requests">Settings → Requests</Link>.
-          Status is checked every 5 minutes; members are told by DM, or by a reply in the requests channel for public requests.
+          Open requests are checked every 30 minutes, however old; members are told by DM, or by a reply in the requests channel for public requests.
+          Finished requests (available, declined, failed, removed in Seerr) are listed for 7 days.
         </p>
       ) : null}
       {!list.data ? <Spinner /> : list.data.length === 0 ? (
-        <Empty title="No requests yet">Requests made with the Discord command show up here.</Empty>
+        <Empty title="No requests to show">Requests made with the Discord command show up here: open ones until they're done, finished ones for 7 days.</Empty>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests">
           <table>
@@ -101,7 +102,7 @@ export function SeerrCard() {
     <section className="card stack" aria-labelledby="seerr-setup">
       <div className="row spread">
         <h2 id="seerr-setup" className="row"><Icon name="download" /> Seerr (requests)</h2>
-        {s?.configured ? (s.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="warn">Problem</Badge>) : <Badge tone="neutral">Optional</Badge>}
+        {!s ? <Badge tone="neutral">{st.error ? "Couldn't check" : "Checking…"}</Badge> : s.configured ? (s.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="warn">Problem</Badge>) : <Badge tone="neutral">Optional</Badge>}
       </div>
       <ErrorBanner error={st.error} />
       {!s ? <Spinner /> : !s.configured || editing ? (

@@ -27,7 +27,7 @@ from woosarr.db.models import (
     Session,
     utcnow,
 )
-from woosarr.services import audit, error_digest
+from woosarr.services import audit, error_digest, media_requests
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_admin)])
 log = logging.getLogger("woosarr.dashboard")
@@ -85,6 +85,7 @@ def unresolve_error(fingerprint: Annotated[str, Path(pattern=r"^[0-9a-f]{16}$")]
 # ---- widget data ----------------------------------------------------------------------
 
 DAYS = 14
+OPEN_REQUESTS_SHOWN = 10
 ACTIVITY_SKIP = ("access_planned", "access_changed", "access_skipped", "login", "logout", "request_status")
 
 
@@ -94,6 +95,7 @@ class InsightsOut(BaseModel):
     access_by_day: list[dict[str, Any]]
     libraries: list[dict[str, Any]]
     roles: list[dict[str, Any]]  # Discord roles by member count, with linked members and mapped libraries
+    role_libraries: list[dict[str, Any]]  # roles that grant libraries, with the libraries' names
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -162,21 +164,29 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 
     by_status = dict(db.execute(select(MediaRequest.status, func.count()).group_by(MediaRequest.status)).all())
     recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(5)))
+    open_rows = list(db.scalars(select(MediaRequest).where(MediaRequest.status.in_(media_requests.OPEN_STATES))
+                                .order_by(MediaRequest.created_at.desc())))
+    shown_open = open_rows[:OPEN_REQUESTS_SHOWN]
     plex_names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username).where(
-        PlexUser.plex_user_id.in_({r.plex_user_id for r in recent_rows if r.plex_user_id}))).all())
+        PlexUser.plex_user_id.in_({r.plex_user_id for r in [*recent_rows, *shown_open] if r.plex_user_id}))).all())
     discord_names = {m.discord_user_id: m.display_name or m.username for m in db.scalars(select(DiscordMember).where(
-        DiscordMember.discord_user_id.in_({r.discord_user_id for r in recent_rows})))}
-    recent_requests = [{"title": r.title, "year": r.year, "media_type": r.media_type, "status": r.status,
-                        "created_at": r.created_at,
-                        # Who asked: their Plex account (what Seerr requested as), else their Discord name.
-                        "plex_username": plex_names.get(r.plex_user_id) if r.plex_user_id else None,
-                        "discord_name": discord_names.get(r.discord_user_id)}
-                       for r in recent_rows]
+        DiscordMember.discord_user_id.in_({r.discord_user_id for r in [*recent_rows, *shown_open]})))}
+
+    def request_row(r: MediaRequest) -> dict[str, Any]:
+        return {"title": r.title, "year": r.year, "media_type": r.media_type, "status": r.status,
+                "created_at": r.created_at,
+                # Who asked: their Plex account (what Seerr requested as), else their Discord name.
+                "plex_username": plex_names.get(r.plex_user_id) if r.plex_user_id else None,
+                "discord_name": discord_names.get(r.discord_user_id)}
+
+    recent_requests = [request_row(r) for r in recent_rows]
     req_svc = getattr(request.app.state, "requests", None)
     requests = {"configured": bool(req_svc and req_svc.configured()), "by_status": by_status,
                 "last_7d": db.scalar(select(func.count()).select_from(MediaRequest).where(
                     MediaRequest.created_at >= now - timedelta(days=7))) or 0,
-                "recent": recent_requests}
+                "recent": recent_requests,
+                # Open widget: waiting, approved or partly available, however old.
+                "open": [request_row(r) for r in shown_open], "open_count": len(open_rows)}
 
     roles = db.scalars(select(DiscordRole).where(DiscordRole.deleted.is_(False), DiscordRole.managed.is_(False))).all()
     mapped_roles = set(db.scalars(select(RoleLibrary.role_id)))
@@ -193,6 +203,18 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     roles_out = sorted(({"role_id": r.role_id, "name": r.name, "color": r.color, "members": in_role.get(r.role_id, 0),
                          "linked": linked_in_role.get(r.role_id, 0), "libraries": libs_per_role.get(r.role_id, 0)}
                         for r in roles), key=lambda x: (-x["members"], x["name"].lower()))
+
+    # Roles that grant libraries, with the libraries' names (most libraries first).
+    titles = {lib.library_id: lib.title for lib in libs}
+    role_libs: dict[str, list[str]] = {}
+    for role_id, lib_id in db.execute(select(RoleLibrary.role_id, RoleLibrary.library_id)):
+        if lib_id in titles:
+            role_libs.setdefault(role_id, []).append(titles[lib_id])
+    role_libraries = sorted(({"role_id": r.role_id, "name": r.name, "color": r.color,
+                              "members": in_role.get(r.role_id, 0), "linked": linked_in_role.get(r.role_id, 0),
+                              "libraries": sorted(role_libs[r.role_id], key=str.lower)}
+                             for r in roles if r.role_id in role_libs),
+                            key=lambda x: (-len(x["libraries"]), x["name"].lower()))
 
     setup = {"unmanaged_libraries": sum(1 for lib in libs if not lib.is_exempt and lib.library_id not in mapped_libs),
              "exempt_libraries": sum(1 for lib in libs if lib.is_exempt),
@@ -212,7 +234,8 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "unverified": sum(1 for v in linked_accounts.values() if not v),
                "unlinked": len(plex) - len(linked_accounts),
                "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
-        activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out, invites=invites, requests=requests,
+        activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out,
+        role_libraries=role_libraries, invites=invites, requests=requests,
         setup=setup, security=security)
 
 
@@ -221,7 +244,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
-    "requests", "invites", "setup", "security", "roles",
+    "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "integrations", "size": "l"},
@@ -236,6 +259,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "stat_requests", "size": "s", "hidden": True}, {"id": "stat_invites", "size": "s", "hidden": True},
     {"id": "stat_invites_accepted", "size": "s", "hidden": True},
     {"id": "roles", "size": "m", "hidden": True},
+    {"id": "open_requests", "size": "m", "hidden": True}, {"id": "role_libraries", "size": "m", "hidden": True},
 ]
 
 

@@ -56,7 +56,7 @@ Discord doesn't let one bot see another bot's commands, so WooSarr can't detect 
 
 ## Status tracking
 
-WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 5 minutes for 60 days: pending → approved → (partly) available, or declined / failed. Requests deleted in Seerr show as *Removed in Seerr*. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
+WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 30 minutes, however old they are: pending → approved → (partly) available, or declined / failed. Requests deleted in Seerr show as *Removed in Seerr*. The Requests page lists every open request and finished ones (available, declined, failed, removed in Seerr) for 7 days after they finished. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
 
 ## Diagnostics (logs API)
 

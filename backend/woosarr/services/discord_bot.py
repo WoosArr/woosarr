@@ -106,8 +106,8 @@ def help_text(request_name: str | None) -> str:
         ("`/link`: link your Discord account to your Plex account. Sign in with Plex (verified) or type your "
          "Plex username. Once linked, your Discord roles decide which Plex libraries you can see."),
         "`/unlink`: remove that link. You're asked to confirm first.",
-        ("`/invite email [member]`: send a Plex invite to an email address or Plex username. The libraries come "
-         "from your Discord roles. Needs a role the server admins allow; Discord admins can set `member` to "
+        ("`/invite email [member]`: send a Plex invite to an email address or Plex username. Library access is "
+         "determined by possessed roles. Needs a role the server admins allow; Discord admins can set `member` to "
          "invite for someone else."),
     ]
     if request_name:

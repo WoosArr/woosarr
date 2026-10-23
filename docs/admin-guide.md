@@ -103,6 +103,8 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Library access | Users per library (the server owner counts on every library); marks exempt libraries and libraries no role manages |
 | Discord role members | Members per Discord role, how many of them are linked, and roles that give no libraries |
 | Requests / Plex invites | Recent requests by status; pending invites |
+| Open request list | Requests still waiting, approved or partly available, however old (the newest 10, then a count) |
+| Roles that grant libraries | Each role mapped to libraries, with the library names and how many members (and linked members) have it |
 | Setup checklist | Connections, role mappings, unmanaged libraries, dry-run |
 | Security | Failed sign-ins (24 h), active sessions, API keys |
 

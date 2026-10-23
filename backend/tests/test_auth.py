@@ -252,3 +252,26 @@ class ApiKeyTests(unittest.TestCase):
         self.assertIn(created["prefix"], listing)
         logging.getLogger("woosarr.test").warning("oops leaked %s", created["key"])
         self.assertNotIn(created["key"], self.c.get("/api/v1/logs", params={"limit": 5000}).text)
+
+
+class SsoAdminPasswordTests(unittest.TestCase):
+    def setUp(self):
+        self.h = AppHarness()
+        self.c = self.h.setup_admin()
+
+    def tearDown(self):
+        self.h.close()
+
+    def test_sso_admins_get_no_password(self):
+        from woosarr.db.models import AdminUser
+
+        with self.h.app.state.db.session() as s:
+            sso = AdminUser(username="alice", password_hash=None, auth_source="oidc")
+            s.add(sso)
+            s.flush()
+            sso_id = sso.id
+        r = self.c.patch(f"/api/v1/admins/{sso_id}", json={"password": "a-long-enough-pass"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("single sign-on", r.json()["detail"])
+        with self.h.app.state.db.session() as s:
+            self.assertEqual(s.get(AdminUser, sso_id).auth_source, "oidc")

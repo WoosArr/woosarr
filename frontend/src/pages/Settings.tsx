@@ -312,6 +312,14 @@ function Account() {
       setError(err);
     }
   };
+  if (status?.user?.auth_source === "oidc") {
+    return (
+      <div className="card stack" style={{ maxWidth: 480 }}>
+        <p>Signed in as <strong>{status.user.username}</strong> with single sign-on.</p>
+        <p className="small muted">This account has no WooSarr password; change your password with your identity provider.</p>
+      </div>
+    );
+  }
   return (
     <form className="card stack" style={{ maxWidth: 480 }} onSubmit={submit}>
       <p>Signed in as <strong>{status?.user?.username}</strong>.</p>
@@ -357,7 +365,7 @@ function Admins() {
             <tbody>
               {admins.data.map((a) => (
                 <tr key={a.id}>
-                  <td><strong>{a.username}</strong>{a.id === status?.user?.id ? <span className="muted small"> (you)</span> : null}<div className="small muted">{a.auth_source}</div></td>
+                  <td><strong>{a.username}</strong>{a.id === status?.user?.id ? <span className="muted small"> (you)</span> : null}<div className="small muted">{a.auth_source === "oidc" ? "Single sign-on" : "Password"}</div></td>
                   <td>
                     <div className="row">
                       {a.is_active ? <Badge tone="ok">Active</Badge> : <Badge tone="neutral">Disabled</Badge>}
@@ -368,7 +376,7 @@ function Admins() {
                   <td>
                     <div className="row" style={{ justifyContent: "flex-end" }}>
                       {a.locked ? <button className="btn sm" onClick={() => void act(() => api.patch(`/api/v1/admins/${a.id}`, { unlock: true }), `${a.username} unlocked.`)}>Unlock</button> : null}
-                      <button className="btn sm" onClick={() => setResetting(a)}>Reset password</button>
+                      {a.auth_source === "local" ? <button className="btn sm" onClick={() => setResetting(a)}>Reset password</button> : null}
                       <button className="btn sm" onClick={() => void act(() => api.patch(`/api/v1/admins/${a.id}`, { is_active: !a.is_active }), `${a.username} ${a.is_active ? "disabled" : "enabled"}.`)}>
                         {a.is_active ? "Disable" : "Enable"}
                       </button>

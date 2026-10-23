@@ -372,6 +372,25 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await expect(page.getByRole("heading", { name: "Link coverage" })).toBeVisible();
 });
 
+test("new widgets: open requests and roles that grant libraries; libraries page sync", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Customize" }).click();
+  const more = page.getByRole("region", { name: "More widgets" });
+  for (const name of ["Open request list", "Roles that grant libraries"]) {
+    await more.getByRole("listitem").filter({ hasText: new RegExp(`^${name}`) }).getByRole("button", { name: "Add" }).click();
+  }
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await expect(page.getByRole("heading", { name: "Roles that grant libraries" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open request list" })).toBeVisible();
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+
+  await page.goto("/libraries");
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Full sync queued.")).toBeVisible();
+});
+
 test("users page has a Linked tab between Unverified and Unlinked", async ({ page }) => {
   await login(page);
   await page.goto("/users");

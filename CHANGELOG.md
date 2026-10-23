@@ -9,10 +9,18 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 - **Changing a reaction post's emoji keeps members' roles.** Reactions with the old emoji keep giving the role (the bot takes its own old reaction off so new members use the new one), or turn off *Keep old reactions working* to have the old reactions removed when you update the post (needs **Manage Messages**). Before saving, the editor shows who reacted with each emoji that's going away, who'd lose a role, and the Plex impact.
 
+### Added
+- Dashboard widgets **Open request list** (everything still waiting, approved or partly available) and **Roles that grant libraries** (each mapped role with its libraries). Add them with *Customize → More widgets*.
+- **Sync now** on the Libraries page (the same full sync as on the dashboard, which also re-reads library names from Plex).
+
 ### Changed
+- Requests page: open requests stay listed (and keep being checked) however old they are; finished ones (available, declined, failed, removed in Seerr) are listed for 7 days. Open requests are checked every 30 minutes instead of every 5, and no longer stop being checked after 60 days.
+- `/help`: `/invite` now says "Library access is determined by possessed roles."
+- Settings: admins who sign in with single sign-on have no password, so *My Account* no longer offers a password change and *Admins* no longer offers *Reset password* for them (the API refuses it too; before, a reset quietly turned them into password admins). The Admins list says *Single sign-on* or *Password*.
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- Integrations (and the Seerr card) showed *Not set up* while still loading; they now show *Checking…* (or *Connecting…* for Discord).
 - The dashboard banner counted every occurrence ("5 unresolved errors" for one alert that happened 5 times), so it looked like errors were missing from Alerts. It now counts problems, like the Alerts widget: "1 unresolved error (5 times)".
 - Typing a title in the request command searched Seerr on every keystroke, and the suggestions Discord had already discarded showed up as errors in Alerts. WooSarr now waits a moment and searches only for what the member has typed so far, and logs answers Discord discarded quietly (a late answer to a command is a one-line warning).
 - `/link` could fail with "The application did not respond" (Discord error 10062) when the bot took over 3 seconds to answer. `/link`, `/unlink` and the Plex username form now answer Discord first and do their checks after; if Discord still drops one, the log says how late it was.

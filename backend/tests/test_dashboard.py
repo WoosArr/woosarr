@@ -47,6 +47,25 @@ class DashboardApiTests(unittest.TestCase):
         s = self.c.get("/api/v1/status").json()
         return s["recent_warnings"], s["recent_errors"]
 
+    def test_open_requests_and_roles_that_grant_libraries(self):
+        from woosarr.db.models import DiscordRole, Library, MediaRequest, RoleLibrary
+        with self.h.app.state.db.session() as s:
+            s.add_all([MediaRequest(seerr_request_id=i, discord_user_id="5", seerr_user_id=1, media_type="movie",
+                                    tmdb_id=i, title=f"Film {i}", status=st)
+                       for i, st in enumerate(["pending", "approved", "available", "declined"] + ["pending"] * 10)])
+            s.add_all([DiscordRole(role_id="801", name="Movie Night"), DiscordRole(role_id="802", name="Nothing"),
+                       Library(library_id="1", title="Movies", type="movie"),
+                       Library(library_id="2", title="4K", type="movie")])
+            s.flush()
+            s.add_all([RoleLibrary(role_id="801", library_id="1"), RoleLibrary(role_id="801", library_id="2")])
+        ins = self.c.get("/api/v1/dashboard/insights").json()
+        self.assertEqual((ins["requests"]["open_count"], len(ins["requests"]["open"])), (12, 10))
+        self.assertTrue(all(r["status"] in ("pending", "approved") for r in ins["requests"]["open"]))
+        self.assertEqual([(r["name"], r["libraries"]) for r in ins["role_libraries"]], [("Movie Night", ["4K", "Movies"])])
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("open_requests", ids)
+        self.assertIn("role_libraries", ids)
+
     def test_banner_counts_problems_and_occurrences(self):
         for _ in range(5):
             self.log.error("Ignoring exception in autocomplete (User: %s)", 100000000000000000 + _)

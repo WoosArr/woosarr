@@ -1631,7 +1631,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 22,
+            "maxItems": 46,
             "title": "Widgets",
             "type": "array"
           }
@@ -4705,30 +4705,7 @@
             "type": "boolean"
           },
           "id": {
-            "enum": [
-              "integrations",
-              "stat_plex_users",
-              "stat_linked",
-              "stat_libraries",
-              "stat_roles",
-              "stat_requests",
-              "stat_invites",
-              "stat_invites_accepted",
-              "errors",
-              "last_sync",
-              "pending",
-              "links",
-              "access_chart",
-              "activity",
-              "libraries",
-              "requests",
-              "invites",
-              "setup",
-              "security",
-              "roles",
-              "open_requests",
-              "role_libraries"
-            ],
+            "pattern": "^[a-z_]{1,40}$|^spacer-\\d{1,3}$",
             "title": "Id",
             "type": "string"
           },

@@ -10,6 +10,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **Changing a reaction post's emoji keeps members' roles.** Reactions with the old emoji keep giving the role (the bot takes its own old reaction off so new members use the new one), or turn off *Keep old reactions working* to have the old reactions removed when you update the post (needs **Manage Messages**). Before saving, the editor shows who reacted with each emoji that's going away, who'd lose a role, and the Plex impact.
 
 ### Added
+- Dashboard **Blank space** widget for spacing: add as many as you like, size them like other widgets.
 - Dashboard widgets **Open request list** (everything still waiting, approved or partly available) and **Roles that grant libraries** (each mapped role with its libraries). Add them with *Customize → More widgets*.
 - **Sync now** on the Libraries page (the same full sync as on the dashboard, which also re-reads library names from Plex).
 

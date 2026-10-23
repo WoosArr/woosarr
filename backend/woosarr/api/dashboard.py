@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
@@ -204,7 +205,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                          "linked": linked_in_role.get(r.role_id, 0), "libraries": libs_per_role.get(r.role_id, 0)}
                         for r in roles), key=lambda x: (-x["members"], x["name"].lower()))
 
-    # Roles that grant libraries, with the libraries' names (most libraries first).
+    # Roles that grant libraries, with the libraries' names (most members first).
     titles = {lib.library_id: lib.title for lib in libs}
     role_libs: dict[str, list[str]] = {}
     for role_id, lib_id in db.execute(select(RoleLibrary.role_id, RoleLibrary.library_id)):
@@ -214,7 +215,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                               "members": in_role.get(r.role_id, 0), "linked": linked_in_role.get(r.role_id, 0),
                               "libraries": sorted(role_libs[r.role_id], key=str.lower)}
                              for r in roles if r.role_id in role_libs),
-                            key=lambda x: (-len(x["libraries"]), x["name"].lower()))
+                            key=lambda x: (-x["members"], x["name"].lower()))  # like Discord role members
 
     setup = {"unmanaged_libraries": sum(1 for lib in libs if not lib.is_exempt and lib.library_id not in mapped_libs),
              "exempt_libraries": sum(1 for lib in libs if lib.is_exempt),
@@ -263,16 +264,33 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
 ]
 
 
+# Blank widgets for spacing: as many as wanted, each with its own id (spacer-1, spacer-2, …).
+SPACER = re.compile(r"^spacer-\d{1,3}$")
+MAX_SPACERS = 24
+
+
+def _known(widget_id: str) -> bool:
+    return widget_id in WIDGETS or bool(SPACER.fullmatch(widget_id))
+
+
 class WidgetIn(BaseModel):
-    id: Literal[WIDGETS]  # type: ignore[valid-type]
+    id: Annotated[str, Field(pattern=r"^[a-z_]{1,40}$|^spacer-\d{1,3}$")]
     size: Literal["xs", "s", "m", "l"] = "m"  # eighth, quarter, half, full width
     # How a widget with chartable data is drawn: its usual form, a circle (donut) or bars.
     view: Literal["default", "donut", "bar"] = "default"
     hidden: bool = False
 
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        if not _known(v):
+            raise ValueError(f"unknown widget {v!r}")
+        return v
+
+
 class LayoutIn(BaseModel):
-    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS))]
+    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS) + MAX_SPACERS)]
 
 
 class LayoutOut(BaseModel):
@@ -285,12 +303,17 @@ def _key(principal) -> str:
 
 
 def _complete(widgets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Known widgets only, each once; widgets added in a newer version appear hidden at the end."""
+    """Known widgets only, each once; widgets added in a newer version appear hidden at the end.
+    A blank widget that's hidden is simply gone (there's always a fresh one to add)."""
     seen, out = set(), []
     for w in widgets:
-        if w.get("id") in WIDGETS and w["id"] not in seen:
-            seen.add(w["id"])
-            out.append(w)
+        wid = w.get("id")
+        if not isinstance(wid, str) or not _known(wid) or wid in seen:
+            continue
+        if SPACER.fullmatch(wid) and (w.get("hidden") or len([s for s in seen if SPACER.fullmatch(s)]) >= MAX_SPACERS):
+            continue
+        seen.add(wid)
+        out.append(w)
     out += [dict(w, hidden=True) for w in DEFAULT_LAYOUT if w["id"] not in seen]
     return out
 

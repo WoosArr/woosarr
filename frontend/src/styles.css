@@ -377,6 +377,8 @@ td .row { gap: 4px; }
 .dash-w.w-xs .stat-value { font-size: 1.3rem; }
 .dash-w.w-xs h2, .dash-w.w-xs .stat-label { font-size: 0.8rem; overflow-wrap: anywhere; }
 .dash-w.editing { outline: 2px dashed var(--border); outline-offset: 2px; }
+.dash-spacer { min-height: 1px; }
+.dash-spacer.editing { min-height: 72px; border-radius: var(--radius); background: repeating-linear-gradient(135deg, transparent 0 8px, var(--accent-soft) 8px 10px); padding: 8px; }
 .dash-w h2 { font-size: 1rem; }
 .dash-tools { gap: 4px; margin: -4px -4px 10px; padding: 6px; border-radius: var(--radius-sm); background: var(--accent-soft); flex-wrap: wrap; }
 .dash-tools select { width: auto; padding: 2px 6px; }

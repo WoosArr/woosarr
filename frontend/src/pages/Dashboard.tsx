@@ -60,13 +60,16 @@ const TITLES: Record<WidgetId, string> = {
   setup: "Setup checklist",
   security: "Security",
 };
+const isSpacer = (id: WidgetId) => id.startsWith("spacer-");
+/** A widget's name; blank widgets are numbered so their controls can be told apart. */
+const titleOf = (id: WidgetId) => (isSpacer(id) ? `Blank space ${id.slice(7)}` : TITLES[id] ?? id);
 const SIZE_LABEL: Record<Size, string> = { xs: "Eighth width", s: "Quarter width", m: "Half width", l: "Full width" };
 const SIZES: Size[] = ["xs", "s", "m", "l"];
 
 // Widgets whose data can also be drawn as a circle or bars; the first entry names the usual form.
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
-  stat_requests: "Number", errors: "List", links: "Stacked bar",
+  stat_requests: "Number", errors: "List", links: "Stacked bar", role_libraries: "List",
   access_chart: "Columns", activity: "List", libraries: "List", roles: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
@@ -178,38 +181,48 @@ export default function DashboardPage() {
 
       <div className="dash-grid">
         {shown.map((w, i) => (
-          <section key={w.id} className={`card dash-w w-${w.size ?? "m"}${editing ? " editing" : ""}`} aria-labelledby={`w-${w.id}`}>
+          <section key={w.id} className={`${isSpacer(w.id) ? "dash-spacer" : "card"} dash-w w-${w.size ?? "m"}${editing ? " editing" : ""}`}
+            aria-labelledby={isSpacer(w.id) ? undefined : `w-${w.id}`} aria-label={isSpacer(w.id) && editing ? titleOf(w.id) : undefined}
+            aria-hidden={isSpacer(w.id) && !editing ? true : undefined}>
             {editing ? (
               <div className="row dash-tools">
-                <strong className="small">{TITLES[w.id]}</strong>
+                <strong className="small">{titleOf(w.id)}</strong>
                 <span style={{ flex: 1 }} />
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
-                <select className="inline-input" aria-label={`Size of ${TITLES[w.id]}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${titleOf(w.id)} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${titleOf(w.id)} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
+                <select className="inline-input" aria-label={`Size of ${titleOf(w.id)}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
                   {SIZES.map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
                 </select>
                 {VIEWS[w.id] ? (
-                  <select className="inline-input" aria-label={`Chart for ${TITLES[w.id]}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
+                  <select className="inline-input" aria-label={`Chart for ${titleOf(w.id)}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
                     <option value="default">{VIEWS[w.id]}</option>
                     <option value="donut">{VIEW_LABEL.donut}</option>
                     <option value="bar">{VIEW_LABEL.bar}</option>
                   </select>
                 ) : null}
-                <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>
+                {isSpacer(w.id)
+                  ? <button className="btn ghost sm" onClick={() => setEditing(widgets.filter((x) => x.id !== w.id))}>Remove</button>
+                  : <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>}
               </div>
             ) : null}
-            <WidgetBody id={w.id} ctx={ctx} view={w.view ?? "default"} />
+            {isSpacer(w.id) ? null : <WidgetBody id={w.id} ctx={ctx} view={w.view ?? "default"} />}
           </section>
         ))}
       </div>
 
-      {editing && hidden.length ? (
+      {editing ? (
         <section className="card" style={{ marginTop: 16 }} aria-labelledby="hidden-widgets">
           <h2 id="hidden-widgets">More widgets</h2>
           <ul className="dash-hidden">
+            <li className="row spread">
+              <span title="Empty, for spacing; add as many as you like">Blank space <span className="small muted">(repeatable)</span></span>
+              <button className="btn sm" onClick={() => setEditing([...shown, { id: nextSpacer(widgets), size: "s", view: "default", hidden: false }, ...hidden])}>
+                <Icon name="plus" size={14} /> Add
+              </button>
+            </li>
             {hidden.map((w) => (
               <li key={w.id} className="row spread">
-                <span>{TITLES[w.id]}</span>
+                <span>{titleOf(w.id)}</span>
                 <button className="btn sm" onClick={() => setEditing([...shown, { ...w, hidden: false }, ...hidden.filter((h) => h.id !== w.id)])}>
                   <Icon name="plus" size={14} /> Add
                 </button>
@@ -222,10 +235,17 @@ export default function DashboardPage() {
   );
 }
 
+function nextSpacer(widgets: Widget[]): WidgetId {
+  const used = new Set(widgets.map((w) => w.id));
+  let n = 1;
+  while (used.has(`spacer-${n}`)) n++;
+  return `spacer-${n}`;
+}
+
 function Title({ id, children }: { id: WidgetId; children?: ReactNode }) {
   return (
     <div className="row spread" style={{ marginBottom: 8 }}>
-      <h2 id={`w-${id}`} style={{ margin: 0 }}>{TITLES[id]}</h2>
+      <h2 id={`w-${id}`} style={{ margin: 0 }}>{titleOf(id)}</h2>
       {children}
     </div>
   );
@@ -327,7 +347,7 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
 function Stat({ id, value, sub, to }: { id: WidgetId; value: number | null; sub?: string; to: string }) {
   return (
     <Link to={to} className="stat-link">
-      <div className="stat-label" id={`w-${id}`}>{TITLES[id]}</div>
+      <div className="stat-label" id={`w-${id}`}>{titleOf(id)}</div>
       <div className="stat-value">{value ?? "–"}</div>
       {sub ? <div className="small muted">{sub}</div> : null}
     </Link>
@@ -615,27 +635,30 @@ function Roles({ ins }: { ins: Insights | null }) {
 
 type RoleLibRow = { role_id: string; name: string; color: number; members: number; linked: number; libraries: string[] };
 
+/** Like Discord role members, for the roles that grant libraries (with the libraries' names). */
 function RoleLibraries({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="role_libraries" /><Loading ins={ins} /></>;
   const roles = ins.role_libraries as RoleLibRow[];
+  const max = Math.max(1, ...roles.map((r) => r.members));
   return (
     <>
       <Title id="role_libraries"><Link to="/roles" className="small">Roles →</Link></Title>
       {roles.length === 0 ? <p className="muted small">No role grants libraries yet. Map roles to libraries on the <Link to="/roles">Roles</Link> page.</p> : (
         <ul className="dash-list small">
-          {roles.slice(0, 10).map((r) => (
+          {roles.slice(0, 8).map((r) => (
             <li key={r.role_id}>
-              <div className="row spread" style={{ alignItems: "flex-start" }}>
+              <div className="row spread">
                 <span className="row" style={{ gap: 6 }}>
                   <span className="role-dot" aria-hidden="true" style={r.color ? { background: `#${r.color.toString(16).padStart(6, "0")}` } : undefined} />
-                  <strong>{r.name}</strong>
+                  {r.name}
                 </span>
                 <span className="muted">{r.members} member{r.members === 1 ? "" : "s"} · {r.linked} linked</span>
               </div>
               <div className="muted">{r.libraries.join(", ")}</div>
+              <div className="dash-bar thin" aria-hidden="true"><span style={{ width: `${(r.members / max) * 100}%`, background: "var(--accent)" }} /></div>
             </li>
           ))}
-          {roles.length > 10 ? <li className="muted small">…and {roles.length - 10} more on the <Link to="/roles">Roles</Link> page</li> : null}
+          {roles.length > 8 ? <li className="muted small">…and {roles.length - 8} more on the <Link to="/roles">Roles</Link> page</li> : null}
         </ul>
       )}
     </>
@@ -856,10 +879,11 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       return { label: "Users with access per library",
         segs: libs.map((l, i) => ({ label: l.title, value: l.users, color: CYCLE[i % CYCLE.length] })) };
     }
-    case "roles": {
+    case "roles":
+    case "role_libraries": {
       if (need(ins)) return null;
-      const roles = (ins!.roles as RoleRow[]).slice(0, 8);
-      return { label: "Members per Discord role", unit: "memberships",
+      const roles = ((id === "roles" ? ins!.roles : ins!.role_libraries) as { name: string; members: number }[]).slice(0, 8);
+      return { label: id === "roles" ? "Members per Discord role" : "Members per role that grants libraries", unit: "memberships",
         segs: roles.map((r, i) => ({ label: r.name, value: r.members, color: CYCLE[i % CYCLE.length] })) };
     }
     case "security": {

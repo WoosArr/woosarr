@@ -66,6 +66,21 @@ class DashboardApiTests(unittest.TestCase):
         self.assertIn("open_requests", ids)
         self.assertIn("role_libraries", ids)
 
+    def test_blank_widgets_repeat_and_vanish_when_hidden(self):
+        base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
+        spacers = [{"id": "spacer-1", "size": "s"}, {"id": "spacer-2", "size": "xs"},
+                   {"id": "spacer-3", "size": "m", "hidden": True}]
+        r = self.c.put("/api/v1/dashboard/layout", json={"widgets": spacers + base})
+        self.assertEqual(r.status_code, 200, r.text)
+        ids = [w["id"] for w in r.json()["widgets"]]
+        self.assertEqual(ids[:2], ["spacer-1", "spacer-2"])
+        self.assertNotIn("spacer-3", ids)  # hidden = removed
+        for bad in ("spacer-x", "spacer", "nope"):
+            self.assertEqual(self.c.put("/api/v1/dashboard/layout",
+                                        json={"widgets": [{"id": bad}]}).status_code, 422, bad)
+        dup = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "spacer-1"}, {"id": "spacer-1"}]})
+        self.assertEqual(dup.status_code, 422)
+
     def test_banner_counts_problems_and_occurrences(self):
         for _ in range(5):
             self.log.error("Ignoring exception in autocomplete (User: %s)", 100000000000000000 + _)

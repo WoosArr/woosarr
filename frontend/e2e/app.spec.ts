@@ -386,6 +386,25 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await page.getByRole("button", { name: "Reset to default" }).click();
   await page.getByRole("button", { name: "Save layout" }).click();
 
+  // Blank space: as many as wanted, empty outside Customize, removed rather than hidden.
+  await page.getByRole("button", { name: "Customize" }).click();
+  const blank = more.getByRole("listitem").filter({ hasText: /^Blank space/ }).getByRole("button", { name: "Add" });
+  await blank.click();
+  await blank.click();
+  await expect(page.getByRole("region", { name: "Blank space 2" })).toBeVisible();
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  await expect(page.locator(".dash-spacer")).toHaveCount(2);
+  await expect(page.locator(".dash-spacer").first()).toBeEmpty();
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("region", { name: "Blank space 1" }).getByRole("button", { name: "Remove" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  await expect(page.locator(".dash-spacer")).toHaveCount(1);
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+
   await page.goto("/libraries");
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByText("Full sync queued.")).toBeVisible();

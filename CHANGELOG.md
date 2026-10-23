@@ -21,6 +21,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- The first web page opened after a restart could stall the Discord connection for over 10 seconds ("heartbeat blocked") while Python loaded a file-serving module from a slow disk. That module is now loaded at startup.
 - The dashboard's Connections widget showed a red *Disconnected* while the Discord bot was still connecting; it now shows *Connecting…*.
 - Customize → *More widgets*: each entry has a border, and *Blank space* has its own row (the Customize hint says where to find it).
 - Integrations (and the Seerr card) showed *Not set up* while still loading; they now show *Checking…* (or *Connecting…* for Discord).

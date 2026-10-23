@@ -67,8 +67,19 @@ def _announce_setup_code(code: auth.SetupCode) -> None:
     sys.stdout.flush()
 
 
+def _preload_lazy_imports() -> None:
+    """anyio imports its file helpers on first use, which is the first static file Starlette serves,
+    inside the event loop. On a cold disk that read once took over 10 s, blocked the loop and
+    stalled the Discord heartbeat (live log 2026-10-23). Import them now, before anything runs."""
+    import anyio
+
+    for name in ("open_file", "Path", "to_thread", "wrap_file"):
+        getattr(anyio, name)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    _preload_lazy_imports()
     settings.config_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(settings)
 

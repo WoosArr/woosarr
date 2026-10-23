@@ -38,7 +38,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import emoji_library, media_requests
+from woosarr.services import emoji_library, friendly_names, media_requests
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -111,12 +111,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         emoji_refresh = None
         if not settings.demo:
             emoji_refresh = asyncio.create_task(emoji_library.run_refresher(emoji_lib), name="woosarr-emoji-refresh")
+        names_refresh = asyncio.create_task(friendly_names.run_refresher(db, discord_service),
+                                            name="woosarr-friendly-names")
         if discord_service is not None:
             await discord_service.start()
             poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
-        for task in (poller, emoji_refresh):
+        for task in (poller, emoji_refresh, names_refresh):
             if task is not None:
                 task.cancel()
         if discord_service is not None:

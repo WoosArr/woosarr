@@ -26,6 +26,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import logs as logcore
+from woosarr.core import names
 from woosarr.db.models import AuditLog, DiscordMember, ErrorResolution, PlexUser, utcnow
 
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE)
@@ -35,7 +36,8 @@ _SPACE = re.compile(r"\s+")
 
 
 def normalize(message: str) -> str:
-    text = _QUOTED.sub("'…'", message)
+    text = names.ADDED.sub("", message)  # "123 (@name)": the same problem for a different member
+    text = _QUOTED.sub("'…'", text)
     text = _HEX.sub("#", text)
     text = _NUM.sub("N", text)
     return _SPACE.sub(" ", text).strip()[:200]

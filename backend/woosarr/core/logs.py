@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from woosarr.core import redaction
+from woosarr.core import names, redaction
 from woosarr.core.config import Settings
 
 # Libraries whose own loggers should flow through our (redacting) root handlers.
@@ -291,7 +291,10 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     records: queue.Queue[logging.LogRecord] = queue.Queue()
     enqueue = _Enqueue(records)
     handlers: list[logging.Handler] = [enqueue, ring]
-    # Redact before a record is queued (and again at each sink, which is cheap).
+    # Names next to ids in warnings and errors, then redact before a record is queued (and again
+    # at each sink, which is cheap).
+    for handler in handlers:
+        handler.addFilter(names.NamesFilter())
     for handler in [*handlers, *sinks]:
         redaction.install(handler)
     for handler in handlers:

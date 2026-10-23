@@ -9,6 +9,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 - **Changing a reaction post's emoji keeps members' roles.** Reactions with the old emoji keep giving the role (the bot takes its own old reaction off so new members use the new one), or turn off *Keep old reactions working* to have the old reactions removed when you update the post (needs **Manage Messages**). Before saving, the editor shows who reacted with each emoji that's going away, who'd lose a role, and the Plex impact.
 
+### Changed
+- Warnings and errors (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
+
 ### Fixed
 - Typing a title in the request command searched Seerr on every keystroke, and the suggestions Discord had already discarded showed up as errors in Alerts. WooSarr now waits a moment and searches only for what the member has typed so far, and logs answers Discord discarded quietly (a late answer to a command is a one-line warning).
 - `/link` could fail with "The application did not respond" (Discord error 10062) when the bot took over 3 seconds to answer. `/link`, `/unlink` and the Plex username form now answer Discord first and do their checks after; if Discord still drops one, the log says how late it was.

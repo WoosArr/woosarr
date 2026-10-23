@@ -1,4 +1,4 @@
-"""Friendly names next to ids in warnings and errors (Alerts, Logs page, log files).
+"""Friendly names next to ids in log lines from INFO up (Alerts, Logs page, log files).
 
 "User: 284362693538742273" becomes "User: 284362693538742273 (@rWoot715)". The id stays, so a
 line can still be searched for. The names come from WooSarr's own caches (Discord members,
@@ -43,10 +43,11 @@ def annotate(text: str) -> str:
 
 
 class NamesFilter(logging.Filter):
-    """Adds names to warnings and errors before they're written (runs before redaction)."""
+    """Adds names to INFO and above before they're written (runs before redaction). DEBUG is
+    left alone: it's high-volume Plex/Discord/HTTP detail."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.levelno < logging.WARNING:
+        if record.levelno < logging.INFO:
             return True
         try:
             message = record.getMessage()

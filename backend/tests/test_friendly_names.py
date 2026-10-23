@@ -1,4 +1,4 @@
-"""Warnings and errors show names next to Discord and Plex ids."""
+"""Log lines from INFO up show names next to Discord and Plex ids."""
 
 import logging
 import unittest
@@ -35,12 +35,20 @@ class FriendlyNameTests(unittest.TestCase):
             "Ignoring exception in autocomplete for 'request' (Guild: %s, User: %s)", GUILD, MEMBER)
         logging.getLogger("woosarr.sync").warning("share read failed for user=183715749 in #%s, role %s",
                                                   CHANNEL, ROLE)
-        logging.getLogger("woosarr.sync").info("sync for user=183715749")  # INFO: as it was
-        lines = [e["message"] for e in self.c.get("/api/v1/logs", params={"limit": 50}).json()["entries"]]
+        logging.getLogger("woosarr.audit").info("audit actor=discord:%s action=link_self target=plex_user:183715749",
+                                                MEMBER)
+        lines = [e["message"] for e in self.c.get("/api/v1/logs", params={"limit": 50}).json()["entries"]
+                 if e["logger"] != "uvicorn.access"]
         self.assertIn(f"(Guild: {GUILD} (server Dave's Plex Chat), User: {MEMBER} (@rWoot [715]))", lines[-3])
         self.assertEqual(lines[-2], f"share read failed for user=183715749 (Plex rwoot_plex) in "
                                     f"#{CHANNEL} (#plex-bot), role {ROLE} (role Movie Night)")
-        self.assertEqual(lines[-1], "sync for user=183715749")
+        self.assertEqual(lines[-1], f"audit actor=discord:{MEMBER} (@rWoot [715]) action=link_self "
+                                    "target=plex_user:183715749 (Plex rwoot_plex)")
+
+    def test_debug_lines_are_left_alone(self):
+        record = logging.LogRecord("woosarr.sync", logging.DEBUG, __file__, 1, "sync for user=183715749", None, None)
+        names.NamesFilter().filter(record)
+        self.assertEqual(record.getMessage(), "sync for user=183715749")
 
     def test_unknown_ids_and_other_numbers_stay_as_they_are(self):
         text = "port 31337 took 12.5 s, id 99999999999999999999, user=7, timestamp 1792642270.619467"

@@ -291,7 +291,7 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     records: queue.Queue[logging.LogRecord] = queue.Queue()
     enqueue = _Enqueue(records)
     handlers: list[logging.Handler] = [enqueue, ring]
-    # Names next to ids in warnings and errors, then redact before a record is queued (and again
+    # Names next to ids (INFO and up), then redact before a record is queued (and again
     # at each sink, which is cheap).
     for handler in handlers:
         handler.addFilter(names.NamesFilter())

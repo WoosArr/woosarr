@@ -83,6 +83,10 @@ Every suggestion is a Seerr → TMDB search. Suggestions are only computed for m
 ### Admin-entered service URLs (accepted)
 The Seerr address is entered by an admin and WooSarr connects to it (Test/Save), so an admin can make WooSarr probe hosts on its network. Admins are trusted (out of scope); redirects aren't followed, so the API key is only sent to that host.
 
+### Injection and code execution through the API (review 2026-10-23)
+
+No code path turns input into code: no `eval`/`exec`, no shell or subprocess, no pickle or unsafe YAML, no template rendering of user text. Every request body, query and path parameter goes through Pydantic with types, lengths and patterns (ids are digit- or hex-only, names are `[A-Za-z0-9_]`, enumerations are `Literal`s), so malformed values are refused with 422 before any handler runs. Database access is SQLAlchemy with bound parameters only (the raw SQL is three constant `PRAGMA`s); search wildcards (`%`, `_`) are escaped so they match literally. Files are never named by input: the log download is `Literal["woosarr", "alerts"]`, emoji previews are cached under a SHA-256 of the URL, and the SPA fallback resolves paths and refuses anything outside the static folder. Outbound requests go only to admin-configured services (Plex, Discord, Seerr, OIDC) or allowlisted emoji image hosts (https, no redirects, size-capped, content sniffed). The web UI never injects HTML (React escapes; no `dangerouslySetInnerHTML`) and the CSP blocks inline scripts. Text from members and media metadata posted to Discord is escaped (`safe()`), and the bot's default is no `@everyone`/`@here`/role pings. *Verify:* `tests/test_hostile_input.py` (SQL fragments, traversal, markup, null bytes, oversized values against free-text endpoints: refused or treated as data, never a 500).
+
 ### Plex share mistakes (integrity)
 Plex replaces a user's whole share list on update. WooSarr always computes and writes the **complete** set, re-reads live state right before writing and skips on drift, never touches exempt or unmanaged libraries, and starts in **dry-run**.
 

@@ -389,10 +389,12 @@ def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] =
     stmt = (select(DiscordMember).where(DiscordMember.is_bot.is_(False))  # bots can't link a Plex account
             .order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200)))
     if q:
-        like = f"%{q.lower()}%"
+        # Literal match: % and _ typed in the search are characters, not wildcards.
+        needle = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{needle}%"
         stmt = stmt.where(
-            DiscordMember.username.ilike(like) | DiscordMember.display_name.ilike(like)
-            | DiscordMember.discord_user_id.like(like)
+            DiscordMember.username.ilike(like, escape="\\") | DiscordMember.display_name.ilike(like, escape="\\")
+            | DiscordMember.discord_user_id.like(like, escape="\\")
         )
     return [
         MemberOut(discord_user_id=m.discord_user_id, username=m.username, display_name=m.display_name,

@@ -155,7 +155,10 @@ class WooSarrBot(discord.Client):
         # Emoji added, renamed or deleted (in Discord or from the Custom Emoji page) reach the
         # cache right away; without this, guild.emojis stayed as it was at connect time.
         intents.emojis_and_stickers = True  # not privileged
-        super().__init__(intents=intents)
+        # Default for every message the bot sends: never @everyone/@here or role pings. Messages that
+        # mean to ping a member say so explicitly (requests); user text is also escaped (safe()).
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions(everyone=False, roles=False,
+                                                                                   users=True, replied_user=False))
         self.service = service
         self.guild_id = guild_id
         self.tree = _Tree(self)

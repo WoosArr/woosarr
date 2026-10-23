@@ -28,6 +28,9 @@ if TYPE_CHECKING:
 log = logging.getLogger("woosarr.discord.requests")
 
 AUTOCOMPLETE_SECONDS = 2.5  # Discord drops autocomplete answers after 3 s
+# Discord asks for suggestions on every keystroke and discards the older asks as the member types
+# on: wait this long and search only if nothing newer came from the same member.
+SUGGEST_SETTLE_SECONDS = 0.35
 PICK = re.compile(r"^(movie|tv):(\d{1,10})$")
 REQUESTABLE = ("unknown", "deleted")
 STATUS_LINE = {
@@ -242,9 +245,13 @@ class RequestCommands:
 
             if not await self.run_db(allowed):
                 return []
+            self._latest_suggestion[member] = interaction.id
+            await asyncio.sleep(SUGGEST_SETTLE_SECONDS)
+            if self._latest_suggestion.get(member) != interaction.id:
+                return []  # the member typed on; Discord has already dropped this ask
+        budget = AUTOCOMPLETE_SECONDS - (SUGGEST_SETTLE_SECONDS if interaction is not None else 0)
         try:
-            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, AUTOCOMPLETE_SECONDS,
-                                                            member), AUTOCOMPLETE_SECONDS)
+            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, budget, member), budget)
         except (TimeoutError, SeerrError) as exc:
             log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
             return []

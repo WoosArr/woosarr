@@ -126,6 +126,26 @@ def _member(m: discord.Member) -> cache.MemberData:
     return cache.MemberData(str(m.id), m.name, m.display_name, roles, is_bot=bool(m.bot))
 
 
+class _Tree(app_commands.CommandTree):
+    async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError | Exception) -> None:
+        """Discord drops interactions not answered within 3 s (10062 Unknown interaction). For
+        suggestions that's routine (each keystroke replaces the last ask); for a command it's
+        worth a warning, but not a traceback."""
+        original = getattr(error, "original", error)
+        if isinstance(original, discord.NotFound) and original.code == 10062:
+            created = getattr(interaction, "created_at", None)
+            age = (discord.utils.utcnow() - created).total_seconds() if created else -1
+            name = interaction.command.name if interaction.command else "?"
+            if interaction.type == discord.InteractionType.autocomplete:
+                log.debug("discord: suggestions for /%s dropped by Discord (%.1f s old; the member typed on)",
+                          name, age)
+            else:
+                log.warning("discord: /%s from member %s answered too late (%.1f s after they used it; Discord "
+                            "allows 3 s)", name, interaction.user.id, age)
+            return
+        await super().on_error(interaction, error)
+
+
 class WooSarrBot(discord.Client):
     def __init__(self, service: DiscordService, guild_id: int) -> None:
         intents = discord.Intents.none()
@@ -138,7 +158,7 @@ class WooSarrBot(discord.Client):
         super().__init__(intents=intents)
         self.service = service
         self.guild_id = guild_id
-        self.tree = app_commands.CommandTree(self)
+        self.tree = _Tree(self)
         self.request_name: str | None = None  # registered name of the request command
         self._disconnect_watch: asyncio.Task | None = None
         self._gateway_up = False
@@ -1012,6 +1032,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
                  sync: Any = None, requests: Any = None) -> None:
         self.requests = requests
+        self._latest_suggestion: dict[str, int] = {}  # member -> newest suggestion ask (request command)
         self._db = db
         self._secrets = secrets
         self.trigger = trigger

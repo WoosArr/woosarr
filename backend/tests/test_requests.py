@@ -358,7 +358,10 @@ class FakeFollowup:
 
 
 class FakeInteraction:
+    _ids = iter(range(1, 10**6))
+
     def __init__(self, user_id=501, admin=False, component=False):
+        self.id = next(FakeInteraction._ids)
         self.log = []
         perms = SimpleNamespace(manage_guild=admin, administrator=False)
         self.user = SimpleNamespace(id=user_id, guild_permissions=perms)
@@ -421,6 +424,39 @@ class DiscordTests(Base):
         self.assertEqual(self.run_async(self.discord.request_suggestions("inter", unlinked)), [])
         self.assertEqual(self.run_async(self.discord.request_suggestions("inter", unverified)), [])
         self.assertEqual(sum(1 for c in self.seerr.calls if c[1] == "/search"), searches)  # no Seerr call
+
+    def test_typing_quickly_searches_once(self):
+        # Live: "suicide squad" typed letter by letter cost six Seerr searches; Discord had already
+        # dropped all but the last ask, and the five stale answers were logged as errors.
+        self.connect()
+
+        async def typing():
+            asks = []
+            for text in ("in", "int", "inte", "inter"):
+                asks.append(asyncio.create_task(self.discord.request_suggestions(text, FakeInteraction(501))))
+                await asyncio.sleep(0.05)
+            return await asyncio.gather(*asks)
+
+        before = sum(1 for c in self.seerr.calls if c[1] == "/search")
+        results = self.run_async(typing())
+        self.assertEqual([bool(r) for r in results], [False, False, False, True])
+        self.assertEqual(sum(1 for c in self.seerr.calls if c[1] == "/search") - before, 1)
+
+    def test_answers_discord_already_dropped_are_not_errors(self):
+        from woosarr.services.discord_bot import _Tree
+
+        tree = _Tree(discord.Client(intents=discord.Intents.none()))
+        stale = discord.NotFound(SimpleNamespace(status=404, reason="Not Found"),
+                                 {"code": 10062, "message": "Unknown interaction"})
+        ask = SimpleNamespace(type=discord.InteractionType.autocomplete, command=SimpleNamespace(name="request"),
+                              user=SimpleNamespace(id=501), created_at=discord.utils.utcnow())
+        with self.assertNoLogs("woosarr.discord", "INFO"):
+            self.run_async(tree.on_error(ask, stale))
+        cmd = SimpleNamespace(ask.__dict__ | {"type": discord.InteractionType.application_command})
+        with self.assertLogs("woosarr.discord", "WARNING") as logs:
+            self.run_async(tree.on_error(cmd, discord.app_commands.CommandInvokeError(
+                SimpleNamespace(name="request", qualified_name="request"), stale)))
+        self.assertIn("/request from member 501 answered too late", logs.output[0])
 
     def test_search_rate_limit_per_member(self):
         self.connect()

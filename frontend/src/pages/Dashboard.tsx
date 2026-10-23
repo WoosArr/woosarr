@@ -235,6 +235,16 @@ export default function DashboardPage() {
   );
 }
 
+/** "Next Sync in 12 minutes" (the periodic full sync), or what the sync is doing right now. */
+function nextSync(status: StatusOut): string {
+  const s = status.sync as { running?: boolean; full_reconcile_pending?: boolean; plex_configured?: boolean; next_full_reconcile_in_seconds?: number };
+  if (s.plex_configured === false) return "";
+  if (s.running) return "Syncing now";
+  if (s.full_reconcile_pending) return "Sync queued";
+  const minutes = Math.ceil(Number(s.next_full_reconcile_in_seconds ?? 0) / 60);
+  return minutes <= 1 ? "Next Sync in 1 minute" : `Next Sync in ${minutes} minutes`;
+}
+
 function nextSpacer(widgets: Widget[]): WidgetId {
   const used = new Set(widgets.map((w) => w.id));
   let n = 1;
@@ -242,10 +252,10 @@ function nextSpacer(widgets: Widget[]): WidgetId {
   return `spacer-${n}`;
 }
 
-function Title({ id, children }: { id: WidgetId; children?: ReactNode }) {
+function Title({ id, children, suffix }: { id: WidgetId; children?: ReactNode; suffix?: string }) {
   return (
     <div className="row spread" style={{ marginBottom: 8 }}>
-      <h2 id={`w-${id}`} style={{ margin: 0 }}>{titleOf(id)}</h2>
+      <h2 id={`w-${id}`} style={{ margin: 0 }}>{titleOf(id)}{suffix ? ` - ${suffix}` : ""}</h2>
       {children}
     </div>
   );
@@ -267,7 +277,7 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     case "integrations":
       return (
         <>
-          <Title id={id} />
+          <Title id={id} suffix={nextSync(ctx.status)} />
           <div className="grid cols-2">
             <Integration name="Plex" icon="plex" s={ctx.status.plex} />
             <Integration name="Discord" icon="discord" s={ctx.status.discord} />

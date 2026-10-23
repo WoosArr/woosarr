@@ -93,7 +93,7 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 
 | Widget | Shows |
 |--------|-------|
-| Connections | Plex, Discord and Seerr status |
+| Connections | Plex, Discord and Seerr status; the title says when the next full sync runs ("Connections - Next Sync in 12 minutes", or *Syncing now*) |
 | Plex users / Linked users / Libraries / Discord roles / Open requests / Pending invites / Invites accepted this week | One number each, linking to its page (a shared account counts once) |
 | Alerts | Open warnings and errors grouped by problem (repeats with different ids count once), plus **Account** alerts, with **Resolve**. No time limit: an alert stays until resolved |
 | Last sync / Pending changes | The last sync report and what the next one would change |

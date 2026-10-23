@@ -371,6 +371,7 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Alerts" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Link coverage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Connections - (Next Sync in \d+ minutes?|Syncing now|Sync queued)$/ })).toBeVisible();
 });
 
 test("new widgets: open requests and roles that grant libraries; libraries page sync", async ({ page }) => {

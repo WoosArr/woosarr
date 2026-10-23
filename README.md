@@ -21,7 +21,7 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
 
-> **Status:** in use on a real Plex server and Discord server; installing from the Unraid template works. Still to do: the Community Applications listing (until then, install from the template as below). See [docs/action-plan.md](docs/action-plan.md).
+> **Status:** in use on a real Plex server and Discord server, and available in Unraid's **Community Applications** (Apps tab → search *WooSarr*). See [docs/action-plan.md](docs/action-plan.md).
 
 ## Screenshots
 
@@ -40,9 +40,13 @@ All screenshots use WooSarr's demo mode (a fake Plex server and Discord guild); 
 
 ### Unraid
 
-1. Copy [`unraid/woosarr.xml`](unraid/woosarr.xml) to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml`.
-2. Docker tab → **Add Container** → choose **woosarr** → **Apply**.
-3. Open the WebUI. Details: [docs/unraid-notes.md](docs/unraid-notes.md).
+WooSarr is in Unraid's Community Applications:
+
+1. **Apps** tab → search for **WooSarr** → **Install**.
+2. Check the settings (data folder `/mnt/user/appdata/woosarr`, WebUI port `31337`, `PUID`/`PGID`) → **Apply**.
+3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI** (see [First run](#first-run)).
+
+Updates show on the Docker tab like any other container (**apply update**). Details, development builds and installing without Community Applications (from [`unraid/woosarr.xml`](unraid/woosarr.xml)): [docs/unraid-notes.md](docs/unraid-notes.md).
 
 Prefer Compose (the *Docker Compose Manager* plugin today, built into Unraid 8)? Use [`compose.yaml`](compose.yaml) with `WOOSARR_CONFIG=/mnt/user/appdata/woosarr`; see [Unraid notes → Docker Compose](docs/unraid-notes.md#docker-compose).
 

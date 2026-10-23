@@ -81,6 +81,11 @@ class DashboardApiTests(unittest.TestCase):
         dup = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "spacer-1"}, {"id": "spacer-1"}]})
         self.assertEqual(dup.status_code, 422)
 
+    def test_new_install_starts_with_the_setup_checklist(self):
+        layout = self.c.get("/api/v1/dashboard/layout").json()
+        self.assertFalse(layout["custom"])
+        self.assertEqual(layout["widgets"][0], {"id": "setup", "size": "l", "view": "default", "hidden": False})
+
     def test_connections_say_connecting_while_the_bot_starts(self):
         self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True,
                                                    "detail": "Connecting…"}
@@ -235,7 +240,7 @@ class DashboardApiTests(unittest.TestCase):
         r = self.c.get("/api/v1/dashboard/layout").json()
         self.assertFalse(r["custom"])
         ids = [w["id"] for w in r["widgets"]]
-        self.assertEqual(ids[0], "integrations")
+        self.assertEqual(ids[:2], ["setup", "integrations"])
         self.assertEqual(len(ids), len(set(ids)))
         mine = [{"id": "errors", "size": "l"}, {"id": "stat_linked", "size": "xs", "view": "donut"},
                 {"id": "integrations", "size": "m", "hidden": True}]

@@ -15,6 +15,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **Sync now** on the Libraries page (the same full sync as on the dashboard, which also re-reads library names from Plex).
 
 ### Changed
+- The dashboard starts with the **Setup checklist** first and full width (it was hidden by default). Admins who already saved their own layout keep it; anyone on the default layout sees the checklist too and can hide it in *Customize*.
 - Requests page: open requests stay listed (and keep being checked) however old they are; finished ones (available, declined, failed, removed in Seerr) are listed for 7 days. Open requests are checked every 30 minutes instead of every 5, and no longer stop being checked after 60 days.
 - `/help`: `/invite` now says "Library access is determined by possessed roles."
 - Settings: admins who sign in with single sign-on have no password, so *My Account* no longer offers a password change and *Admins* no longer offers *Reset password* for them (the API refuses it too; before, a reset quietly turned them into password admins). The Admins list says *Single sign-on* or *Password*.

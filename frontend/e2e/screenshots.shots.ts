@@ -78,7 +78,7 @@ test("documentation screenshots", async ({ page }) => {
   await seed(api);
   await page.waitForTimeout(2500); // the queued sync runs
 
-  await page.setViewportSize({ width: 1440, height: 1720 }); // the whole default dashboard
+  await page.setViewportSize({ width: 1440, height: 1960 }); // the whole default dashboard
   for (const mode of ["dark", "light"] as const) {
     await theme(page, mode);
     await page.goto("/");

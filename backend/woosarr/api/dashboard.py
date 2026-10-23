@@ -248,6 +248,8 @@ WIDGETS = (
     "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
+    # First on a new install: what's left to set up (connections, role mappings, dry-run).
+    {"id": "setup", "size": "l"},
     {"id": "integrations", "size": "l"},
     {"id": "stat_plex_users", "size": "s"}, {"id": "stat_linked", "size": "s"},
     {"id": "stat_libraries", "size": "s"}, {"id": "stat_roles", "size": "s"},
@@ -256,7 +258,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "links", "size": "m"}, {"id": "access_chart", "size": "m"},
     {"id": "activity", "size": "m"}, {"id": "libraries", "size": "m"},
     {"id": "requests", "size": "m", "hidden": True}, {"id": "invites", "size": "m", "hidden": True},
-    {"id": "setup", "size": "m", "hidden": True}, {"id": "security", "size": "m", "hidden": True},
+    {"id": "security", "size": "m", "hidden": True},
     {"id": "stat_requests", "size": "s", "hidden": True}, {"id": "stat_invites", "size": "s", "hidden": True},
     {"id": "stat_invites_accepted", "size": "s", "hidden": True},
     {"id": "roles", "size": "m", "hidden": True},

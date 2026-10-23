@@ -106,7 +106,7 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Open request list | Requests still waiting, approved or partly available, however old (the newest 10, then a count) |
 | Roles that grant libraries | Like *Discord role members*, for the roles mapped to libraries: members and linked members per role with a bar (or a circle / bars chart), plus the libraries each one grants |
 | Blank space | Nothing: for spacing. Add as many as you like (*More widgets → Blank space*) and size them like any widget; *Remove* takes one away |
-| Setup checklist | Connections, role mappings, unmanaged libraries, dry-run |
+| Setup checklist | Connections, role mappings, unmanaged libraries, dry-run. First and full width on a new install; hide it in *Customize* once you're done |
 | Security | Failed sign-ins (24 h), active sessions, API keys |
 
 **Resolve** hides what has happened so far from the dashboard (the banner count and the widget); if the problem happens again, even right away, it shows up again. It's audited (`error_resolved`) and shared by all admins. *Show resolved* lists resolved problems with **Unresolve**. The Logs page always shows everything. Warnings and errors are also written to their own log file, `/config/logs/alerts.log` (warnings and errors only, 2 MB × 3 files, so it holds far more history than the busy main log). The latest 2,000 are reloaded from it when the container starts, so a restart doesn't clear the dashboard. Download it from the API with `GET /api/v1/logs/file?name=alerts`.

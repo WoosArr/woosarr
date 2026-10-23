@@ -342,7 +342,8 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   // Hide the Plex users tile, add the Security widget, move Linked users first.
   await page.locator("section", { has: page.getByText("Plex users", { exact: true }) }).getByRole("button", { name: "Hide" }).click();
   await page.getByRole("region", { name: "More widgets" }).getByRole("listitem").filter({ hasText: "Security" }).getByRole("button", { name: "Add" }).click();
-  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections: now first
+  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections
+  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Setup checklist: now first
   await expect(page.getByRole("button", { name: "Move Linked users earlier" })).toBeDisabled();
   await page.getByLabel("Size of Linked users").selectOption("m");
   // Libraries: eighth width, drawn as a circle; Link coverage: bars.

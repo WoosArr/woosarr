@@ -43,8 +43,10 @@ class StatusOut(BaseModel):
     discord: IntegrationStatus
     sync: dict[str, Any]
     counts: dict[str, int]
-    recent_warnings: int
+    recent_warnings: int  # occurrences
     recent_errors: int
+    open_warnings: int  # problems: entries in Alerts
+    open_errors: int
 
 
 def _count(db, model, *where) -> int:
@@ -58,7 +60,7 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     plex = state.plex_status()
     discord = state.discord_status()
     # Open alerts: everything not covered by a resolution (services/error_digest.py).
-    recent_warnings, recent_errors = error_digest.visible_counts(db)
+    recent_warnings, recent_errors, open_warnings, open_errors = error_digest.visible_counts(db)
     return StatusOut(
         version=__version__,
         dry_run=settings.dry_run,
@@ -81,6 +83,8 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
         },
         recent_warnings=recent_warnings,
         recent_errors=recent_errors,
+        open_warnings=open_warnings,
+        open_errors=open_errors,
     )
 
 

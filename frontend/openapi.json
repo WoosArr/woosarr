@@ -4334,6 +4334,14 @@
             "title": "Dry Run",
             "type": "boolean"
           },
+          "open_errors": {
+            "title": "Open Errors",
+            "type": "integer"
+          },
+          "open_warnings": {
+            "title": "Open Warnings",
+            "type": "integer"
+          },
           "plex": {
             "$ref": "#/components/schemas/IntegrationStatus"
           },
@@ -4363,7 +4371,9 @@
           "sync",
           "counts",
           "recent_warnings",
-          "recent_errors"
+          "recent_errors",
+          "open_warnings",
+          "open_errors"
         ],
         "title": "StatusOut",
         "type": "object"

@@ -221,15 +221,16 @@ def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
     return sorted(out.values(), key=lambda g: g.last_ts, reverse=True)
 
 
-def visible_counts(session: Session) -> tuple[int, int]:
-    """(warnings, errors) not covered by a resolution."""
-    warnings = errors = 0
+def visible_counts(session: Session) -> tuple[int, int, int, int]:
+    """Not covered by a resolution: (warning occurrences, error occurrences, warning problems,
+    error problems). A problem is one Alerts entry, however many times it happened."""
+    warnings = errors = warning_groups = error_groups = 0
     for g in groups(session):
         if g.level == "WARNING":
-            warnings += g.count
+            warnings, warning_groups = warnings + g.count, warning_groups + 1
         else:
-            errors += g.count
-    return warnings, errors
+            errors, error_groups = errors + g.count, error_groups + 1
+    return warnings, errors, warning_groups, error_groups
 
 
 def resolve(session: Session, group: Group, actor: str) -> ErrorResolution:

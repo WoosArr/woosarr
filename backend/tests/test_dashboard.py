@@ -47,6 +47,12 @@ class DashboardApiTests(unittest.TestCase):
         s = self.c.get("/api/v1/status").json()
         return s["recent_warnings"], s["recent_errors"]
 
+    def test_banner_counts_problems_and_occurrences(self):
+        for _ in range(5):
+            self.log.error("Ignoring exception in autocomplete (User: %s)", 100000000000000000 + _)
+        s = self.c.get("/api/v1/status").json()
+        self.assertEqual((s["recent_errors"], s["open_errors"]), (5, 1))  # one problem, five times
+
     def errors(self, level="WARNING"):
         return {g["message"].split(" ", 1)[0]: g for g in self.c.get(f"/api/v1/errors?level={level}").json()}
 

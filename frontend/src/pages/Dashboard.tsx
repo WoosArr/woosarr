@@ -163,7 +163,9 @@ export default function DashboardPage() {
         <div className="banner danger" role="alert">
           <Icon name="alert" />
           <div>
-            {data.recent_errors} unresolved error{data.recent_errors === 1 ? "" : "s"}. <Link to="/logs?level=ERROR">View logs</Link>
+            {data.open_errors} unresolved error{data.open_errors === 1 ? "" : "s"}
+            {data.recent_errors > data.open_errors ? ` (${data.recent_errors} times)` : ""}: see Alerts below to resolve.{" "}
+            <Link to="/logs?level=ERROR">View logs</Link>
           </div>
         </div>
       ) : null}

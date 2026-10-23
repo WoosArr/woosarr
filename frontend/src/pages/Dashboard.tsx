@@ -55,6 +55,8 @@ const TITLES: Record<WidgetId, string> = {
   roles: "Discord role members",
   open_requests: "Open request list",
   role_libraries: "Roles that grant libraries",
+  stat_emoji: "Custom emoji",
+  stat_emoji_animated: "Animated emoji",
   requests: "Requests",
   invites: "Plex invites",
   setup: "Setup checklist",
@@ -70,6 +72,7 @@ const SIZES: Size[] = ["xs", "s", "m", "l"];
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
   stat_requests: "Number", errors: "List", links: "Stacked bar", role_libraries: "List",
+  stat_emoji: "Number", stat_emoji_animated: "Number",
   access_chart: "Columns", activity: "List", libraries: "List", roles: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
@@ -245,6 +248,13 @@ function nextSync(status: StatusOut): string {
   return minutes <= 1 ? "Next Sync in 1 minute" : `Next Sync in ${minutes} minutes`;
 }
 
+/** Used and total slots for static (stat_emoji) or animated emoji; null until the bot is connected. */
+function emojiSlots(ins: Insights | null, id: WidgetId): { used: number; limit: number } | null {
+  const e = ins?.emoji;
+  if (!e) return null;
+  return { used: id === "stat_emoji" ? e.static : e.animated, limit: e.limit };
+}
+
 function nextSpacer(widgets: Widget[]): WidgetId {
   const used = new Set(widgets.map((w) => w.id));
   let n = 1;
@@ -255,7 +265,7 @@ function nextSpacer(widgets: Widget[]): WidgetId {
 function Title({ id, children, suffix }: { id: WidgetId; children?: ReactNode; suffix?: string }) {
   return (
     <div className="row spread" style={{ marginBottom: 8 }}>
-      <h2 id={`w-${id}`} style={{ margin: 0 }}>{titleOf(id)}{suffix ? ` - ${suffix}` : ""}</h2>
+      <h2 id={`w-${id}`} className={suffix ? "fit-title" : undefined} style={{ margin: 0 }}>{titleOf(id)}{suffix ? ` - ${suffix}` : ""}</h2>
       {children}
     </div>
   );
@@ -269,7 +279,9 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     return (
       <>
         <Title id={id} />
-        {!data ? <Spinner /> : <Chart view={view} {...data} />}
+        {data ? <Chart view={view} {...data} />
+          : ins ? <p className="small muted">{id.startsWith("stat_emoji") ? "Discord bot not connected." : "Nothing to show yet."}</p>
+          : <Spinner />}
       </>
     );
   }
@@ -295,6 +307,12 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       );
     case "stat_plex_users":
       return <Stat id={id} value={c.plex_users} to="/users" />;
+    case "stat_emoji":
+    case "stat_emoji_animated": {
+      const e = emojiSlots(ins, id);
+      return <Stat id={id} value={e ? `${e.used}/${e.limit}` : null} to="/emoji"
+        sub={!ins ? undefined : e ? `${e.limit - e.used} free` : "Discord bot not connected"} />;
+    }
     case "stat_linked":
       return <Stat id={id} value={c.linked_users} sub={`${c.verified_links} verified`} to="/users" />;
     case "stat_libraries":
@@ -356,7 +374,7 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
   );
 }
 
-function Stat({ id, value, sub, to }: { id: WidgetId; value: number | null; sub?: string; to: string }) {
+function Stat({ id, value, sub, to }: { id: WidgetId; value: number | string | null; sub?: string; to: string }) {
   return (
     <Link to={to} className="stat-link">
       <div className="stat-label" id={`w-${id}`}>{titleOf(id)}</div>
@@ -827,6 +845,13 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       return { label: "Plex users by link status", center: String(l.plex_users), unit: "users",
         segs: [{ label: "Verified", value: l.verified, color: C.ok }, { label: "Unverified", value: l.unverified, color: C.warn },
           { label: "Not linked", value: l.unlinked, color: C.muted }] };
+    }
+    case "stat_emoji":
+    case "stat_emoji_animated": {
+      const e = emojiSlots(ins, id);
+      if (!e) return null;
+      return { label: id === "stat_emoji" ? "Custom emoji slots" : "Animated emoji slots", center: `${e.used}/${e.limit}`,
+        segs: [{ label: "Used", value: e.used, color: C.accent }, { label: "Free", value: Math.max(0, e.limit - e.used), color: C.muted }] };
     }
     case "stat_linked": {
       if (need(ins)) return null;

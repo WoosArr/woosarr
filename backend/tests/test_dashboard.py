@@ -86,6 +86,16 @@ class DashboardApiTests(unittest.TestCase):
         self.assertFalse(layout["custom"])
         self.assertEqual(layout["widgets"][0], {"id": "setup", "size": "l", "view": "default", "hidden": False})
 
+    def test_emoji_slots_only_while_the_bot_is_connected(self):
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["emoji"])  # bot not connected
+        self.h.app.state.emoji_guild = type("G", (), {"emoji_slots": lambda self: {"limit": 50, "static": 12,
+                                                                                    "animated": 3}})()
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["emoji"],
+                         {"limit": 50, "static": 12, "animated": 3})
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("stat_emoji", ids)
+        self.assertIn("stat_emoji_animated", ids)
+
     def test_connections_say_connecting_while_the_bot_starts(self):
         self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True,
                                                    "detail": "Connecting…"}

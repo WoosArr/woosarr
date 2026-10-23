@@ -378,12 +378,15 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await login(page);
   await page.getByRole("button", { name: "Customize" }).click();
   const more = page.getByRole("region", { name: "More widgets" });
-  for (const name of ["Open request list", "Roles that grant libraries"]) {
+  for (const name of ["Open request list", "Roles that grant libraries", "Custom emoji", "Animated emoji"]) {
     await more.getByRole("listitem").filter({ hasText: new RegExp(`^${name}`) }).getByRole("button", { name: "Add" }).click();
   }
   await page.getByRole("button", { name: "Save layout" }).click();
   await expect(page.getByRole("heading", { name: "Roles that grant libraries" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Open request list" })).toBeVisible();
+  // Demo server: 50 slots each, none used yet.
+  await expect(page.getByRole("link", { name: /Custom emoji\s*0\/50\s*50 free/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Animated emoji\s*0\/50/ })).toBeVisible();
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
   await page.getByRole("button", { name: "Save layout" }).click();

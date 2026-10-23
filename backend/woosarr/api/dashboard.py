@@ -29,6 +29,7 @@ from woosarr.db.models import (
     utcnow,
 )
 from woosarr.services import audit, error_digest, media_requests
+from woosarr.services.discord_bot import DiscordConfigError
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_admin)])
 log = logging.getLogger("woosarr.dashboard")
@@ -97,6 +98,8 @@ class InsightsOut(BaseModel):
     libraries: list[dict[str, Any]]
     roles: list[dict[str, Any]]  # Discord roles by member count, with linked members and mapped libraries
     role_libraries: list[dict[str, Any]]  # roles that grant libraries, with the libraries' names
+    # The Discord server's custom emoji slots ({limit, static, animated}); None while the bot isn't connected.
+    emoji: dict[str, int] | None = None
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -222,6 +225,14 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
              "roles_mapped": sum(1 for r in roles if r.role_id in mapped_roles),
              "roles_unmapped": sum(1 for r in roles if r.role_id not in mapped_roles)}
 
+    emoji = None
+    guild = getattr(request.app.state, "emoji_guild", None)
+    if guild is not None:
+        try:
+            emoji = guild.emoji_slots()
+        except DiscordConfigError:
+            pass  # bot not connected (yet): the tiles say so
+
     security = {
         "failed_logins_24h": db.scalar(select(func.count()).select_from(AuditLog).where(
             AuditLog.action == "login_failed", AuditLog.ts >= now - timedelta(hours=24))) or 0,
@@ -236,7 +247,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "unlinked": len(plex) - len(linked_accounts),
                "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
         activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out,
-        role_libraries=role_libraries, invites=invites, requests=requests,
+        role_libraries=role_libraries, emoji=emoji, invites=invites, requests=requests,
         setup=setup, security=security)
 
 
@@ -246,6 +257,7 @@ WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
     "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
+    "stat_emoji", "stat_emoji_animated",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
     # First on a new install: what's left to set up (connections, role mappings, dry-run).
@@ -263,6 +275,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "stat_invites_accepted", "size": "s", "hidden": True},
     {"id": "roles", "size": "m", "hidden": True},
     {"id": "open_requests", "size": "m", "hidden": True}, {"id": "role_libraries", "size": "m", "hidden": True},
+    {"id": "stat_emoji", "size": "s", "hidden": True}, {"id": "stat_emoji_animated", "size": "s", "hidden": True},
 ]
 
 

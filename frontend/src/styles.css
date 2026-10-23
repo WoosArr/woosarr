@@ -380,6 +380,12 @@ td .row { gap: 4px; }
 .dash-spacer { min-height: 1px; }
 .dash-spacer.editing { min-height: 72px; border-radius: var(--radius); background: repeating-linear-gradient(135deg, transparent 0 8px, var(--accent-soft) 8px 10px); padding: 8px; }
 .dash-w h2 { font-size: 1rem; }
+/* Titles with a status ("Connections - Next Sync in 15 minutes") stay on one line: the font shrinks
+   with the widget's width (about 19-20 ems wide at this weight, plus margin), never above 1rem. */
+.dash-w { container-type: inline-size; }
+/* Card grids inside a widget (Connections) never get wider than the widget. */
+.dash-w .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.dash-w h2.fit-title { white-space: nowrap; font-size: min(1rem, calc(100cqi / 21)); }
 .dash-tools { gap: 4px; margin: -4px -4px 10px; padding: 6px; border-radius: var(--radius-sm); background: var(--accent-soft); flex-wrap: wrap; }
 .dash-tools select { width: auto; padding: 2px 6px; }
 .dash-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }

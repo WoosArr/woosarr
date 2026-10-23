@@ -1413,6 +1413,20 @@
             "title": "Activity",
             "type": "array"
           },
+          "emoji": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emoji"
+          },
           "invites": {
             "additionalProperties": true,
             "title": "Invites",
@@ -1636,7 +1650,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 46,
+            "maxItems": 48,
             "title": "Widgets",
             "type": "array"
           }

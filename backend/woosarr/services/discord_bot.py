@@ -283,10 +283,12 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "Plex username form"):
+            return
         result = await self.service.run_db(link_service.link_by_username, str(interaction.user.id), str(self.name.value))
         if result.ok and result.plex_user_id:
             self.service.trigger([result.plex_user_id], f"self-link by {interaction.user.display_name}")
-        await interaction.response.send_message(result.message, ephemeral=True)
+        await interaction.followup.send(result.message, ephemeral=True)
 
 
 class _LinkView(discord.ui.View):
@@ -327,6 +329,21 @@ def option_role_ids(option: dict) -> set[str]:
 def option_emojis(option: dict) -> list[str]:
     """The option's emoji, then its former ones (old reactions kept working after an emoji change)."""
     return [normalize_emoji(e) for e in [option.get("emoji", ""), *(option.get("former") or [])] if e]
+
+
+async def acknowledge(interaction: discord.Interaction, what: str) -> bool:
+    """Tell Discord the bot is on it before doing any work: an interaction not answered within 3 s
+    is dropped (error 10062) and the member sees "The application did not respond". False if it
+    already was; the member has to try again."""
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        return True
+    except discord.NotFound:
+        created = getattr(interaction, "created_at", None)
+        age = (discord.utils.utcnow() - created).total_seconds() if created else -1
+        log.warning("discord: %s from member %s answered too late (%.1f s after they used it; Discord allows 3 s); "
+                    "they saw \"The application did not respond\"", what, interaction.user.id, age)
+        return False
 
 
 def _emoji_dict(e: discord.Emoji) -> dict[str, object]:
@@ -1178,10 +1195,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     # ---- /unlink ---------------------------------------------------------------
 
     async def handle_unlink_command(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "/unlink"):
+            return
         found = await self.run_db(link_service.current_link, str(interaction.user.id))
         if found is None:
-            await interaction.response.send_message("Your Discord account isn't linked to a Plex account.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Your Discord account isn't linked to a Plex account.", ephemeral=True)
             return
         link, plex = found
         policy = (await self.run_db(app_settings.load)).unlink_policy
@@ -1193,7 +1211,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         else:
             effect = ("Libraries your Discord roles gave you will be removed; manual grants and exempt libraries stay."
                       if policy == "drop_role_access" else "Your Plex access stays as it is, but roles stop updating it.")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Unlink from Plex account **{plex.username if plex else '?'}**? {effect}",
             view=_UnlinkView(self, str(interaction.user.id)), ephemeral=True)
 
@@ -1261,9 +1279,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     # ---- /link (P4-04) -----------------------------------------------------------
 
     async def handle_link_command(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "/link"):
+            return
         wait = await self.run_db(link_service.cooldown_remaining, str(interaction.user.id))
         if wait:
-            await interaction.response.send_message(f"Please wait {wait} s before trying to link again.", ephemeral=True)
+            await interaction.followup.send(f"Please wait {wait} s before trying to link again.", ephemeral=True)
             return
         member = interaction.user
 
@@ -1278,7 +1298,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
                 "• **Sign in with Plex**: verified. WooSarr only reads your Plex username, then signs that sign-in out.")
         if by_username:
             text += "\n• **Enter Plex username**: quicker, but unverified."
-        await interaction.response.send_message(text, view=_LinkView(self, by_username), ephemeral=True)
+        await interaction.followup.send(text, view=_LinkView(self, by_username), ephemeral=True)
 
     async def start_oauth_link(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)

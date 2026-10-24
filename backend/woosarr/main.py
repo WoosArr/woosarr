@@ -38,7 +38,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import emoji_library, friendly_names, media_requests
+from woosarr.services import emoji_library, friendly_names, media_requests, stall_watch
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -115,6 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        stall_watch.WATCH.start(asyncio.get_running_loop())
         sync.start()
         if gateway() is not None:
             sync.trigger(None, "startup", delay=1)
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if discord_service is not None:
             await discord_service.stop()
         sync.stop()
+        stall_watch.WATCH.stop()
         log.info("shutdown complete")
 
     app = FastAPI(

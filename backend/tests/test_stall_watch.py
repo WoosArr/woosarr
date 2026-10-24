@@ -1,0 +1,74 @@
+"""The stall watchdog: tells a blocked event loop (and what blocked it) from a paused process."""
+
+import asyncio
+import time
+import unittest
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest import mock
+
+import discord
+
+from tests.test_requests import FakeInteraction
+from woosarr.services import discord_timing, stall_watch
+from woosarr.services.discord_timing import DiscordTiming, acknowledge
+from woosarr.services.stall_watch import Stall, StallWatch
+
+
+def busy_work_on_the_loop():
+    time.sleep(0.9)  # stands in for code that blocks the event loop
+
+
+class StallWatchTests(unittest.TestCase):
+    def test_blocked_loop_names_what_it_was_running(self):
+        watch = StallWatch(check=0.05, stall=0.3)
+
+        async def main():
+            watch.start(asyncio.get_running_loop())
+            await asyncio.sleep(0.1)
+            busy_work_on_the_loop()
+            await asyncio.sleep(0.4)  # let the watchdog see the loop answer again
+            watch.stop()
+
+        with self.assertLogs("woosarr.stall", "WARNING") as logs:
+            asyncio.run(main())
+        self.assertIn("event loop is blocked", logs.output[0])
+        self.assertIn("busy_work_on_the_loop", logs.output[0])
+        self.assertRegex(logs.output[-1], r"was blocked for [01]\.\d s")
+        self.assertEqual([s.kind for s in watch.stalls], ["blocked"])
+
+    def test_paused_process_is_told_apart(self):
+        watch = StallWatch(check=0.5, stall=3.0)
+        watch.tick(100.0, 1000.0)
+        watch._beat = 100.0
+        with self.assertLogs("woosarr.stall", "WARNING") as logs:
+            watch.tick(106.0, 1006.0)  # this thread itself woke 5.5 s late
+        self.assertIn("WooSarr was paused for 5.5 s", logs.output[0])
+        self.assertEqual([(s.kind, round(s.seconds, 1)) for s in watch.stalls], [("paused", 5.5)])
+        with self.assertNoLogs("woosarr.stall", "WARNING"):
+            watch.tick(106.5, 1006.5)  # the loop's silence was part of the pause, not a second stall
+
+    def test_during_finds_the_overlapping_stall(self):
+        watch = StallWatch()
+        watch.stalls.append(Stall("paused", 100.0, 114.0))
+        self.assertEqual(watch.during(110.0, 120.0).kind, "paused")
+        self.assertIsNone(watch.during(115.0, 120.0))
+
+
+class BlameTests(unittest.TestCase):
+    def test_late_command_during_a_stall_is_blamed_on_woosarr(self):
+        discord_timing._too_late_dms.clear()
+        it = FakeInteraction(417)
+        it.user.send = mock.AsyncMock()
+        it.created_at = datetime.now(UTC) - timedelta(seconds=7.4)
+
+        async def gone(**kw):
+            raise discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), {"code": 10062, "message": "x"})
+
+        it.response.defer = gone
+        now = time.time()
+        with mock.patch.object(stall_watch, "WATCH", StallWatch()):
+            stall_watch.WATCH.stalls.append(Stall("paused", now - 6.5, now - 0.5))
+            with self.assertLogs("woosarr.discord", "WARNING") as logs:
+                asyncio.run(acknowledge(it, "/request", DiscordTiming()))
+        self.assertIn("answered too late: WooSarr was paused for 6.0 s while it waited", logs.output[0])

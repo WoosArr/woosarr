@@ -125,6 +125,8 @@ Discord gives the bot 3 seconds, from the moment a member uses a command, to ans
 
 Every command is logged with how long it took to reach WooSarr and how long the answer took, e.g. `/help from member … acknowledged: reached WooSarr 0.4 s after use, answer took 0.2 s (reused connection; HTTP 204 after 0.2 s)`. Over 2 s to arrive or 1 s to answer is a warning even when Discord still took it. If Discord had already given up, the warning says which side was slow (*Discord (or the network to it) delivered it late* or *sending the answer was slow*), and the member gets a DM asking them to try again (at most once a minute). Ages are measured on Discord's clock: WooSarr estimates the server clock's offset from Discord's replies and mentions it when it's 2 s or more.
 
+A watchdog also notices when WooSarr itself stops running for more than 3 s, and says which kind of stall it was: *the event loop is blocked* (WooSarr's own code was busy; the warning shows what it was running) or *WooSarr was paused* (nothing in the process ran: the host was out of CPU, disk or memory; the warning adds the host's load, pressure and swap figures). A command that arrived late during a stall is blamed on WooSarr, not Discord.
+
 To keep answers quick, the bot keeps its connections to Discord open (DNS answers cached for 10 minutes) and makes a tiny request every minute so one is always ready.
 
 ## Bot status

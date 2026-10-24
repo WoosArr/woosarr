@@ -23,6 +23,8 @@ from typing import Any
 import aiohttp
 import discord
 
+from woosarr.services import stall_watch
+
 log = logging.getLogger("woosarr.discord")
 
 # /api/v10/interactions/<id>/<token>/callback
@@ -153,13 +155,28 @@ async def acknowledge(interaction: discord.Interaction, what: str, timing: Disco
         log.log(level, "discord: %s from member %s acknowledged: reached WooSarr %s after use, answer took %.1f s "
                 "(%s)%s", what, interaction.user.id, late, took, how, clock)
         return True
-    cause = ("Discord (or the network to it) delivered it late" if arrived is not None and arrived >= 3
+    stall = _stall_while_waiting(interaction, timing)
+    cause = (f"WooSarr {'was paused' if stall.kind == 'paused' else 'was busy (event loop blocked)'} for "
+             f"{stall.seconds:.1f} s while it waited (see the stall warning)" if stall
+             else "Discord (or the network to it) delivered it late" if arrived is not None and arrived >= 3
              else "sending the answer was slow" if took >= 1.5 else "Discord no longer accepted it")
     log.warning("discord: %s from member %s answered too late: %s. It reached WooSarr %s after use and the answer "
                 "took %.1f s (%s); Discord allows 3 s in total%s. The member saw \"The application did not respond\"",
                 what, interaction.user.id, cause, late, took, how, clock)
     await _tell_too_late(interaction, what)
     return False
+
+
+def _stall_while_waiting(interaction: discord.Interaction, timing: DiscordTiming | None) -> stall_watch.Stall | None:
+    """A WooSarr stall of a second or more between the member using the command and now."""
+    created = getattr(interaction, "created_at", None)
+    if created is None:
+        return None
+    start = created.timestamp() - (timing.offset if timing else 0.0)  # Discord's time on our clock
+    stall = stall_watch.WATCH.during(start, time.time())
+    if stall is None or min(stall.end, time.time()) - max(stall.start, start) < 1.0:
+        return None
+    return stall
 
 
 async def _tell_too_late(interaction: discord.Interaction, what: str) -> None:

@@ -46,6 +46,11 @@ class DiscordTiming:
 
     # ---- clock -----------------------------------------------------------------------------
 
+    @property
+    def measured(self) -> bool:
+        """True once at least one Discord reply has given us its clock."""
+        return bool(self._samples)
+
     def now(self) -> float:
         """Discord's idea of the current time (epoch seconds)."""
         return time.time() + self.offset

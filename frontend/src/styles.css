@@ -380,6 +380,9 @@ td .row { gap: 4px; }
 .dash-spacer { min-height: 1px; }
 .dash-spacer.editing { min-height: 72px; border-radius: var(--radius); background: repeating-linear-gradient(135deg, transparent 0 8px, var(--accent-soft) 8px 10px); padding: 8px; }
 .dash-w h2 { font-size: 1rem; }
+.stat-value.tone-ok { color: var(--ok); }
+.stat-value.tone-warn { color: var(--warn); }
+.stat-value.tone-danger { color: var(--danger); }
 /* Titles with a status ("Connections - Next Sync in 15 minutes") stay on one line: the font shrinks
    with the widget's width (about 19-20 ems wide at this weight, plus margin), never above 1rem. */
 .dash-w { container-type: inline-size; }

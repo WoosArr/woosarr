@@ -1419,6 +1419,20 @@
             "title": "Activity",
             "type": "array"
           },
+          "clock": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clock"
+          },
           "emoji": {
             "anyOf": [
               {
@@ -1656,7 +1670,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 50,
+            "maxItems": 51,
             "title": "Widgets",
             "type": "array"
           }

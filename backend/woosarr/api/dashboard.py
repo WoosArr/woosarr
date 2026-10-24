@@ -100,6 +100,8 @@ class InsightsOut(BaseModel):
     role_libraries: list[dict[str, Any]]  # roles that grant libraries, with the libraries' names
     # The Discord server's custom emoji slots ({limit, static, animated}); None while the bot isn't connected.
     emoji: dict[str, int] | None = None
+    # Server clock vs Discord's ({offset_seconds}: positive = server behind); None until measured.
+    clock: dict[str, float] | None = None
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -234,6 +236,11 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
         except DiscordConfigError:
             pass  # bot not connected (yet): the tiles say so
 
+    clock = None
+    timing = getattr(getattr(request.app.state, "discord", None), "timing", None)
+    if timing is not None and timing.measured:
+        clock = {"offset_seconds": round(timing.offset, 1)}
+
     security = {
         "failed_logins_24h": db.scalar(select(func.count()).select_from(AuditLog).where(
             AuditLog.action == "login_failed", AuditLog.ts >= now - timedelta(hours=24))) or 0,
@@ -251,7 +258,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "members_verified": sum(1 for m in members if m in verified_discord),
                "members_unverified": sum(1 for m in members if m in linked_discord and m not in verified_discord)},
         activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out,
-        role_libraries=role_libraries, emoji=emoji, invites=invites, requests=requests,
+        role_libraries=role_libraries, emoji=emoji, clock=clock, invites=invites, requests=requests,
         setup=setup, security=security)
 
 
@@ -261,7 +268,7 @@ WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
     "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
-    "stat_emoji", "stat_emoji_animated", "stat_discord_users", "stat_discord_linked",
+    "stat_emoji", "stat_emoji_animated", "stat_discord_users", "stat_discord_linked", "stat_clock",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
     # First on a new install: what's left to set up (connections, role mappings, dry-run).
@@ -281,6 +288,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "open_requests", "size": "m", "hidden": True}, {"id": "role_libraries", "size": "m", "hidden": True},
     {"id": "stat_emoji", "size": "s", "hidden": True}, {"id": "stat_emoji_animated", "size": "s", "hidden": True},
     {"id": "stat_discord_users", "size": "s", "hidden": True}, {"id": "stat_discord_linked", "size": "s", "hidden": True},
+    {"id": "stat_clock", "size": "s", "hidden": True},
 ]
 
 

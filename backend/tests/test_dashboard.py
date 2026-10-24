@@ -107,6 +107,15 @@ class DashboardApiTests(unittest.TestCase):
         self.assertIn("stat_discord_users", ids)
         self.assertIn("stat_discord_linked", ids)
 
+    def test_time_drift_from_discords_clock(self):
+        from types import SimpleNamespace
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])  # no bot, no measurement
+        self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=False, offset=0.0))
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])
+        self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=True, offset=38.24))
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["clock"], {"offset_seconds": 38.2})
+        self.assertIn("stat_clock", [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]])
+
     def test_emoji_slots_only_while_the_bot_is_connected(self):
         self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["emoji"])  # bot not connected
         self.h.app.state.emoji_guild = type("G", (), {"emoji_slots": lambda self: {"limit": 50, "static": 12,

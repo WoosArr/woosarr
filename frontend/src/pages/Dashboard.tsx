@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type PlanOut, type StatusOut } from "../api";
 import type { components } from "../generated/api";
 import { Icon, type IconName } from "../icons";
+import { driftTone } from "../drift";
 import { Badge, Empty, ErrorBanner, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
 
 type ErrorGroup = components["schemas"]["ErrorGroupOut"];
@@ -55,6 +56,7 @@ const TITLES: Record<WidgetId, string> = {
   roles: "Discord role members",
   open_requests: "Open request list",
   role_libraries: "Roles that grant libraries",
+  stat_clock: "Time drift",
   stat_discord_users: "Discord users",
   stat_discord_linked: "Linked Discord users",
   stat_emoji: "Custom emoji",
@@ -309,6 +311,16 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       );
     case "stat_plex_users":
       return <Stat id={id} value={c.plex_users} to="/users" />;
+    case "stat_clock": {
+      const off = ins?.clock?.offset_seconds;
+      if (off === undefined || off === null) {
+        return <Stat id={id} value={null} sub={ins ? "Measured once the Discord bot is connected" : undefined} />;
+      }
+      const [tone, word] = driftTone(off);
+      const secs = Math.round(Math.abs(off));
+      return <Stat id={id} value={`${secs} s`} tone={tone} badge={word}
+        sub={secs === 0 ? "In step with Discord's clock" : `Server clock is ${secs} s ${off > 0 ? "behind" : "ahead"}`} />;
+    }
     case "stat_discord_users": {
       const l = ins?.links;
       return <Stat id={id} value={c.discord_members} to="/users?tab=discord"
@@ -386,15 +398,20 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
   );
 }
 
-function Stat({ id, value, sub, to }: { id: WidgetId; value: number | string | null; sub?: string; to: string }) {
-  return (
-    <Link to={to} className="stat-link">
+function Stat({ id, value, sub, to, tone, badge }: {
+  id: WidgetId; value: number | string | null; sub?: string; to?: string; tone?: Tone; badge?: string;
+}) {
+  const body = (
+    <>
       <div className="stat-label" id={`w-${id}`}>{titleOf(id)}</div>
-      <div className="stat-value">{value ?? "–"}</div>
+      <div className={`stat-value${tone ? ` tone-${tone}` : ""}`}>{value ?? "–"}</div>
+      {badge && tone ? <Badge tone={tone}>{badge}</Badge> : null}
       {sub ? <div className="small muted">{sub}</div> : null}
-    </Link>
+    </>
   );
+  return to ? <Link to={to} className="stat-link">{body}</Link> : <div className="stat-link">{body}</div>;
 }
+
 
 function Loading({ ins }: { ins: Insights | null }) {
   return ins ? null : <Spinner />;

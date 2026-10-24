@@ -379,7 +379,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await page.getByRole("button", { name: "Customize" }).click();
   const more = page.getByRole("region", { name: "More widgets" });
   for (const name of ["Open request list", "Roles that grant libraries", "Custom emoji", "Animated emoji",
-    "Discord users", "Linked Discord users"]) {
+    "Discord users", "Linked Discord users", "Time drift"]) {
     await more.getByRole("listitem").filter({ hasText: new RegExp(`^${name}`) }).getByRole("button", { name: "Add" }).click();
   }
   await page.getByRole("button", { name: "Save layout" }).click();
@@ -389,6 +389,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await expect(page.getByRole("link", { name: /Custom emoji\s*0\/50\s*50 free/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Animated emoji\s*0\/50/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /^Discord users\s*\d+\s*\d+ linked$/ })).toBeVisible();
+  await expect(page.getByText("Measured once the Discord bot is connected")).toBeVisible();  // demo: no bot
   await page.getByRole("link", { name: /^Linked Discord users\s*\d+\s*\d+ verified$/ }).click();
   await expect(page).toHaveURL(/tab=discord&link=linked/);
   await expect(page.getByRole("group", { name: "Link filter" }).getByRole("button", { name: "Linked", exact: true })).toHaveAttribute("aria-pressed", "true");

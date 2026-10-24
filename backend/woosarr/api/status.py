@@ -138,6 +138,8 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
             request.app.state.sync.trigger(None, "settings changed")
         if "request_command_name" in diff and request.app.state.discord is not None:
             request.app.state.discord.schedule_command_sync()
+        if "bot_status" in diff and request.app.state.discord is not None:
+            request.app.state.discord.schedule_presence()
     return after
 
 

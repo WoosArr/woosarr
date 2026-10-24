@@ -278,6 +278,12 @@
             "title": "Audit Retention Days",
             "type": "integer"
           },
+          "bot_status": {
+            "default": "Try /help for help",
+            "maxLength": 128,
+            "title": "Bot Status",
+            "type": "string"
+          },
           "dry_run": {
             "default": true,
             "title": "Dry Run",

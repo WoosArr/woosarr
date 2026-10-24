@@ -55,6 +55,8 @@ class AppSettings(BaseModel):
     # Public address of WooSarr (e.g. https://woosarr.example.com) for SSO redirect
     # URIs; empty = the address the browser used.
     public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
+    # The bot's custom status in Discord (under its name in the member list); empty = none.
+    bot_status: str = Field("Try /help for help", max_length=128)
     # Requests through Seerr (P13-01). Name of the slash command, without the "/";
     # change it if another bot in the server already has /request.
     request_command_name: str = Field("request", pattern=r"^[a-z0-9_-]{1,32}$")
@@ -79,6 +81,11 @@ class AppSettings(BaseModel):
         if self.request_visibility == "public" and not self.request_channel_id:
             raise ValueError("public requests need a channel (request_channel_id)")
         return self
+
+    @field_validator("bot_status")
+    @classmethod
+    def _one_line(cls, v: str) -> str:
+        return " ".join(v.split())
 
     @field_validator("request_command_name")
     @classmethod

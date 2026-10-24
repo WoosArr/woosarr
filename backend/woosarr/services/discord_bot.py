@@ -224,6 +224,7 @@ class WooSarrBot(discord.Client):
         members = [_member(m) async for m in guild.fetch_members(limit=None)]
         await self.service.run_db(cache.full_sync, roles, members)
         self.service.connected(guild.name)
+        await self.service.apply_presence()
         await self.service.reconcile_reactions()
         self.service.trigger(None, "discord connected")
         self.service.schedule_role_sync()
@@ -953,6 +954,27 @@ class _GuildFeatures:
                     "discord command sync failed: %s", t.exception()))
 
         loop.call_soon_threadsafe(start)
+
+    def schedule_presence(self) -> None:
+        """Thread-safe: show the bot status from settings now (it's also set on every connect)."""
+        loop, client = self._loop, self._client
+        if loop is None or client is None:
+            return
+
+        def start() -> None:
+            if client.is_ready():
+                task = asyncio.create_task(self.apply_presence())
+                task.add_done_callback(lambda t: not t.cancelled() and t.exception() and log.warning(
+                    "discord status not updated: %s", t.exception()))
+
+        loop.call_soon_threadsafe(start)
+
+    async def apply_presence(self) -> None:
+        if self._client is None:
+            return
+        text = (await self.run_db(app_settings.load)).bot_status
+        await self._client.change_presence(activity=discord.CustomActivity(name=text) if text else None)
+        log.info("discord bot status set to %r", text or "(none)")
 
     def schedule_role_sync(self) -> None:
         """Thread-safe: refresh link-status roles soon (coalesces bursts)."""

@@ -189,6 +189,9 @@ function General() {
           {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
       </Field>
+      <Field label="Discord bot status" hint="Shown under the bot's name in Discord's member list. Leave empty for none. Up to 128 characters.">
+        <input type="text" maxLength={128} value={v.bot_status ?? ""} placeholder="Try /help for help" onChange={(e) => set({ bot_status: e.target.value })} style={{ maxWidth: 420 }} />
+      </Field>
       <Field label="Keep audit entries for (days)" hint="Older audit entries are deleted. 7–3650.">
         <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </Field>

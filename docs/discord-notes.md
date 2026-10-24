@@ -119,6 +119,10 @@ Custom Emoji page (sidebar):
 - **On your server:** the server's emoji with the used slots (static and animated: 50 each, more with server boosts), **Rename** and **Delete**. Renaming an emoji that a reaction post uses updates the post's options (reactions are matched by name and id). Deleting one that a post still uses is refused; remove it from the post first.
 - The bot needs **Create Expressions** to add emoji and **Manage Expressions** to rename and delete them (including emoji others added). The bot receives emoji changes made in Discord straight away (the *guild emojis* intent, not privileged), so the reaction post picker is always current.
 
+## Bot status
+
+The bot shows a custom status under its name in the member list, by default **Try /help for help**. Change it (or leave it empty for none) in *Settings → General → Discord bot status*; the bot updates it right away and sets it again every time it connects. Up to 128 characters, one line.
+
 ## Bot avatar
 
 **Integrations → Discord → Bot avatar** (admins, only while the bot is connected):

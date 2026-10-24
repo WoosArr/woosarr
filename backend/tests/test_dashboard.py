@@ -86,6 +86,27 @@ class DashboardApiTests(unittest.TestCase):
         self.assertFalse(layout["custom"])
         self.assertEqual(layout["widgets"][0], {"id": "setup", "size": "l", "view": "default", "hidden": False})
 
+    def test_discord_member_link_counts(self):
+        from woosarr.db.models import DiscordLink, DiscordMember, PlexUser
+        with self.h.app.state.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="p1", username="a"), PlexUser(plex_user_id="p2", username="b"),
+                       DiscordMember(discord_user_id="1", username="v"), DiscordMember(discord_user_id="2", username="u"),
+                       DiscordMember(discord_user_id="3", username="none"),
+                       DiscordMember(discord_user_id="4", username="bot", is_bot=True),
+                       DiscordMember(discord_user_id="5", username="left", in_guild=False)])
+            s.flush()
+            s.add_all([DiscordLink(plex_user_id="p1", discord_user_id="1", method="oauth", verified=True, linked_by="self"),
+                       DiscordLink(plex_user_id="p2", discord_user_id="2", method="username", verified=False,
+                                   linked_by="self"),
+                       DiscordLink(plex_user_id="p2", discord_user_id="5", method="oauth", verified=True,
+                                   linked_by="self")])
+        links = self.c.get("/api/v1/dashboard/insights").json()["links"]
+        self.assertEqual((links["members"], links["members_verified"], links["members_unverified"],
+                          links["members_unlinked"]), (3, 1, 1, 1))  # bots and leavers don't count
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("stat_discord_users", ids)
+        self.assertIn("stat_discord_linked", ids)
+
     def test_emoji_slots_only_while_the_bot_is_connected(self):
         self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["emoji"])  # bot not connected
         self.h.app.state.emoji_guild = type("G", (), {"emoji_slots": lambda self: {"limit": 50, "static": 12,
@@ -196,7 +217,8 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         d = r.json()
         self.assertEqual(d["links"], {"plex_users": 4, "linked": 2, "verified": 1, "unverified": 1, "unlinked": 2,
-                                      "members": 2, "members_unlinked": 1})  # the owner counts as a Plex user
+                                      "members": 2, "members_unlinked": 1, "members_verified": 1,
+                                      "members_unverified": 0})  # the owner counts as a Plex user
         users = {lib["title"]: lib["users"] for lib in d["libraries"]}
         self.assertEqual(users, {"Movies": 2, "Kids": 1})  # alice's share + the owner, who sees every library
         today = d["access_by_day"][-1]

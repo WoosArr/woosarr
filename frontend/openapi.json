@@ -1650,7 +1650,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 48,
+            "maxItems": 50,
             "title": "Widgets",
             "type": "array"
           }

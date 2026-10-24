@@ -55,6 +55,8 @@ const TITLES: Record<WidgetId, string> = {
   roles: "Discord role members",
   open_requests: "Open request list",
   role_libraries: "Roles that grant libraries",
+  stat_discord_users: "Discord users",
+  stat_discord_linked: "Linked Discord users",
   stat_emoji: "Custom emoji",
   stat_emoji_animated: "Animated emoji",
   requests: "Requests",
@@ -72,7 +74,7 @@ const SIZES: Size[] = ["xs", "s", "m", "l"];
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
   stat_requests: "Number", errors: "List", links: "Stacked bar", role_libraries: "List",
-  stat_emoji: "Number", stat_emoji_animated: "Number",
+  stat_emoji: "Number", stat_emoji_animated: "Number", stat_discord_users: "Number", stat_discord_linked: "Number",
   access_chart: "Columns", activity: "List", libraries: "List", roles: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
@@ -307,6 +309,16 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       );
     case "stat_plex_users":
       return <Stat id={id} value={c.plex_users} to="/users" />;
+    case "stat_discord_users": {
+      const l = ins?.links;
+      return <Stat id={id} value={c.discord_members} to="/users?tab=discord"
+        sub={l ? `${l.members - l.members_unlinked} linked` : undefined} />;
+    }
+    case "stat_discord_linked": {
+      const l = ins?.links;
+      return <Stat id={id} value={l ? l.members - l.members_unlinked : null} to="/users?tab=discord&link=linked"
+        sub={l ? `${l.members_verified} verified` : undefined} />;
+    }
     case "stat_emoji":
     case "stat_emoji_animated": {
       const e = emojiSlots(ins, id);
@@ -845,6 +857,20 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       return { label: "Plex users by link status", center: String(l.plex_users), unit: "users",
         segs: [{ label: "Verified", value: l.verified, color: C.ok }, { label: "Unverified", value: l.unverified, color: C.warn },
           { label: "Not linked", value: l.unlinked, color: C.muted }] };
+    }
+    case "stat_discord_users": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      return { label: "Discord users by link status", center: String(l.members), unit: "members",
+        segs: [{ label: "Verified", value: l.members_verified, color: C.ok }, { label: "Unverified", value: l.members_unverified, color: C.warn },
+          { label: "Not linked", value: l.members_unlinked, color: C.muted }] };
+    }
+    case "stat_discord_linked": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      const linked = l.members - l.members_unlinked;
+      return { label: "Linked Discord users", center: `${l.members ? Math.round((linked / l.members) * 100) : 0}%`,
+        segs: [{ label: "Linked", value: linked, color: C.accent }, { label: "Not linked", value: l.members_unlinked, color: C.muted }] };
     }
     case "stat_emoji":
     case "stat_emoji_animated": {

@@ -125,6 +125,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
         if link.plex_user_id in ids:
             linked_accounts[link.plex_user_id] = linked_accounts.get(link.plex_user_id, False) or link.verified
     linked_discord = {link.discord_user_id for link in links}
+    verified_discord = {link.discord_user_id for link in links if link.verified}
     member_roles = db.execute(select(DiscordMember.discord_user_id, DiscordMember.role_ids)
                               .where(DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False))).all()
     members = [m.discord_user_id for m in member_roles]
@@ -245,7 +246,10 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "verified": sum(1 for v in linked_accounts.values() if v),
                "unverified": sum(1 for v in linked_accounts.values() if not v),
                "unlinked": len(plex) - len(linked_accounts),
-               "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
+               "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord),
+               # Discord side: members in the server (no bots) with a verified / unverified link.
+               "members_verified": sum(1 for m in members if m in verified_discord),
+               "members_unverified": sum(1 for m in members if m in linked_discord and m not in verified_discord)},
         activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out,
         role_libraries=role_libraries, emoji=emoji, invites=invites, requests=requests,
         setup=setup, security=security)
@@ -257,7 +261,7 @@ WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
     "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
-    "stat_emoji", "stat_emoji_animated",
+    "stat_emoji", "stat_emoji_animated", "stat_discord_users", "stat_discord_linked",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
     # First on a new install: what's left to set up (connections, role mappings, dry-run).
@@ -276,6 +280,7 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "roles", "size": "m", "hidden": True},
     {"id": "open_requests", "size": "m", "hidden": True}, {"id": "role_libraries", "size": "m", "hidden": True},
     {"id": "stat_emoji", "size": "s", "hidden": True}, {"id": "stat_emoji_animated", "size": "s", "hidden": True},
+    {"id": "stat_discord_users", "size": "s", "hidden": True}, {"id": "stat_discord_linked", "size": "s", "hidden": True},
 ]
 
 

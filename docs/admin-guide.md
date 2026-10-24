@@ -105,6 +105,7 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Requests / Plex invites | Recent requests by status; pending invites |
 | Open request list | Requests still waiting, approved or partly available, however old (the newest 10, then a count) |
 | Roles that grant libraries | Like *Discord role members*, for the roles mapped to libraries: members and linked members per role with a bar (or a circle / bars chart), plus the libraries each one grants |
+| Discord users / Linked Discord users | Members of the Discord server (no bots) and how many are linked; linked members and how many are verified. As a number, a circle or bars; *Linked Discord users* opens Users → Discord filtered to linked members |
 | Custom emoji / Animated emoji | The Discord server's emoji slots: used / maximum and how many are free (static and animated have separate slots; boosts raise the maximum); as a number, a circle or bars |
 | Blank space | Nothing: for spacing. Add as many as you like (*More widgets → Blank space*) and size them like any widget; *Remove* takes one away |
 | Setup checklist | Connections, role mappings, unmanaged libraries, dry-run. First and full width on a new install; hide it in *Customize* once you're done |

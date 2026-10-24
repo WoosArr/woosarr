@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import secrets
 import unittest
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
@@ -15,7 +16,7 @@ from woosarr.services import discord_timing
 from woosarr.services.discord_bot import WooSarrBot
 from woosarr.services.discord_timing import DiscordTiming, acknowledge
 
-TOKEN = "aW50ZXJhY3Rpb24" + "uLXRva2VuLWZha2U"  # assembled: no token-shaped literal in source
+TOKEN = secrets.token_urlsafe(24)  # made at runtime: no token-shaped literal in source (gitleaks)
 
 
 def date_header(offset_s: float) -> str:

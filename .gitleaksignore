@@ -4,3 +4,5 @@
 b285b883f57f0cf0a7c9e49cdd5e692752eb034b:docs/action-plan.md:generic-api-key:168
 # Fake password canary for the log-redaction tests; now assembled at runtime.
 2d3ee836aede623254b84dd2bf04b1ef38b32cef:backend/tests/test_redaction.py:generic-api-key:10
+# Fake interaction token in the Discord timing tests (decodes to "interaction-token-fake"); now made at runtime.
+a6c303a02e5fd2485709c5bd0c8eeedba1526c2f:backend/tests/test_discord_timing.py:generic-api-key:18

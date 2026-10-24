@@ -111,7 +111,9 @@ class DashboardApiTests(unittest.TestCase):
         from types import SimpleNamespace
         self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])  # no bot, no measurement
         self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=False, offset=0.0))
-        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])  # Discord not set up
+        self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True}
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["clock"], {"offset_seconds": None})
         self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=True, offset=38.24))
         self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["clock"], {"offset_seconds": 38.2})
         self.assertIn("stat_clock", [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]])

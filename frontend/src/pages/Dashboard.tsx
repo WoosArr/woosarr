@@ -95,6 +95,11 @@ export default function DashboardPage() {
     const slow = setInterval(() => { void insights.reload(); void preview.reload(); }, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
   }, [status.reload, errors.reload, insights.reload, preview.reload]);
+  // Bot-dependent tiles (emoji slots, time drift) fill in as soon as Discord connects, not 30 s later.
+  const discordUp = !!status.data?.discord.connected;
+  useEffect(() => {
+    if (discordUp) void insights.reload();
+  }, [discordUp]);
 
   const syncNow = async () => {
     try {
@@ -252,6 +257,12 @@ function nextSync(status: StatusOut): string {
   return minutes <= 1 ? "Next Sync in 1 minute" : `Next Sync in ${minutes} minutes`;
 }
 
+/** Why a bot-dependent tile has no number yet: still starting, or really not connected. */
+function botWaiting(status: StatusOut): string {
+  const d = status.discord;
+  return d.connected ? "Loading…" : d.connecting ? "Connecting to Discord…" : d.configured ? "Discord bot not connected" : "Discord isn't set up";
+}
+
 /** Used and total slots for static (stat_emoji) or animated emoji; null until the bot is connected. */
 function emojiSlots(ins: Insights | null, id: WidgetId): { used: number; limit: number } | null {
   const e = ins?.emoji;
@@ -284,7 +295,7 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       <>
         <Title id={id} />
         {data ? <Chart view={view} {...data} />
-          : ins ? <p className="small muted">{id.startsWith("stat_emoji") ? "Discord bot not connected." : "Nothing to show yet."}</p>
+          : ins ? <p className="small muted">{id.startsWith("stat_emoji") ? botWaiting(ctx.status) : "Nothing to show yet."}</p>
           : <Spinner />}
       </>
     );
@@ -314,7 +325,9 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     case "stat_clock": {
       const off = ins?.clock?.offset_seconds;
       if (off === undefined || off === null) {
-        return <Stat id={id} value={null} sub={ins ? "Measured once the Discord bot is connected" : undefined} />;
+        // No clock at all: no bot to measure with (demo). A clock without a number: still connecting/measuring.
+        return <Stat id={id} value={null} sub={!ins ? undefined : !ins.clock ? "Measured once the Discord bot is connected"
+          : ctx.status.discord.connecting ? "Connecting to Discord…" : "Measuring…"} />;
       }
       const [tone, word] = driftTone(off);
       const secs = Math.round(Math.abs(off));
@@ -335,7 +348,7 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     case "stat_emoji_animated": {
       const e = emojiSlots(ins, id);
       return <Stat id={id} value={e ? `${e.used}/${e.limit}` : null} to="/emoji"
-        sub={!ins ? undefined : e ? `${e.limit - e.used} free` : "Discord bot not connected"} />;
+        sub={!ins ? undefined : e ? `${e.limit - e.used} free` : botWaiting(ctx.status)} />;
     }
     case "stat_linked":
       return <Stat id={id} value={c.linked_users} sub={`${c.verified_links} verified`} to="/users" />;

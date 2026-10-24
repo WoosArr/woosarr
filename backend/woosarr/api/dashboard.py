@@ -100,8 +100,9 @@ class InsightsOut(BaseModel):
     role_libraries: list[dict[str, Any]]  # roles that grant libraries, with the libraries' names
     # The Discord server's custom emoji slots ({limit, static, animated}); None while the bot isn't connected.
     emoji: dict[str, int] | None = None
-    # Server clock vs Discord's ({offset_seconds}: positive = server behind); None until measured.
-    clock: dict[str, float] | None = None
+    # Server clock vs Discord's ({offset_seconds}: positive = server behind; null while measuring);
+    # None when there's no Discord bot to measure with.
+    clock: dict[str, float | None] | None = None
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -238,8 +239,8 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 
     clock = None
     timing = getattr(getattr(request.app.state, "discord", None), "timing", None)
-    if timing is not None and timing.measured:
-        clock = {"offset_seconds": round(timing.offset, 1)}
+    if timing is not None and (timing.measured or request.app.state.discord_status().get("configured")):
+        clock = {"offset_seconds": round(timing.offset, 1) if timing.measured else None}
 
     security = {
         "failed_logins_24h": db.scalar(select(func.count()).select_from(AuditLog).where(

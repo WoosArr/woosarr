@@ -23,6 +23,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- Discord commands could time out ("The application did not respond"): every slash command now answers Discord before doing any work, the bot keeps a warm connection to Discord, and each command's delivery and answer times are logged (on Discord's clock, so a wrong server clock doesn't skew them). When Discord gives up anyway, the member gets a DM asking them to try again. Suggestions Discord had already discarded while someone typed are no longer logged as errors (the earlier fix didn't catch discord.py's own log line).
 - The first web page opened after a restart could stall the Discord connection for over 10 seconds ("heartbeat blocked") while Python loaded a file-serving module from a slow disk. That module is now loaded at startup.
 - The dashboard's Connections widget showed a red *Disconnected* while the Discord bot was still connecting; it now shows *Connecting…*.
 - Customize → *More widgets*: each entry has a border, and *Blank space* has its own row (the Customize hint says where to find it).

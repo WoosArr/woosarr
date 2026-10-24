@@ -35,6 +35,7 @@ from woosarr.services import (
 )
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
+from woosarr.services.discord_timing import DiscordTiming, acknowledge
 
 log = logging.getLogger("woosarr.discord")
 
@@ -49,6 +50,7 @@ K_BOT = "discord.bot"  # {"id", "username", "application_id"}
 FLAG_GATEWAY_GUILD_MEMBERS = 1 << 14
 FLAG_GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15
 LINK_POLL_SECONDS = 2
+KEEP_WARM_SECONDS = 60  # keep a connection to Discord's API open (answers must arrive within 3 s)
 LINK_TIMEOUT_SECONDS = 300
 DISCONNECT_GRACE_SECONDS = 60
 
@@ -126,7 +128,34 @@ def _member(m: discord.Member) -> cache.MemberData:
     return cache.MemberData(str(m.id), m.name, m.display_name, roles, is_bot=bool(m.bot))
 
 
+class _StaleSuggestionFilter(logging.Filter):
+    """discord.py logs "Ignoring exception in autocomplete" itself (not through on_error) when a
+    suggestion answer arrives after the member typed on and Discord dropped that ask (10062):
+    routine, not an alert. Kept as DEBUG when the log level is DEBUG, dropped otherwise."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.ERROR and str(record.msg).startswith("Ignoring exception in autocomplete"):
+            exc = record.exc_info[1] if record.exc_info else None
+            if isinstance(exc, discord.NotFound) and exc.code == 10062:
+                record.levelno, record.levelname, record.exc_info, record.exc_text = logging.DEBUG, "DEBUG", None, None
+                return logging.getLogger().isEnabledFor(logging.DEBUG)
+        return True
+
+
+_STALE_SUGGESTIONS = _StaleSuggestionFilter()
+logging.getLogger("discord.app_commands.tree").addFilter(_STALE_SUGGESTIONS)
+
+
 class _Tree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Every slash command answers "thinking…" before any of its code runs (Discord's 3 s), so
+        commands reply with followup messages. Suggestions (autocomplete) can't be deferred."""
+        if interaction.type == discord.InteractionType.application_command:
+            name = f"/{interaction.command.name}" if interaction.command else "a command"
+            service = getattr(self.client, "service", None)
+            return await acknowledge(interaction, name, getattr(service, "timing", None))
+        return True
+
     async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError | Exception) -> None:
         """Discord drops interactions not answered within 3 s (10062 Unknown interaction). For
         suggestions that's routine (each keystroke replaces the last ask); for a command it's
@@ -157,8 +186,11 @@ class WooSarrBot(discord.Client):
         intents.emojis_and_stickers = True  # not privileged
         # Default for every message the bot sends: never @everyone/@here or role pings. Messages that
         # mean to ping a member say so explicitly (requests); user text is also escaped (safe()).
+        timing = getattr(service, "timing", None)
         super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions(everyone=False, roles=False,
-                                                                                   users=True, replied_user=False))
+                                                                                   users=True, replied_user=False),
+                         http_trace=timing.trace if timing else None)
+        self._warm_task: asyncio.Task | None = None
         self.service = service
         self.guild_id = guild_id
         self.tree = _Tree(self)
@@ -188,7 +220,7 @@ class WooSarrBot(discord.Client):
 
         @self.tree.command(name="help", description="Show WooSarr's commands and how to use them", guild=guild)
         async def help_(interaction: discord.Interaction) -> None:
-            await interaction.response.send_message(help_text(self.request_name), ephemeral=True)
+            await interaction.followup.send(help_text(self.request_name), ephemeral=True)
 
     async def setup_hook(self) -> None:
         await self.sync_commands(force=True)
@@ -214,6 +246,29 @@ class WooSarrBot(discord.Client):
     def _ours(self, guild: discord.Guild | None) -> bool:
         return guild is not None and guild.id == self.guild_id
 
+    async def login(self, token: str) -> None:
+        # Answers to interactions must reach Discord within 3 s. Keep connections (and DNS answers)
+        # around so an answer doesn't wait for a new TLS connection after a quiet spell. Made here,
+        # inside the running loop, before discord.py opens its HTTP session.
+        self.http.connector = aiohttp.TCPConnector(ttl_dns_cache=600, keepalive_timeout=120, limit=0)
+        await super().login(token)
+
+    async def _keep_warm(self) -> None:
+        """A tiny request every minute keeps a connection to Discord open (and the clock estimate fresh)."""
+        while not self.is_closed():
+            await asyncio.sleep(KEEP_WARM_SECONDS)
+            try:
+                await self.http.request(discord.http.Route("GET", "/gateway"))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - next minute tries again
+                log.debug("discord keep-warm request failed: %s", exc)
+
+    async def close(self) -> None:
+        if self._warm_task is not None:
+            self._warm_task.cancel()
+        await super().close()
+
     async def on_ready(self) -> None:
         guild = self.get_guild(self.guild_id)
         if guild is None:
@@ -224,6 +279,8 @@ class WooSarrBot(discord.Client):
         members = [_member(m) async for m in guild.fetch_members(limit=None)]
         await self.service.run_db(cache.full_sync, roles, members)
         self.service.connected(guild.name)
+        if self._warm_task is None or self._warm_task.done():
+            self._warm_task = asyncio.create_task(self._keep_warm(), name="woosarr-discord-warm")
         await self.service.apply_presence()
         await self.service.reconcile_reactions()
         self.service.trigger(None, "discord connected")
@@ -307,7 +364,7 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        if not await acknowledge(interaction, "Plex username form"):
+        if not await acknowledge(interaction, "the Plex username form", self.service.timing):
             return
         result = await self.service.run_db(link_service.link_by_username, str(interaction.user.id), str(self.name.value))
         if result.ok and result.plex_user_id:
@@ -353,21 +410,6 @@ def option_role_ids(option: dict) -> set[str]:
 def option_emojis(option: dict) -> list[str]:
     """The option's emoji, then its former ones (old reactions kept working after an emoji change)."""
     return [normalize_emoji(e) for e in [option.get("emoji", ""), *(option.get("former") or [])] if e]
-
-
-async def acknowledge(interaction: discord.Interaction, what: str) -> bool:
-    """Tell Discord the bot is on it before doing any work: an interaction not answered within 3 s
-    is dropped (error 10062) and the member sees "The application did not respond". False if it
-    already was; the member has to try again."""
-    try:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        return True
-    except discord.NotFound:
-        created = getattr(interaction, "created_at", None)
-        age = (discord.utils.utcnow() - created).total_seconds() if created else -1
-        log.warning("discord: %s from member %s answered too late (%.1f s after they used it; Discord allows 3 s); "
-                    "they saw \"The application did not respond\"", what, interaction.user.id, age)
-        return False
 
 
 def _emoji_dict(e: discord.Emoji) -> dict[str, object]:
@@ -1042,7 +1084,8 @@ class _UnlinkView(discord.ui.View):
         if str(interaction.user.id) != self.discord_id:
             await interaction.response.send_message("This isn't your /unlink.", ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "the Unlink button", self.service.timing):
+            return
         message = await asyncio.to_thread(self.service.unlink_member, self.discord_id)
         await interaction.followup.send(message, ephemeral=True)
         self.stop()
@@ -1057,6 +1100,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
                  sync: Any = None, requests: Any = None) -> None:
         self.requests = requests
+        self.timing = DiscordTiming()  # how long interactions take (and the server clock's offset)
         self._latest_suggestion: dict[str, int] = {}  # member -> newest suggestion ask (request command)
         self._db = db
         self._secrets = secrets
@@ -1241,7 +1285,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     # ---- /unlink ---------------------------------------------------------------
 
     async def handle_unlink_command(self, interaction: discord.Interaction) -> None:
-        if not await acknowledge(interaction, "/unlink"):
+        if not await acknowledge(interaction, "/unlink", self.timing):
             return
         found = await self.run_db(link_service.current_link, str(interaction.user.id))
         if found is None:
@@ -1309,7 +1353,8 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         perms = getattr(actor, "guild_permissions", None)
         is_admin = bool(perms and (perms.manage_guild or perms.administrator))
         target = member or actor
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "/invite", self.timing):
+            return
         gateway = self._sync._gateway() if self._sync is not None else None
 
         def work() -> invites.InviteResult:
@@ -1325,7 +1370,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     # ---- /link (P4-04) -----------------------------------------------------------
 
     async def handle_link_command(self, interaction: discord.Interaction) -> None:
-        if not await acknowledge(interaction, "/link"):
+        if not await acknowledge(interaction, "/link", self.timing):
             return
         wait = await self.run_db(link_service.cooldown_remaining, str(interaction.user.id))
         if wait:
@@ -1350,7 +1395,8 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         discord_id = str(interaction.user.id)
         # Answer Discord first: it drops interactions not answered within 3 s, and
         # starting the Plex sign-in is a plex.tv round trip.
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "Sign in with Plex", self.timing):
+            return
         try:
             pin_id, url = await asyncio.to_thread(
                 self._plex.start_login, None, "link", f"woosarr-link-{uuid.uuid4()}")

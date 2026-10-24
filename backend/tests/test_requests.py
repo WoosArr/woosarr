@@ -369,6 +369,9 @@ class FakeResponse:
     def __init__(self, log):
         self.log = log
 
+    def is_done(self):
+        return any(e[0] in ("defer", "send_message", "edit_message", "send_modal") for e in self.log)
+
     async def defer(self, **kw):
         self.log.append(("defer", kw))
 

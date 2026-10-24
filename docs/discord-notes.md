@@ -119,6 +119,14 @@ Custom Emoji page (sidebar):
 - **On your server:** the server's emoji with the used slots (static and animated: 50 each, more with server boosts), **Rename** and **Delete**. Renaming an emoji that a reaction post uses updates the post's options (reactions are matched by name and id). Deleting one that a post still uses is refused; remove it from the post first.
 - The bot needs **Create Expressions** to add emoji and **Manage Expressions** to rename and delete them (including emoji others added). The bot receives emoji changes made in Discord straight away (the *guild emojis* intent, not privileged), so the reaction post picker is always current.
 
+## Discord's 3-second limit
+
+Discord gives the bot 3 seconds, from the moment a member uses a command, to answer; after that the member sees *The application did not respond*. So every slash command answers "WooSarr is thinking…" before any of its own work (centrally, in the command tree), and then replies. Buttons and forms do the same (except *Enter Plex username*, whose answer is the form itself). Suggestions while typing (`/request`) can't be acknowledged early; they're kept fast instead.
+
+Every command is logged with how long it took to reach WooSarr and how long the answer took, e.g. `/help from member … acknowledged: reached WooSarr 0.4 s after use, answer took 0.2 s (reused connection; HTTP 204 after 0.2 s)`. Over 2 s to arrive or 1 s to answer is a warning even when Discord still took it. If Discord had already given up, the warning says which side was slow (*Discord (or the network to it) delivered it late* or *sending the answer was slow*), and the member gets a DM asking them to try again (at most once a minute). Ages are measured on Discord's clock: WooSarr estimates the server clock's offset from Discord's replies and mentions it when it's 2 s or more.
+
+To keep answers quick, the bot keeps its connections to Discord open (DNS answers cached for 10 minutes) and makes a tiny request every minute so one is always ready.
+
 ## Bot status
 
 The bot shows a custom status under its name in the member list, by default **Try /help for help**. Change it (or leave it empty for none) in *Settings → General → Discord bot status*; the bot updates it right away and sets it again every time it connects. Up to 128 characters, one line.

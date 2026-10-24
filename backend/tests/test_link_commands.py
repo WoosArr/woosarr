@@ -40,8 +40,13 @@ class LinkCommandTests(unittest.TestCase):
         self.assertEqual([e[0] for e in it.log], ["defer", "followup"])
         self.assertIn("isn't linked", it.log[1][1])
 
-    def test_too_late_is_logged_and_nothing_else_happens(self):
+    def test_too_late_is_logged_and_the_member_is_told_by_dm(self):
+        from unittest import mock
+
+        from woosarr.services import discord_timing
+        discord_timing._too_late_dms.clear()
         it = FakeInteraction(501)
+        it.user.send = mock.AsyncMock()
         it.created_at = discord.utils.utcnow() - timedelta(seconds=4)
 
         async def gone(**kw):
@@ -51,5 +56,9 @@ class LinkCommandTests(unittest.TestCase):
         it.response.defer = gone
         with self.assertLogs("woosarr.discord", "WARNING") as logs:
             asyncio.run(self.svc.handle_link_command(it))
-        self.assertIn("/link from member 501 answered too late (4.", logs.output[0])
-        self.assertEqual(it.log, [])
+        self.assertIn("/link from member 501 answered too late: Discord (or the network to it) delivered it late. "
+                      "It reached WooSarr 4.", logs.output[0])
+        self.assertEqual(it.log, [])  # nothing else was tried
+        self.assertIn("try /link again", it.user.send.await_args.args[0])
+        asyncio.run(self.svc.handle_link_command(it))
+        self.assertEqual(it.user.send.await_count, 1)  # at most one DM a minute

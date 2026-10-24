@@ -19,6 +19,7 @@ from discord import app_commands
 from woosarr.core import app_settings
 from woosarr.services import audit
 from woosarr.services.discord_text import safe
+from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
 from woosarr.services.seerr import Details, Hit, SeerrError
 
@@ -258,7 +259,9 @@ class RequestCommands:
         return [app_commands.Choice(name=h.label(), value=h.key) for h in hits[:25]]
 
     async def handle_request_command(self, interaction: discord.Interaction, title: str) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        name = getattr(getattr(interaction, "command", None), "name", None) or "request"
+        if not await acknowledge(interaction, f"/{name}", self.timing):
+            return
         if self.requests is None:
             await interaction.followup.send("Requests aren't set up yet. Ask an admin.", ephemeral=True)
             return

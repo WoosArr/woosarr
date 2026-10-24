@@ -110,16 +110,17 @@ class DiscordEventTests(unittest.TestCase):
 
     def test_help_lists_every_command_privately(self):
         cmd = self.bot.tree.get_command("help", guild=SimpleNamespace(id=GUILD))
-        interaction = SimpleNamespace(response=SimpleNamespace(send_message=mock.AsyncMock()))
+        # The command tree has already answered "thinking…" (interaction_check); /help follows up.
+        interaction = SimpleNamespace(followup=SimpleNamespace(send=mock.AsyncMock()))
         self.bot.request_name = "plexrequest"
         asyncio.run(cmd.callback(interaction))
-        text = interaction.response.send_message.await_args.args[0]
-        self.assertTrue(interaction.response.send_message.await_args.kwargs["ephemeral"])
+        text = interaction.followup.send.await_args.args[0]
+        self.assertTrue(interaction.followup.send.await_args.kwargs["ephemeral"])
         for name in ("/link", "/unlink", "/invite email [member]", "/plexrequest title", "/help"):
             self.assertIn(f"`{name}", text)
         self.bot.request_name = None  # Seerr not set up: no request command to describe
         asyncio.run(cmd.callback(interaction))
-        self.assertNotIn("title`", interaction.response.send_message.await_args.args[0])
+        self.assertNotIn("title`", interaction.followup.send.await_args.args[0])
 
 
 class LiveLogFixTests(unittest.TestCase):
@@ -152,7 +153,8 @@ class LiveLogFixTests(unittest.TestCase):
             order.append(("followup", content[:12]))
 
         self.service._plex = Plex()
-        it = SimpleNamespace(user=SimpleNamespace(id=501), response=SimpleNamespace(defer=defer),
+        it = SimpleNamespace(id=1, user=SimpleNamespace(id=501),
+                             response=SimpleNamespace(defer=defer, is_done=lambda: bool(order)),
                              followup=SimpleNamespace(send=followup))
 
         async def run():

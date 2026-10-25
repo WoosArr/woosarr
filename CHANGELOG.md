@@ -25,6 +25,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ### Fixed
 - The emoji and Time drift tiles said *Discord bot not connected* for up to 30 s after a restart while the bot was still connecting. They now say *Connecting to Discord…*, and fill in as soon as it's connected.
+- The *paused* stall warning also says what the host's CPUs were doing during the pause (busy, waiting on disk, taken by a hypervisor, idle) and how many there are, so a load figure can be read.
 - A late Discord command could be blamed on Discord when WooSarr itself had stalled (live: a 14 s gap with no log lines at all). A watchdog now reports every stall of more than 3 s as either *event loop blocked* (with what it was running) or *paused* (with host load, pressure and swap), and late commands are blamed on the stall.
 - Discord commands could time out ("The application did not respond"): every slash command now answers Discord before doing any work, the bot keeps a warm connection to Discord, and each command's delivery and answer times are logged (on Discord's clock, so a wrong server clock doesn't skew them). When Discord gives up anyway, the member gets a DM asking them to try again. Suggestions Discord had already discarded while someone typed are no longer logged as errors (the earlier fix didn't catch discord.py's own log line).
 - The first web page opened after a restart could stall the Discord connection for over 10 seconds ("heartbeat blocked") while Python loaded a file-serving module from a slow disk. That module is now loaded at startup.

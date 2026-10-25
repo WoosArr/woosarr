@@ -48,6 +48,20 @@ class StallWatchTests(unittest.TestCase):
         with self.assertNoLogs("woosarr.stall", "WARNING"):
             watch.tick(106.5, 1006.5)  # the loop's silence was part of the pause, not a second stall
 
+    def test_pause_says_what_the_hosts_cpus_did(self):
+        from woosarr.services import stall_watch as sw
+        samples = iter([(100, 0, 100, 800, 0, 0, 0, 0), (100, 0, 100, 800, 0, 0, 0, 0),
+                        (900, 0, 200, 820, 80, 0, 0, 0)])
+        watch = StallWatch(check=0.5, stall=3.0)
+        with mock.patch.object(sw, "cpu_times", lambda: next(samples)):
+            watch.tick(100.0, 1000.0)
+            watch._beat = 100.0
+            watch.tick(100.5, 1000.5)
+            with self.assertLogs("woosarr.stall", "WARNING") as logs:
+                watch.tick(108.0, 1008.0)
+        # delta: user 800, system 100, idle 20, iowait 80 -> 900/1000 busy, 8% disk, 2% idle
+        self.assertIn("were 90% busy, 8% waiting on disk, 0% taken by a hypervisor and 2% idle", logs.output[0])
+
     def test_during_finds_the_overlapping_stall(self):
         watch = StallWatch()
         watch.stalls.append(Stall("paused", 100.0, 114.0))

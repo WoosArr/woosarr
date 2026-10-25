@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import threading
 import time
@@ -53,6 +54,7 @@ class StallWatch:
         self._last_tick: float | None = None
         self._blocked_since: float | None = None  # monotonic, while the loop is blocked
         self._blocked_wall: float | None = None
+        self._cpu: tuple[int, ...] | None = None  # host CPU counters at the last tick
 
     # ---- lifecycle -------------------------------------------------------------------------
 
@@ -84,6 +86,7 @@ class StallWatch:
     # ---- the check (separate from the thread, so it can be tested with made-up times) --------
 
     def tick(self, now: float, wall: float) -> None:
+        cpu_before, self._cpu = self._cpu, cpu_times()
         if self._last_tick is not None:
             overslept = now - self._last_tick - self.check
             if overslept > self.stall:
@@ -91,7 +94,8 @@ class StallWatch:
                 self._record(Stall("paused", wall - overslept, wall))
                 log.warning("WooSarr was paused for %.1f s: nothing in the process ran (the host was out of CPU, "
                             "disk or memory, or a long operation held Python's lock). Discord commands in that "
-                            "time were answered late. %s", overslept, host_pressure())
+                            "time were answered late. %s%s", overslept, host_pressure(),
+                            cpu_during(cpu_before, self._cpu))
                 self._beat, self._blocked_since, self._blocked_wall = now, None, None
                 self._last_tick = now
                 return
@@ -125,6 +129,31 @@ class StallWatch:
         if self._blocked_since is not None and self._blocked_wall is not None and self._blocked_wall < end:
             found.append(Stall("blocked", self._blocked_wall, time.time()))
         return max(found, key=lambda s: min(s.end, end) - max(s.start, start)) if found else None
+
+
+def cpu_times(stat: Path = Path("/proc/stat")) -> tuple[int, ...] | None:
+    """The host's total CPU counters (user nice system idle iowait irq softirq steal), Linux only."""
+    try:
+        return tuple(int(x) for x in stat.read_text().split("\n", 1)[0].split()[1:9])
+    except (OSError, ValueError):
+        return None
+
+
+def cpu_during(before: tuple[int, ...] | None, after: tuple[int, ...] | None) -> str:
+    """What the host's CPUs did between two samples: busy, waiting on disk, taken by a hypervisor."""
+    if not before or not after or len(before) < 8 or len(after) < 8:
+        return ""
+    d = [b - a for a, b in zip(before, after, strict=False)]
+    total = sum(d)
+    if total <= 0:
+        return ""
+    user, nice, system, idle, iowait, irq, softirq, steal = d[:8]
+
+    def pct(v: int) -> int:
+        return round(100 * v / total)
+
+    return (f" During the pause the host's {os.cpu_count() or '?'} CPUs were {pct(user + nice + system + irq + softirq)}% "
+            f"busy, {pct(iowait)}% waiting on disk, {pct(steal)}% taken by a hypervisor and {pct(idle)}% idle.")
 
 
 def host_pressure() -> str:

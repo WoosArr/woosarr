@@ -62,6 +62,46 @@ class StallWatchTests(unittest.TestCase):
         # delta: user 800, system 100, idle 20, iowait 80 -> 900/1000 busy, 8% disk, 2% idle
         self.assertIn("were 90% busy, 8% waiting on disk, 0% taken by a hypervisor and 2% idle", logs.output[0])
 
+    def test_cpu_access_pinning_and_quota(self):
+        import tempfile
+        from pathlib import Path
+
+        from woosarr.services import stall_watch as sw
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self.assertIsNone(sw.cpu_quota(root))  # no cgroup files: unknown = unlimited
+            (root / "cpu.max").write_text("max 100000\n")
+            self.assertIsNone(sw.cpu_quota(root))
+            (root / "cpu.max").write_text("200000 100000\n")
+            self.assertEqual(sw.cpu_quota(root), 2.0)
+            (root / "cpu.max").unlink()
+            (root / "cpu").mkdir()
+            (root / "cpu" / "cpu.cfs_quota_us").write_text("150000")
+            (root / "cpu" / "cpu.cfs_period_us").write_text("100000")
+            self.assertEqual(sw.cpu_quota(root), 1.5)
+        with mock.patch.object(sw.os, "cpu_count", lambda: 16), \
+                mock.patch.object(sw.os, "sched_getaffinity", lambda _pid: {0, 1, 2, 3, 8}, create=True), \
+                mock.patch.object(sw, "cpu_quota", lambda: 2.0):
+            self.assertEqual(sw.cpu_access(), "may run on 5 of the host's 16 CPU cores (cores 0-3,8), "
+                                              "limited to 2 cores' worth of time")
+        with mock.patch.object(sw.os, "cpu_count", lambda: 8), \
+                mock.patch.object(sw.os, "sched_getaffinity", lambda _pid: set(range(8)), create=True), \
+                mock.patch.object(sw, "cpu_quota", lambda: None):
+            self.assertEqual(sw.cpu_access(), "may run on 8 of the host's 8 CPU cores, no CPU time limit")
+            watch = StallWatch(check=0.5, stall=3.0)
+            watch.tick(100.0, 1000.0)
+            watch._beat = 100.0
+            with self.assertLogs("woosarr.stall", "WARNING") as logs:
+                watch.tick(106.0, 1006.0)
+            self.assertIn("WooSarr may run on 8 of the host's 8 CPU cores, no CPU time limit.", logs.output[0])
+
+    def test_startup_logs_cpu_access(self):
+        from tests.helpers import AppHarness
+        with self.assertLogs("woosarr.app", "INFO") as logs:
+            h = AppHarness()
+        h.close()
+        self.assertTrue(any("CPU access: WooSarr may run on" in line for line in logs.output))
+
     def test_during_finds_the_overlapping_stall(self):
         watch = StallWatch()
         watch.stalls.append(Stall("paused", 100.0, 114.0))

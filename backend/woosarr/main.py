@@ -214,6 +214,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.port,
         settings.log_level,
     )
+    log.info("CPU access: WooSarr %s", stall_watch.cpu_access())
     return app
 
 

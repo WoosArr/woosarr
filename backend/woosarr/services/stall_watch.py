@@ -94,8 +94,8 @@ class StallWatch:
                 self._record(Stall("paused", wall - overslept, wall))
                 log.warning("WooSarr was paused for %.1f s: nothing in the process ran (the host was out of CPU, "
                             "disk or memory, or a long operation held Python's lock). Discord commands in that "
-                            "time were answered late. %s%s", overslept, host_pressure(),
-                            cpu_during(cpu_before, self._cpu))
+                            "time were answered late. %s%s WooSarr %s.", overslept, host_pressure(),
+                            cpu_during(cpu_before, self._cpu), cpu_access())
                 self._beat, self._blocked_since, self._blocked_wall = now, None, None
                 self._last_tick = now
                 return
@@ -129,6 +129,48 @@ class StallWatch:
         if self._blocked_since is not None and self._blocked_wall is not None and self._blocked_wall < end:
             found.append(Stall("blocked", self._blocked_wall, time.time()))
         return max(found, key=lambda s: min(s.end, end) - max(s.start, start)) if found else None
+
+
+def _ranges(cores: list[int]) -> str:
+    """[0, 1, 2, 3, 8] -> "0-3,8"."""
+    out, start, prev = [], None, None
+    for c in sorted(cores) + [None]:
+        if start is None:
+            start = prev = c
+        elif c is not None and c == prev + 1:
+            prev = c
+        else:
+            out.append(f"{start}-{prev}" if prev != start else str(start))
+            start = prev = c
+    return ",".join(out)
+
+
+def cpu_quota(cgroup: Path = Path("/sys/fs/cgroup")) -> float | None:
+    """A CPU limit in cores (docker --cpus / Unraid "Extra Parameters"), None when unlimited."""
+    try:  # cgroup v2: "max 100000" or "200000 100000"
+        quota, period = (cgroup / "cpu.max").read_text().split()[:2]
+        return None if quota == "max" else int(quota) / int(period)
+    except (OSError, ValueError):
+        pass
+    try:  # cgroup v1
+        quota = int((cgroup / "cpu" / "cpu.cfs_quota_us").read_text())
+        period = int((cgroup / "cpu" / "cpu.cfs_period_us").read_text())
+        return None if quota <= 0 else quota / period
+    except (OSError, ValueError):
+        return None
+
+
+def cpu_access() -> str:
+    """How much CPU WooSarr may use: host cores, the cores it's pinned to, and any quota."""
+    host = os.cpu_count() or 0
+    try:
+        allowed = sorted(os.sched_getaffinity(0))
+    except (AttributeError, OSError):  # not Linux
+        allowed = list(range(host))
+    pinned = f" (cores {_ranges(allowed)})" if allowed and len(allowed) < host else ""
+    quota = cpu_quota()
+    limit = f", limited to {quota:g} cores' worth of time" if quota is not None else ", no CPU time limit"
+    return f"may run on {len(allowed)} of the host's {host} CPU cores{pinned}{limit}"
 
 
 def cpu_times(stat: Path = Path("/proc/stat")) -> tuple[int, ...] | None:

@@ -155,3 +155,46 @@ class StatusTests(unittest.TestCase):
             self.assertIsNone(c.get("/api/v1/status").json()["update"])
         finally:
             h.close()
+
+
+class IntervalTests(unittest.TestCase):
+    def test_checks_follow_the_chosen_interval(self):
+        import asyncio
+
+        from woosarr.services import updates
+
+        checker = UpdateChecker(Build("1.2.0-dev.1", "develop", MINE, ""), session=FakeHttp({}))
+        checks = []
+        checker.check = lambda: checks.append(clock[0]) or {}
+        clock = [1000.0]
+        # (on, minutes) per tick, each tick 200 s apart. Then a shutdown (the task is cancelled).
+        plan = [(True, 360), (True, 360), (True, 5), (True, 5), (False, 5)]
+
+        def settings():
+            if not plan:
+                raise asyncio.CancelledError
+            clock[0] += 200
+            return plan.pop(0)
+
+        async def to_thread(f, *a):
+            return f(*a)
+
+        checker.result = {"state": "current"}
+        with mock.patch.object(updates, "FIRST_CHECK_SECONDS", 0), mock.patch.object(updates, "TICK_SECONDS", 0), \
+                mock.patch.object(updates.time, "monotonic", lambda: clock[0]), \
+                mock.patch.object(updates.asyncio, "to_thread", to_thread), \
+                self.assertRaises(asyncio.CancelledError):
+            asyncio.run(updates.run_checker(checker, settings))
+        # tick 1: first check; 2: 200 s < 6 h; 3: 400 s >= 5 min, check; 4: 200 s < 5 min; 5: turned off.
+        self.assertEqual(checks, [1200.0, 1600.0])
+        self.assertIsNone(checker.result)  # off: no badge
+
+    def test_interval_setting(self):
+        h = AppHarness()
+        c = h.setup_admin()
+        try:
+            self.assertEqual(c.get("/api/v1/settings").json()["update_check_minutes"], 360)
+            self.assertEqual(c.patch("/api/v1/settings", json={"update_check_minutes": 15}).json()["update_check_minutes"], 15)
+            self.assertEqual(c.patch("/api/v1/settings", json={"update_check_minutes": 7}).status_code, 422)
+        finally:
+            h.close()

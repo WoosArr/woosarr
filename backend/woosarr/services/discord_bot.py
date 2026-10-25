@@ -432,6 +432,11 @@ class _GuildFeatures:
         guild = self._client.get_guild(self._client.guild_id)
         if guild is None:
             raise DiscordConfigError("The bot isn't in the selected Discord server.")
+        if getattr(guild, "me", True) is None:
+            # Right after (re)connecting Discord can deliver the server before the bot's own member;
+            # everything here needs it (permissions, role positions). Live 2026-10-25: a status page
+            # open at that moment crashed with "'NoneType' object has no attribute 'guild_permissions'".
+            raise DiscordConfigError("The bot is still connecting to the Discord server; try again in a moment.")
         return guild
 
     def _permissions(self) -> tuple[dict[str, bool], dict[str, bool | None]]:

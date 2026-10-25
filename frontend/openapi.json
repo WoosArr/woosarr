@@ -466,6 +466,19 @@
             "title": "Update Check",
             "type": "boolean"
           },
+          "update_check_minutes": {
+            "default": 360,
+            "enum": [
+              360,
+              180,
+              60,
+              30,
+              15,
+              5
+            ],
+            "title": "Update Check Minutes",
+            "type": "integer"
+          },
           "username_link_all_members": {
             "default": true,
             "title": "Username Link All Members",

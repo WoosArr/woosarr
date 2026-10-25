@@ -113,9 +113,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     this_build = build.current()
     update_checker = updates.UpdateChecker(this_build)
 
-    def update_check_on() -> bool:
+    def update_check_settings() -> tuple[bool, int]:
         with db.session() as s:
-            return app_settings.load(s).update_check
+            st = app_settings.load(s)
+            return st.update_check, st.update_check_minutes
 
     request_service = media_requests.RequestService(db, secret_store)
     if not settings.demo:
@@ -135,7 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                             name="woosarr-friendly-names")
         update_task = None
         if update_checker.checkable and not settings.demo:
-            update_task = asyncio.create_task(updates.run_checker(update_checker, update_check_on),
+            update_task = asyncio.create_task(updates.run_checker(update_checker, update_check_settings),
                                               name="woosarr-update-check")
         if discord_service is not None:
             await discord_service.start()

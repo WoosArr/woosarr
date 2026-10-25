@@ -148,6 +148,9 @@ const POLICY_OPTIONS = (
   </>
 );
 
+const UPDATE_INTERVALS: [number, string][] = [[360, "6 hours"], [180, "3 hours"], [60, "1 hour"], [30, "30 minutes"],
+  [15, "15 minutes"], [5, "5 minutes"]];
+
 function General() {
   const f = useSettingsDraft();
   const { impact, changed } = useImpact(f.draft);
@@ -190,7 +193,13 @@ function General() {
         </select>
       </Field>
       <Switch checked={v.update_check ?? true} onChange={(x) => set({ update_check: x })}
-        label={<><strong>Check GitHub for newer versions</strong> <span className="muted small">— at startup and every 6 hours; releases compare with the newest release, develop builds with the newest develop build</span></>} />
+        label={<><strong>Check GitHub for newer versions</strong> <span className="muted small">— releases compare with the newest release, develop builds with the newest develop build</span></>} />
+      <Field label="Check for updates every" hint="At startup, then this often. Each check uses at most one of the 60 requests an hour GitHub allows per address.">
+        <select value={v.update_check_minutes ?? 360} disabled={!(v.update_check ?? true)} style={{ maxWidth: 220 }}
+          onChange={(e) => set({ update_check_minutes: Number(e.target.value) as AppSettings["update_check_minutes"] })}>
+          {UPDATE_INTERVALS.map(([m, label]) => <option key={m} value={m}>{label}</option>)}
+        </select>
+      </Field>
       <Field label="Discord bot status" hint="Shown under the bot's name in Discord's member list. Leave empty for none. Up to 128 characters.">
         <input type="text" maxLength={128} value={v.bot_status ?? ""} placeholder="Try /help for help" onChange={(e) => set({ bot_status: e.target.value })} style={{ maxWidth: 420 }} />
       </Field>

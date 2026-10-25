@@ -224,6 +224,13 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   await page.goto("/settings?tab=logging");  // merged into General; old links still work
   await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Log level")).toBeVisible();
+  const every = page.getByLabel("Check for updates every");
+  await expect(every).toHaveValue("360");  // 6 hours by default
+  await every.selectOption({ label: "15 minutes" });
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Check for updates every")).toHaveValue("15");
 });
 
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {

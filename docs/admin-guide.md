@@ -136,7 +136,7 @@ New installs start in **dry-run**: WooSarr computes, logs and audits every chang
 
 The dashboard shows the build under its title (and the sidebar at the bottom): `1.2.0` for a release, `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026` for a `develop` build. The `-dev.14` counts the commits since the last release, so a higher number is a newer build; the version is the next release's (it may end up being a different number). The same is in `/api/health` and the first log line after a start.
 
-At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its own channel* exists: a release compares with the newest release (*1.3.0 is available*), a `develop` build with the newest `develop` image (*Newer develop build 1.3.0-dev.16: 2 commits ahead*, linking to the changes); a release never reports `develop` builds. It's anonymous and a handful of small requests; turn it off in *Settings → General → Check GitHub for newer versions*.
+At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its own channel* exists: a release compares with the newest release (*1.3.0 is available*), a `develop` build with the newest `develop` image (*Newer develop build 1.3.0-dev.16: 2 commits ahead*, linking to the changes); a release never reports `develop` builds. It's anonymous and a handful of small requests, at most one of them to GitHub's API (which allows 60 an hour per address). *Settings → General*: turn it off (*Check GitHub for newer versions*) or choose how often (*Check for updates every*: 6 hours by default, or 3 h, 1 h, 30, 15 or 5 minutes; a change applies within a minute).
 
 ## Troubleshooting
 

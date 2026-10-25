@@ -57,6 +57,8 @@ class AppSettings(BaseModel):
     public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
     # Ask GitHub now and then whether a newer build exists (services/updates.py).
     update_check: bool = True
+    # How often, in minutes (6 h by default; one GitHub API request at most per check, of 60 an hour).
+    update_check_minutes: Literal[360, 180, 60, 30, 15, 5] = 360
     # The bot's custom status in Discord (under its name in the member list); empty = none.
     bot_status: str = Field("Try /help for help", max_length=128)
     # Requests through Seerr (P13-01). Name of the slash command, without the "/";

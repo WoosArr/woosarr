@@ -1,4 +1,4 @@
-"""Is this the newest build? Checked against GitHub at startup and every CHECK_HOURS.
+"""Is this the newest build? Checked against GitHub at startup and then every update_check_minutes.
 
 Each build compares only with its own channel:
 - release builds: GitHub's latest release ("1.3.0 is available").
@@ -7,8 +7,9 @@ Each build compares only with its own channel:
   The newest *image*, not the branch head: docs-only commits don't produce one.
 - local and other builds aren't checked.
 
-All anonymous, a handful of small requests per check (GitHub allows 60 an hour per address).
-Off with Settings -> General -> "Check GitHub for newer versions".
+All anonymous, a handful of small requests per check, at most one of them to GitHub's API (which
+allows 60 an hour per address). Settings -> General: on/off and how often (6 h by default, down to
+5 min).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -28,7 +30,7 @@ log = logging.getLogger("woosarr.updates")
 REPO = "WoosArr/woosarr"
 IMAGE = "woosarr/woosarr"
 FIRST_CHECK_SECONDS = 60
-CHECK_HOURS = 6
+TICK_SECONDS = 60  # how often the interval setting is looked at
 TIMEOUT = 10
 
 
@@ -120,17 +122,21 @@ def _describe(exc: Exception) -> str:
     return type(exc).__name__
 
 
-async def run_checker(checker: UpdateChecker, enabled: Any) -> None:
-    """At startup (after a minute) and every CHECK_HOURS, while the setting is on."""
+async def run_checker(checker: UpdateChecker, settings: Any) -> None:
+    """At startup (after a minute), then whenever the chosen interval has passed. settings() returns
+    (on, minutes); it's read every TICK_SECONDS, so a shorter interval applies straight away."""
     await asyncio.sleep(FIRST_CHECK_SECONDS)
+    last: float | None = None
     while True:
         try:
-            if await asyncio.to_thread(enabled):
+            on, minutes = await asyncio.to_thread(settings)
+            if not on:
+                checker.result, last = None, None
+            elif last is None or time.monotonic() - last >= minutes * 60:
                 await asyncio.to_thread(checker.check)
-            else:
-                checker.result = None
+                last = time.monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("update check failed")
-        await asyncio.sleep(CHECK_HOURS * 3600)
+        await asyncio.sleep(TICK_SECONDS)

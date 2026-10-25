@@ -49,6 +49,9 @@ test("sidebar navigation reaches every page", async ({ page }) => {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }
+  // Which build: in the sidebar (from /api/health) and under the dashboard title.
+  await expect(page.locator(".sidebar-foot")).toContainText(/WooSarr \d+\.\d+\.\d+/);
+  await expect(page.locator(".page-head")).toContainText(/WooSarr \d+\.\d+\.\d+/);
 });
 
 test("admin links a user and maps a role with an impact preview", async ({ page }) => {
@@ -270,6 +273,8 @@ test("custom emoji: search, hide animated, add, use in a reaction post, rename, 
 
   await page.getByRole("tab", { name: "OpenMoji" }).click();
   await page.getByLabel("Search emoji").fill("popcorn");
+  // Wait for the (debounced) search to apply: only popcorn is listed, nothing else in OpenMoji's demo set.
+  await expect(results.getByRole("button")).toHaveCount(1);
   await results.getByRole("button", { name: "popcorn: add to server" }).click();
   const dialog = page.getByRole("dialog", { name: "Add to Discord" });
   await dialog.getByLabel("Name").fill("bad name");
@@ -281,7 +286,13 @@ test("custom emoji: search, hide animated, add, use in a reaction post, rename, 
   await expect(server.getByText(":movie_popcorn:")).toBeVisible();
   await expect(page.getByText(/Static 1 of 50/)).toBeVisible();
 
+  // The search text carries over between libraries; slackmojis has no list to browse, so with an
+  // empty box it asks for a search. (This used to pass only when it ran faster than the 0.35 s
+  // search delay: "popcorn" was still pending when the tab changed.)
   await page.getByRole("tab", { name: "slackmojis" }).click();
+  await expect(page.getByLabel("Search emoji")).toHaveValue("popcorn");
+  await expect(page.getByText("No emoji found")).toBeVisible();
+  await page.getByLabel("Search emoji").fill("");
   await expect(page.getByText("Search slackmojis", { exact: true })).toBeVisible();
 
   // The reaction post picker fetches the server's emoji each time it opens.

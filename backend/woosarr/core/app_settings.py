@@ -55,6 +55,8 @@ class AppSettings(BaseModel):
     # Public address of WooSarr (e.g. https://woosarr.example.com) for SSO redirect
     # URIs; empty = the address the browser used.
     public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
+    # Ask GitHub now and then whether a newer build exists (services/updates.py).
+    update_check: bool = True
     # The bot's custom status in Discord (under its name in the member list); empty = none.
     bot_status: str = Field("Try /help for help", max_length=128)
     # Requests through Seerr (P13-01). Name of the slash command, without the "/";

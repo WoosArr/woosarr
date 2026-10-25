@@ -189,6 +189,8 @@ function General() {
           {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
       </Field>
+      <Switch checked={v.update_check ?? true} onChange={(x) => set({ update_check: x })}
+        label={<><strong>Check GitHub for newer versions</strong> <span className="muted small">— at startup and every 6 hours; releases compare with the newest release, develop builds with the newest develop build</span></>} />
       <Field label="Discord bot status" hint="Shown under the bot's name in Discord's member list. Leave empty for none. Up to 128 characters.">
         <input type="text" maxLength={128} value={v.bot_status ?? ""} placeholder="Try /help for help" onChange={(e) => set({ bot_status: e.target.value })} style={{ maxWidth: 420 }} />
       </Field>

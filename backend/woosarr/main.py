@@ -13,7 +13,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from woosarr import __version__
+from woosarr import __version__, build
 from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
 from woosarr.api import audit_api, requests_api
@@ -38,7 +38,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import emoji_library, friendly_names, media_requests, stall_watch
+from woosarr.services import emoji_library, friendly_names, media_requests, stall_watch, updates
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -53,8 +53,9 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 API_VERSION = "v1"
 
 
-def _health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__, "api": API_VERSION}
+def _health(request: Request) -> dict[str, str]:
+    b = request.app.state.build
+    return {"status": "ok", "version": b.version, "channel": b.channel, "commit": b.short_commit, "api": API_VERSION}
 
 
 def _announce_setup_code(code: auth.SetupCode) -> None:
@@ -109,6 +110,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plex_service = PlexService(db, secret_store)
         gateway = plex_service.gateway
     sync = SyncService(db, gateway)
+    this_build = build.current()
+    update_checker = updates.UpdateChecker(this_build)
+
+    def update_check_on() -> bool:
+        with db.session() as s:
+            return app_settings.load(s).update_check
+
     request_service = media_requests.RequestService(db, secret_store)
     if not settings.demo:
         discord_service = DiscordService(db, secret_store, sync.trigger, plex_service, sync, request_service)
@@ -125,12 +133,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             emoji_refresh = asyncio.create_task(emoji_library.run_refresher(emoji_lib), name="woosarr-emoji-refresh")
         names_refresh = asyncio.create_task(friendly_names.run_refresher(db, discord_service),
                                             name="woosarr-friendly-names")
+        update_task = None
+        if update_checker.checkable and not settings.demo:
+            update_task = asyncio.create_task(updates.run_checker(update_checker, update_check_on),
+                                              name="woosarr-update-check")
         if discord_service is not None:
             await discord_service.start()
             poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
-        for task in (poller, emoji_refresh, names_refresh):
+        for task in (poller, emoji_refresh, names_refresh, update_task):
             if task is not None:
                 task.cancel()
         if discord_service is not None:
@@ -151,6 +163,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.plex = plex_service
     app.state.discord = discord_service
     app.state.emoji_library = emoji_lib
+    app.state.build = this_build
+    app.state.updates = update_checker
     app.state.emoji_guild = discord_service if discord_service is not None else demo.DemoEmojiGuild()
     app.state.requests = request_service
     app.state.plex_status = (
@@ -209,7 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _mount_spa(app, settings)
     log.info(
         "WooSarr %s starting config_dir=%s port=%s log_level=%s",
-        __version__,
+        this_build.label(),
         settings.config_dir,
         settings.port,
         settings.log_level,

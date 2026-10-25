@@ -461,6 +461,11 @@
             ],
             "title": "Unverified Role Id"
           },
+          "update_check": {
+            "default": true,
+            "title": "Update Check",
+            "type": "boolean"
+          },
           "username_link_all_members": {
             "default": true,
             "title": "Username Link All Members",
@@ -698,6 +703,39 @@
           "height"
         ],
         "title": "AvatarOut",
+        "type": "object"
+      },
+      "BuildOut": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "channel",
+          "commit",
+          "date",
+          "label"
+        ],
+        "title": "BuildOut",
         "type": "object"
       },
       "ChannelOut": {
@@ -4375,6 +4413,9 @@
       },
       "StatusOut": {
         "properties": {
+          "build": {
+            "$ref": "#/components/schemas/BuildOut"
+          },
           "counts": {
             "additionalProperties": {
               "type": "integer"
@@ -4413,6 +4454,16 @@
             "title": "Sync",
             "type": "object"
           },
+          "update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -4420,6 +4471,8 @@
         },
         "required": [
           "version",
+          "build",
+          "update",
           "dry_run",
           "plex",
           "discord",
@@ -4579,6 +4632,72 @@
           "url"
         ],
         "title": "TestStart",
+        "type": "object"
+      },
+      "UpdateOut": {
+        "properties": {
+          "behind_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Behind By"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "state",
+          "checked_at",
+          "latest",
+          "behind_by",
+          "url",
+          "detail"
+        ],
+        "title": "UpdateOut",
         "type": "object"
       },
       "UserImpact": {

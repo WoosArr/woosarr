@@ -53,6 +53,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
+
+      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      - name: Build info
+        id: build
+        run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"
 
       - name: Set up QEMU (arm64)
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -68,6 +74,11 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: woosarr:smoke
+          build-args: |
+            WOOSARR_BUILD_VERSION=${{ steps.build.outputs.version }}
+            WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
+            WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
+            WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
           # Separate cache scopes: one shared scope was overwritten by this amd64-only build,
           # so the multi-arch build never found its arm64 layers (rebuilt under QEMU).
           cache-from: type=gha,scope=smoke-amd64
@@ -107,6 +118,11 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: false
+          build-args: |
+            WOOSARR_BUILD_VERSION=${{ steps.build.outputs.version }}
+            WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
+            WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
+            WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
           cache-from: |
             type=gha,scope=release-multiarch
             type=gha,scope=smoke-amd64
@@ -127,6 +143,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
+
+      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      - name: Build info
+        id: build
+        run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"
 
       - name: Set up QEMU (arm64)
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -178,6 +200,11 @@ jobs:
           file: docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            WOOSARR_BUILD_VERSION=${{ steps.build.outputs.version }}
+            WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
+            WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
+            WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=release-multiarch

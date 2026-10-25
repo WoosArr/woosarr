@@ -55,6 +55,19 @@ EXPOSE 31337
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('WOOSARR_PORT', '31337'), timeout=4).status == 200 else 1)"
 
+# What this image is (CI sets these from scripts/build-info.sh; a plain `docker build` is a local
+# build): shown in the UI, the logs and /api/health, and used by the update check. Last, so a new
+# commit doesn't invalidate the cached layers above.
+ARG WOOSARR_BUILD_VERSION=""
+ARG WOOSARR_BUILD_CHANNEL="local"
+ARG WOOSARR_BUILD_COMMIT=""
+ARG WOOSARR_BUILD_DATE=""
+ENV WOOSARR_BUILD_VERSION=$WOOSARR_BUILD_VERSION \
+    WOOSARR_BUILD_CHANNEL=$WOOSARR_BUILD_CHANNEL \
+    WOOSARR_BUILD_COMMIT=$WOOSARR_BUILD_COMMIT \
+    WOOSARR_BUILD_DATE=$WOOSARR_BUILD_DATE
+LABEL io.woosarr.version=$WOOSARR_BUILD_VERSION io.woosarr.channel=$WOOSARR_BUILD_CHANNEL
+
 ENTRYPOINT ["/entrypoint.sh"]
 # Host/port come from WOOSARR_HOST / WOOSARR_PORT (core/config.py).
 CMD ["python", "-m", "woosarr"]

@@ -150,7 +150,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHead title="Dashboard" sub={`WooSarr ${data.version}`}>
+      <PageHead title="Dashboard" sub={<VersionLine status={data} />}>
         {editing ? (
           <>
             <button className="btn" onClick={() => void resetLayout()}>Reset to default</button>
@@ -270,6 +270,31 @@ function emojiSlots(ins: Insights | null, id: WidgetId): { used: number; limit: 
   return { used: id === "stat_emoji" ? e.static : e.animated, limit: e.limit };
 }
 
+/** "WooSarr 1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026" and whether it's the newest build of its channel. */
+function VersionLine({ status }: { status: StatusOut }) {
+  const b = status.build;
+  const u = status.update;
+  const date = b.date ? new Date(b.date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const bits = [b.channel === "release" ? null : b.channel === "local" ? "local build" : b.channel,
+    b.commit ? b.commit.slice(0, 7) : null, date || null].filter(Boolean);
+  const newest = b.channel === "develop" ? "Newest develop build" : "Newest release";
+  let badge = null;
+  if (u?.state === "current") badge = <Badge tone="ok">{newest}</Badge>;
+  else if (u?.state === "behind") {
+    const n = u.behind_by ?? 0;
+    badge = <a href={u.url ?? undefined} target="_blank" rel="noreferrer"><Badge tone="info" icon="download">
+      {`Newer develop build${u.latest ? ` ${u.latest}` : ""}: ${n} commit${n === 1 ? "" : "s"} ahead`}</Badge></a>;
+  } else if (u?.state === "update") {
+    badge = <a href={u.url ?? undefined} target="_blank" rel="noreferrer"><Badge tone="info" icon="download">{`${u.latest} is available`}</Badge></a>;
+  } else if (u?.state === "error") badge = <span className="small muted" title={u.detail ?? undefined}>Couldn't check for updates</span>;
+  return (
+    <span className="row" style={{ gap: 8 }}>
+      <span>WooSarr {b.version}{bits.length ? <span className="muted"> · {bits.join(" · ")}</span> : null}</span>
+      {badge}
+    </span>
+  );
+}
+
 function nextSpacer(widgets: Widget[]): WidgetId {
   const used = new Set(widgets.map((w) => w.id));
   let n = 1;
@@ -332,7 +357,7 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       const [tone, word] = driftTone(off);
       const secs = Math.round(Math.abs(off));
       return <Stat id={id} value={`${secs} s`} tone={tone} badge={word}
-        sub={secs === 0 ? "In step with Discord's clock" : `Server clock is ${secs} s ${off > 0 ? "behind" : "ahead"}`} />;
+        sub={secs === 0 ? undefined : `Server clock is ${secs} s ${off > 0 ? "behind" : "ahead"}`} />;
     }
     case "stat_discord_users": {
       const l = ins?.links;

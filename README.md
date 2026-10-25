@@ -82,6 +82,8 @@ docker run -d --name woosarr \
 
 Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (current release), `1.0.0` / `1.0` (a version), `develop` (newest development build, for testing; back up `/config` first, database changes don't go backwards) and `sha-<commit>` (one exact build).
 
+**Which build am I on?** The dashboard (under its title) and the sidebar show it. Releases read like `1.2.0`. `develop` builds read like `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026`: the next release's number, then a build number that counts the commits since the last release (higher is newer), the commit and its date. WooSarr also checks GitHub at startup and every 6 hours and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
+
 ## First run
 
 1. Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):

@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 
-from woosarr import __version__
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
 from woosarr.core.app_settings import AppSettings
@@ -38,8 +37,29 @@ class IntegrationStatus(BaseModel):
     detail: str | None = None
 
 
+class BuildOut(BaseModel):
+    version: str  # 1.2.0 / 1.3.0-dev.14
+    channel: str  # release | develop | dev | local
+    commit: str
+    date: str
+    label: str  # "1.3.0-dev.14 (develop, ba15809, 25 Oct 2026)"
+
+
+class UpdateOut(BaseModel):
+    # current | behind (develop: newer develop build) | update (release: newer release) | error
+    state: str
+    checked_at: str
+    latest: str | None
+    behind_by: int | None
+    url: str | None
+    detail: str | None
+
+
 class StatusOut(BaseModel):
     version: str
+    build: BuildOut
+    # None: not checked (setting off, local build, or the first check hasn't run yet)
+    update: UpdateOut | None
     dry_run: bool
     plex: IntegrationStatus
     discord: IntegrationStatus
@@ -63,8 +83,13 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     discord = state.discord_status()
     # Open alerts: everything not covered by a resolution (services/error_digest.py).
     recent_warnings, recent_errors, open_warnings, open_errors = error_digest.visible_counts(db)
+    b = state.build
+    checker = state.updates
     return StatusOut(
-        version=__version__,
+        version=b.version,
+        build=BuildOut(version=b.version, channel=b.channel, commit=b.commit, date=b.date, label=b.label()),
+        update=UpdateOut(**checker.result) if checker is not None and checker.result and settings.update_check
+        else None,
         dry_run=settings.dry_run,
         plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"],
                                connecting=bool(plex.get("connecting")), detail=plex.get("detail")),

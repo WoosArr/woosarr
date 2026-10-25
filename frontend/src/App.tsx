@@ -44,6 +44,11 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
+  // The build, for the footer: "1.3.0-dev.14 · ba15809" (public health endpoint).
+  const [build, setBuild] = useState<{ version: string; channel: string; commit: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then(setBuild, () => setBuild(null));
+  }, []);
 
   return (
     <div className="shell">
@@ -77,6 +82,11 @@ function Shell() {
           </div>
           {/* AGPL-3.0 §13: users of a (modified) instance can get its source. Forks: point this at your source. */}
           <a className="small" href="https://github.com/WoosArr/woosarr" target="_blank" rel="noreferrer">Source code · AGPL-3.0</a>
+          {build ? (
+            <span className="small muted" title={`${build.channel} build`}>
+              WooSarr {build.version}{build.commit ? ` · ${build.commit}` : ""}
+            </span>
+          ) : null}
         </div>
       </nav>
       <main className="main" id="main" tabIndex={-1}>

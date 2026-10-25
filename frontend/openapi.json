@@ -4862,8 +4862,77 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WidgetFilter": {
+        "description": "What one copy of a widget shows (empty / missing = everything). Only the key that fits the\nwidget is used: libraries (Library access), roles (Discord role members, Roles that grant\nlibraries), statuses (Requests), levels (Alerts).",
+        "properties": {
+          "levels": {
+            "default": [],
+            "items": {
+              "enum": [
+                "error",
+                "warning",
+                "account"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Levels",
+            "type": "array"
+          },
+          "libraries": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Libraries",
+            "type": "array"
+          },
+          "roles": {
+            "default": [],
+            "items": {
+              "pattern": "^\\d{1,25}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Roles",
+            "type": "array"
+          },
+          "statuses": {
+            "default": [],
+            "items": {
+              "enum": [
+                "pending",
+                "approved",
+                "declined",
+                "failed",
+                "partially_available",
+                "available",
+                "deleted"
+              ],
+              "type": "string"
+            },
+            "maxItems": 7,
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "title": "WidgetFilter",
+        "type": "object"
+      },
       "WidgetIn": {
         "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WidgetFilter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hidden": {
             "default": false,
             "title": "Hidden",

@@ -4,7 +4,7 @@ import { api, type PlanOut, type StatusOut } from "../api";
 import type { components } from "../generated/api";
 import { Icon, type IconName } from "../icons";
 import { driftTone } from "../drift";
-import { Badge, Empty, ErrorBanner, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
+import { Badge, Empty, ErrorBanner, Modal, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
 
 type ErrorGroup = components["schemas"]["ErrorGroupOut"];
 type Insights = components["schemas"]["InsightsOut"];
@@ -13,6 +13,7 @@ type Layout = components["schemas"]["LayoutOut"];
 type WidgetId = Widget["id"];
 type Size = NonNullable<Widget["size"]>;
 type View = NonNullable<Widget["view"]>;
+type WidgetFilter = NonNullable<Widget["filter"]>;
 
 type LastRun = {
   reason: string;
@@ -80,8 +81,9 @@ function titleOf(id: WidgetId): string {
 }
 /** The admin's own name for the widget, else its usual name. */
 const nameOf = (w: Widget) => w.title?.trim() || titleOf(w.id);
-/** The entry being drawn (its id, for element ids, and its name): widget code only knows its type. */
-const ThisWidget = createContext<{ id: WidgetId; name: string } | null>(null);
+/** The entry being drawn (its id, for element ids, its name, and what its filter leaves in): widget
+ * code only knows its type. */
+const ThisWidget = createContext<{ id: WidgetId; name: string; note?: string } | null>(null);
 const SIZE_LABEL: Record<Size, string> = { xs: "Eighth width", s: "Quarter width", m: "Half width", l: "Full width" };
 const SIZES: Size[] = ["xs", "s", "m", "l"];
 
@@ -102,6 +104,7 @@ export default function DashboardPage() {
   const errors = useLoad(() => api.get<ErrorGroup[]>("/api/v1/errors"));
   const layout = useLoad(() => api.get<Layout>("/api/v1/dashboard/layout"));
   const [editing, setEditing] = useState<Widget[] | null>(null);
+  const [filtering, setFiltering] = useState<Widget | null>(null);
 
   useEffect(() => {
     const fast = setInterval(() => { void status.reload(); void errors.reload(); }, 10000);
@@ -229,14 +232,19 @@ export default function DashboardPage() {
                     <option value="bar">{VIEW_LABEL.bar}</option>
                   </select>
                 ) : null}
+                {FILTERS[typeOf(w.id)] ? (
+                  <button className="btn ghost sm" aria-label={`Filter ${nameOf(w)}`} onClick={() => setFiltering(w)}>
+                    <Icon name="eye" size={14} /> {w.filter ? "Filtered" : "Filter"}
+                  </button>
+                ) : null}
                 {isSpacer(w.id) || isCopy(w.id)
                   ? <button className="btn ghost sm" aria-label={`Remove ${nameOf(w)}`} onClick={() => setEditing(widgets.filter((x) => x.id !== w.id))}>Remove</button>
                   : <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>}
               </div>
             ) : null}
             {isSpacer(w.id) ? null : (
-              <ThisWidget.Provider value={{ id: w.id, name: nameOf(w) }}>
-                <WidgetBody id={typeOf(w.id)} ctx={ctx} view={w.view ?? "default"} />
+              <ThisWidget.Provider value={{ id: w.id, name: nameOf(w), note: filterNote(typeOf(w.id), w.filter, ctx) }}>
+                <WidgetBody id={typeOf(w.id)} ctx={applyFilter(typeOf(w.id), ctx, w.filter)} view={w.view ?? "default"} />
               </ThisWidget.Provider>
             )}
           </section>
@@ -275,6 +283,10 @@ export default function DashboardPage() {
             ))}
           </ul>
         </section>
+      ) : null}
+      {filtering ? (
+        <FilterDialog widget={filtering} name={nameOf(filtering)} ctx={ctx} onClose={() => setFiltering(null)}
+          onSave={(f) => { update(filtering.id, { filter: f }); setFiltering(null); }} />
       ) : null}
     </>
   );
@@ -328,6 +340,108 @@ function VersionLine({ status }: { status: StatusOut }) {
   );
 }
 
+// ---- per-copy filters ---------------------------------------------------------------------
+
+/** Which widgets can be filtered, and by what. */
+const FILTERS: Partial<Record<WidgetId, keyof WidgetFilter>> = {
+  libraries: "libraries", roles: "roles", role_libraries: "roles", requests: "statuses", errors: "levels",
+};
+const LEVEL_LABEL: Record<string, string> = { error: "Errors", warning: "Warnings", account: "Account alerts" };
+const levelOf = (g: ErrorGroup) => (g.logger === ACCOUNT_LOGGER ? "account" : g.level === "WARNING" ? "warning" : "error");
+
+/** The choices a filter offers for a widget: [value, label]. */
+function filterChoices(type: WidgetId, ctx: Ctx): [string, string][] {
+  const ins = ctx.insights;
+  const byName = (a: [string, string], b: [string, string]) => a[1].localeCompare(b[1], undefined, { sensitivity: "base" });
+  switch (FILTERS[type]) {
+    case "libraries":
+      return ((ins?.libraries ?? []) as { library_id: string; title: string }[]).map((l): [string, string] => [l.library_id, l.title]).sort(byName);
+    case "roles":
+      return (((type === "role_libraries" ? ins?.role_libraries : ins?.roles) ?? []) as { role_id: string; name: string }[])
+        .map((r): [string, string] => [r.role_id, r.name]).sort(byName);
+    case "statuses":
+      return Object.entries(REQ_STATE).map(([k, [, label]]): [string, string] => [k, label]);
+    case "levels":
+      return Object.entries(LEVEL_LABEL);
+    default:
+      return [];
+  }
+}
+
+/** The copy's data with its filter applied; the widget and its charts draw whatever is left. */
+function applyFilter(type: WidgetId, ctx: Ctx, f: WidgetFilter | null | undefined): Ctx {
+  const key = FILTERS[type];
+  const want = key && f ? new Set<string>((f[key] ?? []) as string[]) : null;
+  if (!want || !want.size) return ctx;
+  if (key === "levels") return { ...ctx, errors: ctx.errors?.filter((g) => want.has(levelOf(g))) ?? null };
+  const ins = ctx.insights;
+  if (!ins) return ctx;
+  if (key === "libraries") {
+    return { ...ctx, insights: { ...ins, libraries: (ins.libraries as { library_id: string }[]).filter((l) => want.has(l.library_id)) } };
+  }
+  if (key === "roles") {
+    const field = type === "role_libraries" ? "role_libraries" : "roles";
+    return { ...ctx, insights: { ...ins, [field]: (ins[field] as { role_id: string }[]).filter((r) => want.has(r.role_id)) } };
+  }
+  if (key === "statuses") {
+    const r = ins.requests as { recent: { status: string }[]; by_status: Record<string, number> };
+    return { ...ctx, insights: { ...ins, requests: { ...ins.requests, recent: r.recent.filter((x) => want.has(x.status)),
+      by_status: Object.fromEntries(Object.entries(r.by_status).filter(([k]) => want.has(k))) } } };
+  }
+  return ctx;
+}
+
+/** "3 of 21 libraries", "Waiting, Approved": shown next to a filtered widget's name. */
+function filterNote(type: WidgetId, f: WidgetFilter | null | undefined, ctx: Ctx): string | undefined {
+  const key = FILTERS[type];
+  const chosen = key && f ? ((f[key] ?? []) as string[]) : [];
+  if (!chosen.length) return undefined;
+  const choices = filterChoices(type, ctx);
+  if (key === "statuses" || key === "levels") {
+    const label = new Map(choices);
+    return chosen.map((c) => label.get(c) ?? c).join(", ");
+  }
+  const noun = key === "libraries" ? "libraries" : "roles";
+  return choices.length ? `${chosen.length} of ${choices.length} ${noun}` : `${chosen.length} ${noun}`;
+}
+
+function FilterDialog({ widget, name, ctx, onClose, onSave }: {
+  widget: Widget; name: string; ctx: Ctx; onClose: () => void; onSave: (f: WidgetFilter | null) => void;
+}) {
+  const type = typeOf(widget.id);
+  const key = FILTERS[type]!;
+  const choices = filterChoices(type, ctx);
+  const [chosen, setChosen] = useState<Set<string>>(new Set((widget.filter?.[key] ?? []) as string[]));
+  const toggle = (v: string) => {
+    const next = new Set(chosen);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    setChosen(next);
+  };
+  const save = () => onSave(chosen.size ? { libraries: [], roles: [], statuses: [], levels: [], [key]: [...chosen] } as WidgetFilter : null);
+  return (
+    <Modal title={`Filter ${name}`} onClose={onClose} actions={
+      <>
+        <button className="btn" disabled={!chosen.size} onClick={() => setChosen(new Set())}>Show everything</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={save}>Apply</button>
+      </>
+    }>
+      <p className="small muted">Show only what's ticked in this copy; nothing ticked shows everything. <strong>Save layout</strong> keeps it.</p>
+      {choices.length === 0 ? <p className="small muted">Nothing to choose from yet.</p> : (
+        <div className="chooser" role="group" aria-label={`Show in ${name}`}>
+          {choices.map(([v, label]) => (
+            <label key={v} className="check">
+              <input type="checkbox" checked={chosen.has(v)} onChange={() => toggle(v)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function nextCopy(widgets: Widget[], type: WidgetId): WidgetId {
   const used = new Set(widgets.map((w) => w.id));
   let n = 2;
@@ -348,6 +462,7 @@ function Title({ id, children, suffix }: { id: WidgetId; children?: ReactNode; s
     <div className="row spread" style={{ marginBottom: 8 }}>
       <h2 id={`w-${entry?.id ?? id}`} className={suffix ? "fit-title" : undefined} style={{ margin: 0 }}>
         {entry?.name ?? titleOf(id)}{suffix ? ` - ${suffix}` : ""}
+        {entry?.note ? <span className="small muted" style={{ fontWeight: 400 }}> · {entry.note}</span> : null}
       </h2>
       {children}
     </div>
@@ -862,7 +977,7 @@ function Requests({ ins }: { ins: Insights | null }) {
             <span className="small muted">{r.last_7d} this week</span>
           </div>
           <ul className="dash-list small">
-            {r.recent.map((x, i) => <RequestItem key={i} x={x} />)}
+            {r.recent.slice(0, 5).map((x, i) => <RequestItem key={i} x={x} />)}
           </ul>
         </>
       )}

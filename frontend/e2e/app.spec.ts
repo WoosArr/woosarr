@@ -444,6 +444,25 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toHaveCount(0);
 
+  // A filtered copy shows only what's chosen, and says so next to its name.
+  await page.getByRole("button", { name: "Customize" }).click();
+  await more.getByRole("button", { name: "Add another Library access" }).click();
+  await page.getByRole("button", { name: "Filter Library access 2" }).click();
+  const filter = page.getByRole("dialog", { name: "Filter Library access 2" });
+  await filter.getByLabel("Movies", { exact: true }).check();
+  await filter.getByRole("button", { name: "Apply" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  const copy = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: /^Library access 2/ }) });
+  await expect(copy.getByRole("heading")).toHaveText(/Library access 2 · 1 of \d+ libraries/);
+  await expect(copy.getByRole("listitem")).toHaveCount(1);
+  await expect(copy.getByRole("listitem")).toContainText(/^Movies/);
+  const original = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: "Library access", exact: true }) });
+  await expect(original.getByRole("listitem")).toHaveCount(6);  // the original still shows everything
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Remove Library access 2" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+
   await page.goto("/libraries");
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByText("Full sync queued.")).toBeVisible();

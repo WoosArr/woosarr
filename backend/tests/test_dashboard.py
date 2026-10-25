@@ -86,6 +86,22 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(self.c.put("/api/v1/dashboard/layout", json={"widgets": [
             {"id": "roles", "title": "x" * 61}]}).status_code, 422)
 
+    def test_copies_can_be_filtered(self):
+        base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
+        mine = [{"id": "libraries-2", "filter": {"libraries": ["1", "4"]}},
+                {"id": "requests", "filter": {"statuses": ["pending", "approved"]}},
+                {"id": "errors", "filter": {"levels": ["account"]}},
+                {"id": "roles-2", "filter": {"roles": []}}]  # nothing chosen = no filter
+        mine += [w for w in base if w["id"] not in ("requests", "errors")]
+        got = {w["id"]: w for w in self.c.put("/api/v1/dashboard/layout", json={"widgets": mine}).json()["widgets"]}
+        self.assertEqual(got["libraries-2"]["filter"]["libraries"], ["1", "4"])
+        self.assertEqual(got["requests"]["filter"]["statuses"], ["pending", "approved"])
+        self.assertEqual(got["errors"]["filter"]["levels"], ["account"])
+        self.assertIsNone(got["roles-2"]["filter"])
+        for bad in ({"statuses": ["lost"]}, {"levels": ["debug"]}, {"roles": ["abc"]}):
+            r = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "requests", "filter": bad}]})
+            self.assertEqual(r.status_code, 422, bad)
+
     def test_blank_widgets_repeat_and_vanish_when_hidden(self):
         base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
         spacers = [{"id": "spacer-1", "size": "s"}, {"id": "spacer-2", "size": "xs"},
@@ -104,8 +120,8 @@ class DashboardApiTests(unittest.TestCase):
     def test_new_install_starts_with_the_setup_checklist(self):
         layout = self.c.get("/api/v1/dashboard/layout").json()
         self.assertFalse(layout["custom"])
-        self.assertEqual(layout["widgets"][0], {"id": "setup", "title": None, "size": "l", "view": "default",
-                                                "hidden": False})
+        first = layout["widgets"][0]
+        self.assertEqual((first["id"], first["size"], first["hidden"], first["title"]), ("setup", "l", False, None))
 
     def test_discord_member_link_counts(self):
         from woosarr.db.models import DiscordLink, DiscordMember, PlexUser

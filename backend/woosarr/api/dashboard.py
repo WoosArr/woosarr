@@ -88,6 +88,7 @@ def unresolve_error(fingerprint: Annotated[str, Path(pattern=r"^[0-9a-f]{16}$")]
 
 DAYS = 14
 OPEN_REQUESTS_SHOWN = 10
+RECENT_REQUESTS = 50
 ACTIVITY_SKIP = ("access_planned", "access_changed", "access_skipped", "login", "logout", "request_status")
 
 
@@ -171,7 +172,8 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "recent": [{"identifier": i.identifier, "created_at": i.created_at} for i in pending[:5]]}
 
     by_status = dict(db.execute(select(MediaRequest.status, func.count()).group_by(MediaRequest.status)).all())
-    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(5)))
+    # More than the widget shows (5), so a copy filtered by status still has enough to list.
+    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(RECENT_REQUESTS)))
     open_rows = list(db.scalars(select(MediaRequest).where(MediaRequest.status.in_(media_requests.OPEN_STATES))
                                 .order_by(MediaRequest.created_at.desc())))
     shown_open = open_rows[:OPEN_REQUESTS_SHOWN]
@@ -313,6 +315,20 @@ def _extra(widget_id: str) -> bool:
     return bool(SPACER.fullmatch(widget_id) or COPY.fullmatch(widget_id))
 
 
+RequestStatus = Literal["pending", "approved", "declined", "failed", "partially_available", "available", "deleted"]
+
+
+class WidgetFilter(BaseModel):
+    """What one copy of a widget shows (empty / missing = everything). Only the key that fits the
+    widget is used: libraries (Library access), roles (Discord role members, Roles that grant
+    libraries), statuses (Requests), levels (Alerts)."""
+
+    libraries: Annotated[list[Annotated[str, Field(max_length=64)]], Field(max_length=200)] = []
+    roles: Annotated[list[Annotated[str, Field(pattern=r"^\d{1,25}$")]], Field(max_length=200)] = []
+    statuses: Annotated[list[RequestStatus], Field(max_length=7)] = []
+    levels: Annotated[list[Literal["error", "warning", "account"]], Field(max_length=3)] = []
+
+
 class WidgetIn(BaseModel):
     id: Annotated[str, Field(pattern=r"^[a-z_]{1,40}(-\d{1,3})?$")]
     # The admin's own name for it; None = the widget's usual name.
@@ -321,6 +337,7 @@ class WidgetIn(BaseModel):
     # How a widget with chartable data is drawn: its usual form, a circle (donut) or bars.
     view: Literal["default", "donut", "bar"] = "default"
     hidden: bool = False
+    filter: WidgetFilter | None = None
 
 
     @field_validator("id")
@@ -329,6 +346,11 @@ class WidgetIn(BaseModel):
         if not _known(v):
             raise ValueError(f"unknown widget {v!r}")
         return v
+
+    @field_validator("filter")
+    @classmethod
+    def _filter(cls, v: WidgetFilter | None) -> WidgetFilter | None:
+        return v if v is not None and any(v.model_dump().values()) else None  # nothing chosen = no filter
 
     @field_validator("title")
     @classmethod

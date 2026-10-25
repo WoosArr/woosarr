@@ -802,7 +802,7 @@ const ACTION_TEXT: Record<string, string> = {
   link_self: "linked their Plex account", link_admin: "linked a user", unlink_self: "unlinked themselves",
   unlink_admin: "unlinked a user", invite_sent: "sent a Plex invite", invite_accepted: "invite accepted",
   role_mapping_changed: "changed role libraries", settings_changed: "changed settings", library_exempt: "changed an exemption",
-  request_created: "requested a title", reaction_added: "reacted on a post", reaction_removed: "removed a reaction",
+  request_created: "requested media", reaction_added: "reacted on a post", reaction_removed: "removed a reaction",
   login_failed: "failed to sign in", error_resolved: "resolved an error", discord_avatar_set: "changed the bot avatar",
   reaction_post_published: "published a reaction post", seerr_connected: "connected Seerr",
 };

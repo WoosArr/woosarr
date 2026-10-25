@@ -283,7 +283,7 @@ export function RequestSettings() {
       </fieldset>
       {isPublic ? (
         <>
-          <Field label="Requests channel" hint="The bot needs View Channels, Send Messages, Embed Links and Read Message History there. Searching and picking a title stay private to the member." error={channelError ?? undefined}>
+          <Field label="Requests channel" hint="The bot needs View Channels, Send Messages, Embed Links and Read Message History there. Searching and picking a movie or show stay private to the member." error={channelError ?? undefined}>
             <select value={v.request_channel_id ?? ""} onChange={(e) => set({ request_channel_id: e.target.value || null })} style={{ maxWidth: 420 }}>
               <option value="">Choose a channel…</option>
               {(channels.data ?? []).map((c) => (

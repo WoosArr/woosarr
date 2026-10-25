@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, type PlanOut, type StatusOut } from "../api";
 import type { components } from "../generated/api";
@@ -67,8 +67,21 @@ const TITLES: Record<WidgetId, string> = {
   security: "Security",
 };
 const isSpacer = (id: WidgetId) => id.startsWith("spacer-");
-/** A widget's name; blank widgets are numbered so their controls can be told apart. */
-const titleOf = (id: WidgetId) => (isSpacer(id) ? `Blank space ${id.slice(7)}` : TITLES[id] ?? id);
+// More copies of a widget are "<widget>-2", "<widget>-3", …: each has its own size, chart and name.
+const COPY = /^([a-z_]+)-(\d+)$/;
+const isCopy = (id: WidgetId) => !isSpacer(id) && COPY.test(id);
+/** Which widget an entry shows: "libraries-2" is a Library access widget. */
+const typeOf = (id: WidgetId): WidgetId => (isSpacer(id) ? "spacer" : COPY.exec(id)?.[1] ?? id);
+/** The usual name; copies and blank spaces are numbered so their controls can be told apart. */
+function titleOf(id: WidgetId): string {
+  if (isSpacer(id)) return `Blank space ${id.slice(7)}`;
+  const m = COPY.exec(id);
+  return m ? `${TITLES[m[1]] ?? m[1]} ${m[2]}` : TITLES[id] ?? id;
+}
+/** The admin's own name for the widget, else its usual name. */
+const nameOf = (w: Widget) => w.title?.trim() || titleOf(w.id);
+/** The entry being drawn (its id, for element ids, and its name): widget code only knows its type. */
+const ThisWidget = createContext<{ id: WidgetId; name: string } | null>(null);
 const SIZE_LABEL: Record<Size, string> = { xs: "Eighth width", s: "Quarter width", m: "Half width", l: "Full width" };
 const SIZES: Size[] = ["xs", "s", "m", "l"];
 
@@ -188,7 +201,7 @@ export default function DashboardPage() {
       ) : null}
 
       {editing ? (
-        <p className="small muted">Move, resize or hide widgets, then <strong>Save layout</strong>. Hidden widgets and <strong>Blank space</strong> (for spacing) are under <a href="#hidden-widgets">More widgets</a> at the bottom. The layout is saved for your admin account.</p>
+        <p className="small muted">Move, resize, rename or hide widgets, then <strong>Save layout</strong>. Hidden widgets, more copies of a widget and <strong>Blank space</strong> (for spacing) are under <a href="#hidden-widgets">More widgets</a> at the bottom. The layout is saved for your admin account.</p>
       ) : null}
 
       <div className="dash-grid">
@@ -198,26 +211,34 @@ export default function DashboardPage() {
             aria-hidden={isSpacer(w.id) && !editing ? true : undefined}>
             {editing ? (
               <div className="row dash-tools">
-                <strong className="small">{titleOf(w.id)}</strong>
+                {isSpacer(w.id) ? <strong className="small">{titleOf(w.id)}</strong> : (
+                  <input className="inline-input dash-name" aria-label={`Name of ${titleOf(w.id)}`} value={w.title ?? ""}
+                    placeholder={titleOf(w.id)} maxLength={60} title="Leave empty for the usual name"
+                    onChange={(e) => update(w.id, { title: e.target.value })} />
+                )}
                 <span style={{ flex: 1 }} />
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${titleOf(w.id)} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${titleOf(w.id)} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
-                <select className="inline-input" aria-label={`Size of ${titleOf(w.id)}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${nameOf(w)} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${nameOf(w)} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
+                <select className="inline-input" aria-label={`Size of ${nameOf(w)}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
                   {SIZES.map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
                 </select>
-                {VIEWS[w.id] ? (
-                  <select className="inline-input" aria-label={`Chart for ${titleOf(w.id)}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
-                    <option value="default">{VIEWS[w.id]}</option>
+                {VIEWS[typeOf(w.id)] ? (
+                  <select className="inline-input" aria-label={`Chart for ${nameOf(w)}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
+                    <option value="default">{VIEWS[typeOf(w.id)]}</option>
                     <option value="donut">{VIEW_LABEL.donut}</option>
                     <option value="bar">{VIEW_LABEL.bar}</option>
                   </select>
                 ) : null}
-                {isSpacer(w.id)
-                  ? <button className="btn ghost sm" onClick={() => setEditing(widgets.filter((x) => x.id !== w.id))}>Remove</button>
+                {isSpacer(w.id) || isCopy(w.id)
+                  ? <button className="btn ghost sm" aria-label={`Remove ${nameOf(w)}`} onClick={() => setEditing(widgets.filter((x) => x.id !== w.id))}>Remove</button>
                   : <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>}
               </div>
             ) : null}
-            {isSpacer(w.id) ? null : <WidgetBody id={w.id} ctx={ctx} view={w.view ?? "default"} />}
+            {isSpacer(w.id) ? null : (
+              <ThisWidget.Provider value={{ id: w.id, name: nameOf(w) }}>
+                <WidgetBody id={typeOf(w.id)} ctx={ctx} view={w.view ?? "default"} />
+              </ThisWidget.Provider>
+            )}
           </section>
         ))}
       </div>
@@ -232,11 +253,23 @@ export default function DashboardPage() {
                 <Icon name="plus" size={14} /> Add
               </button>
             </li>
-            {hidden.map((w) => (
+            {hidden.filter((w) => !isCopy(w.id)).map((w) => (
               <li key={w.id} className="row spread">
-                <span>{titleOf(w.id)}</span>
+                <span>{TITLES[w.id] ?? w.id}</span>
                 <button className="btn sm" onClick={() => setEditing([...shown, { ...w, hidden: false }, ...hidden.filter((h) => h.id !== w.id)])}>
                   <Icon name="plus" size={14} /> Add
+                </button>
+              </li>
+            ))}
+          </ul>
+          <h3 className="small" style={{ margin: "16px 0 8px" }}>Already on the dashboard: add another copy</h3>
+          <ul className="dash-hidden" aria-label="Add another copy">
+            {shown.filter((w) => !isSpacer(w.id) && !isCopy(w.id)).map((w) => (
+              <li key={w.id} className="row spread">
+                <span>{TITLES[w.id] ?? w.id}</span>
+                <button className="btn sm" aria-label={`Add another ${TITLES[w.id] ?? w.id}`}
+                  onClick={() => setEditing([...shown, { id: nextCopy(widgets, w.id), size: w.size, view: "default", hidden: false, title: null }, ...hidden])}>
+                  <Icon name="plus" size={14} /> Add another
                 </button>
               </li>
             ))}
@@ -295,6 +328,13 @@ function VersionLine({ status }: { status: StatusOut }) {
   );
 }
 
+function nextCopy(widgets: Widget[], type: WidgetId): WidgetId {
+  const used = new Set(widgets.map((w) => w.id));
+  let n = 2;
+  while (used.has(`${type}-${n}`)) n++;
+  return `${type}-${n}`;
+}
+
 function nextSpacer(widgets: Widget[]): WidgetId {
   const used = new Set(widgets.map((w) => w.id));
   let n = 1;
@@ -303,9 +343,12 @@ function nextSpacer(widgets: Widget[]): WidgetId {
 }
 
 function Title({ id, children, suffix }: { id: WidgetId; children?: ReactNode; suffix?: string }) {
+  const entry = useContext(ThisWidget);
   return (
     <div className="row spread" style={{ marginBottom: 8 }}>
-      <h2 id={`w-${id}`} className={suffix ? "fit-title" : undefined} style={{ margin: 0 }}>{titleOf(id)}{suffix ? ` - ${suffix}` : ""}</h2>
+      <h2 id={`w-${entry?.id ?? id}`} className={suffix ? "fit-title" : undefined} style={{ margin: 0 }}>
+        {entry?.name ?? titleOf(id)}{suffix ? ` - ${suffix}` : ""}
+      </h2>
       {children}
     </div>
   );
@@ -439,9 +482,10 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
 function Stat({ id, value, sub, to, tone, badge }: {
   id: WidgetId; value: number | string | null; sub?: string; to?: string; tone?: Tone; badge?: string;
 }) {
+  const entry = useContext(ThisWidget);
   const body = (
     <>
-      <div className="stat-label" id={`w-${id}`}>{titleOf(id)}</div>
+      <div className="stat-label" id={`w-${entry?.id ?? id}`}>{entry?.name ?? titleOf(id)}</div>
       <div className={`stat-value${tone ? ` tone-${tone}` : ""}`}>{value ?? "–"}</div>
       {badge && tone ? <Badge tone={tone}>{badge}</Badge> : null}
       {sub ? <div className="small muted">{sub}</div> : null}

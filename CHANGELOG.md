@@ -11,6 +11,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Dashboard **Time drift** tile: how many seconds the server's clock is off from Discord's, green under 30 s, yellow 30-60 s, red over 60 s.
 - **Discord bot status**: the bot shows "Try /help for help" under its name in Discord; edit it (or clear it) in *Settings → General*.
 - Dashboard **Discord users** and **Linked Discord users** tiles (members and how many are linked; linked members and how many are verified), as a number, a circle or bars. The linked tile opens Users → Discord filtered to linked members.
+- Dashboard widgets can be **renamed** and **added more than once** (each copy with its own name, size and chart), in *Customize*.
 - Dashboard **Custom emoji** and **Animated emoji** tiles: the server's emoji slots used / maximum (e.g. `12/50`), as a number, a circle or bars.
 - Dashboard **Blank space** widget for spacing: add as many as you like, size them like other widgets.
 - Dashboard widgets **Open request list** (everything still waiting, approved or partly available) and **Roles that grant libraries** (each mapped role with its libraries). Add them with *Customize → More widgets*.

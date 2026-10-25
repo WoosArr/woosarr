@@ -296,14 +296,27 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
 # Blank widgets for spacing: as many as wanted, each with its own id (spacer-1, spacer-2, …).
 SPACER = re.compile(r"^spacer-\d{1,3}$")
 MAX_SPACERS = 24
+# More copies of a widget: "<widget>-2", "<widget>-3", … (each with its own size, chart and title).
+COPY = re.compile(r"^([a-z_]{1,40})-(\d{1,3})$")
+MAX_COPIES = 30
 
 
 def _known(widget_id: str) -> bool:
-    return widget_id in WIDGETS or bool(SPACER.fullmatch(widget_id))
+    if widget_id in WIDGETS or SPACER.fullmatch(widget_id):
+        return True
+    m = COPY.fullmatch(widget_id)
+    return bool(m and m[1] in WIDGETS and int(m[2]) >= 2)
+
+
+def _extra(widget_id: str) -> bool:
+    """A blank space or a copy: removed when hidden (there's always a fresh one to add)."""
+    return bool(SPACER.fullmatch(widget_id) or COPY.fullmatch(widget_id))
 
 
 class WidgetIn(BaseModel):
-    id: Annotated[str, Field(pattern=r"^[a-z_]{1,40}$|^spacer-\d{1,3}$")]
+    id: Annotated[str, Field(pattern=r"^[a-z_]{1,40}(-\d{1,3})?$")]
+    # The admin's own name for it; None = the widget's usual name.
+    title: Annotated[str | None, Field(max_length=60)] = None
     size: Literal["xs", "s", "m", "l"] = "m"  # eighth, quarter, half, full width
     # How a widget with chartable data is drawn: its usual form, a circle (donut) or bars.
     view: Literal["default", "donut", "bar"] = "default"
@@ -317,9 +330,15 @@ class WidgetIn(BaseModel):
             raise ValueError(f"unknown widget {v!r}")
         return v
 
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: str | None) -> str | None:
+        v = " ".join(v.split()) if v else ""
+        return v or None
+
 
 class LayoutIn(BaseModel):
-    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS) + MAX_SPACERS)]
+    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS) + MAX_SPACERS + MAX_COPIES)]
 
 
 class LayoutOut(BaseModel):
@@ -333,14 +352,24 @@ def _key(principal) -> str:
 
 def _complete(widgets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Known widgets only, each once; widgets added in a newer version appear hidden at the end.
-    A blank widget that's hidden is simply gone (there's always a fresh one to add)."""
+    Blank spaces and copies that are hidden are simply gone (there's always a fresh one to add)."""
     seen, out = set(), []
+    spacers = copies = 0
     for w in widgets:
         wid = w.get("id")
         if not isinstance(wid, str) or not _known(wid) or wid in seen:
             continue
-        if SPACER.fullmatch(wid) and (w.get("hidden") or len([s for s in seen if SPACER.fullmatch(s)]) >= MAX_SPACERS):
-            continue
+        if _extra(wid):
+            if w.get("hidden"):
+                continue
+            if SPACER.fullmatch(wid):
+                spacers += 1
+                if spacers > MAX_SPACERS:
+                    continue
+            else:
+                copies += 1
+                if copies > MAX_COPIES:
+                    continue
         seen.add(wid)
         out.append(w)
     out += [dict(w, hidden=True) for w in DEFAULT_LAYOUT if w["id"] not in seen]

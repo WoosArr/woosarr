@@ -377,6 +377,7 @@ td .row { gap: 4px; }
 .dash-w.w-xs .stat-value { font-size: 1.3rem; }
 .dash-w.w-xs h2, .dash-w.w-xs .stat-label { font-size: 0.8rem; overflow-wrap: anywhere; }
 .dash-w.editing { outline: 2px dashed var(--border); outline-offset: 2px; }
+.dash-tools .dash-name { flex: 1 1 8em; min-width: 6em; max-width: 18em; font-weight: 600; font-size: 0.85rem; padding: 4px 8px; }
 .dash-spacer { min-height: 1px; }
 .dash-spacer.editing { min-height: 72px; border-radius: var(--radius); background: repeating-linear-gradient(135deg, transparent 0 8px, var(--accent-soft) 8px 10px); padding: 8px; }
 .dash-w h2 { font-size: 1rem; }
@@ -394,7 +395,7 @@ td .row { gap: 4px; }
 .dash-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
 .dash-hidden { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .dash-hidden > li { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; background: var(--surface); gap: 8px; align-items: center; }
-.dash-hidden > li:first-child { grid-column: 1 / -1; border-style: dashed; } /* Blank space: its own row */
+.dash-hidden:first-of-type > li:first-child { grid-column: 1 / -1; border-style: dashed; } /* Blank space: its own row */
 .dash-hidden > li { flex-wrap: nowrap; }
 .dash-hidden > li > span { min-width: 0; }
 .dash-hidden > li > .btn { flex: none; }

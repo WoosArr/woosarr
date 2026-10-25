@@ -428,6 +428,22 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await page.getByRole("button", { name: "Reset to default" }).click();
   await page.getByRole("button", { name: "Save layout" }).click();
 
+  // A second copy of a widget, renamed and drawn differently; the original keeps its name.
+  await page.getByRole("button", { name: "Customize" }).click();
+  await more.getByRole("button", { name: "Add another Library access" }).click();
+  await page.getByLabel("Name of Library access 2").fill("Libraries at a glance");
+  await page.getByLabel("Chart for Libraries at a glance").selectOption("donut");
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Library access", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^Users with access per library/ })).toBeVisible();  // the copy, as a circle
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Remove Libraries at a glance" }).click();
+  await page.getByRole("button", { name: "Save layout" }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toHaveCount(0);
+
   await page.goto("/libraries");
   await page.getByRole("button", { name: "Sync now" }).click();
   await expect(page.getByText("Full sync queued.")).toBeVisible();

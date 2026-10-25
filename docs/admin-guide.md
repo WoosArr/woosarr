@@ -89,6 +89,8 @@ Several Discord members can be linked to one Plex account, for example a family 
 
 The dashboard is made of widgets on an 8-column grid. **Customize** lets each admin move (↑/↓), resize (**eighth**, **quarter**, **half** or **full** width; 4 columns on tablets, 2 on phones) and hide widgets, choose how chartable widgets are drawn (their usual form, a **Circle** or **Bars**), and add hidden ones back from *More widgets*; **Save layout** stores it for your admin account, **Reset to default** brings back WooSarr's layout.
 
+In *Customize* you can also **rename** any widget (type in its name box; leave it empty for the usual name) and add **more copies** of one (*More widgets → Already on the dashboard → Add another*): each copy has its own name, size and chart, e.g. *Library access* as a list and again as a circle. Copies are removed with *Remove*. Every copy shows the same data for now.
+
 Circle and bar views exist for the number tiles (e.g. Plex users by link status, linked share, libraries by how they're managed, roles that give libraries, requests by status, invites), Alerts (errors / warnings / resolved), Link coverage, Access changes (applied vs planned), Recent activity (by kind), Library access (users per library), Requests and Security. Every chart has a legend with the numbers, and the colours follow the colour-vision palette in Settings → Appearance. Widgets:
 
 | Widget | Shows |

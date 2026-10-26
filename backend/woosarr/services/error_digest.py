@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from woosarr.core import logs as logcore
 from woosarr.core import names
 from woosarr.db.models import AuditLog, DiscordMember, ErrorResolution, PlexUser, utcnow
+from woosarr.services import self_resolve
 
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE)
 _NUM = re.compile(r"\d+")
@@ -181,7 +182,16 @@ def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
 
 
 def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
-    """All alert groups, most recent first (resolved ones included, count 0)."""
+    """All alert groups, most recent first (resolved ones included, count 0). Alerts that ended by
+    themselves are resolved first (services/self_resolve.py)."""
+    found = _groups(session, min_level)
+    if self_resolve.apply(session, found):
+        session.flush()
+        found = _groups(session, min_level)
+    return found
+
+
+def _groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
     now = utcnow()
     resolutions = {r.fingerprint: r for r in session.scalars(select(ErrorResolution))}
     out: dict[str, Group] = {}

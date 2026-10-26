@@ -27,7 +27,7 @@ from woosarr.core import app_settings, auth, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, DiscordMember, MediaRequest, PlexUser, utcnow
 from woosarr.db.session import Database
-from woosarr.services import audit
+from woosarr.services import audit, self_resolve
 from woosarr.services.discord_text import safe
 from woosarr.services.seerr import (
     Details,
@@ -183,6 +183,7 @@ class RequestService:
 
     def _ok(self) -> None:
         self.last_error, self.last_ok_at = None, time.time()
+        self_resolve.recovered("seerr")
 
     def _failed(self, exc: SeerrError) -> None:
         if exc.status is None or exc.status in (401,) or exc.status >= 500:

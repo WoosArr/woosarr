@@ -14,7 +14,7 @@ from woosarr.api.deps import DbDep, client_ip
 from woosarr.api.schemas import Password, Username
 from woosarr.core import auth
 from woosarr.db.models import AdminUser, Setting
-from woosarr.services import audit
+from woosarr.services import audit, self_resolve
 
 log = logging.getLogger("woosarr.setup")
 router = APIRouter(prefix="/setup", tags=["setup"])
@@ -58,6 +58,7 @@ def create_first_admin(body: SetupAdminIn, request: Request, response: Response,
             db.flush()
             csrf = start_session(request, response, db, user)
             audit.record(db, f"admin:{user.username}", "first_admin_created", "admin", str(user.id), ip=ip)
+            self_resolve.recovered("admin")  # clears the "no admin account yet" alert
             db.commit()
         except (IntegrityError, OperationalError):
             db.rollback()

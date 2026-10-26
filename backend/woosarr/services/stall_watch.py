@@ -25,6 +25,8 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from woosarr.services import self_resolve
+
 log = logging.getLogger("woosarr.stall")
 
 CHECK_SECONDS = 0.5
@@ -98,6 +100,7 @@ class StallWatch:
                             cpu_during(cpu_before, self._cpu), cpu_access())
                 self._beat, self._blocked_since, self._blocked_wall = now, None, None
                 self._last_tick = now
+                self_resolve.recovered("loop")
                 return
         self._last_tick = now
         behind = now - self._beat
@@ -110,6 +113,7 @@ class StallWatch:
             self._record(Stall("blocked", self._blocked_wall or wall - took, wall))
             log.warning("WooSarr's event loop was blocked for %.1f s", took)
             self._blocked_since, self._blocked_wall = None, None
+            self_resolve.recovered("loop")
 
     def _record(self, stall: Stall) -> None:
         self.stalls.append(stall)

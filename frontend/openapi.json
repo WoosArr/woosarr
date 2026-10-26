@@ -2004,6 +2004,17 @@
             "title": "Message",
             "type": "string"
           },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
+          },
           "seq": {
             "title": "Seq",
             "type": "integer"

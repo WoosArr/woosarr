@@ -18,6 +18,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **Sync now** on the Libraries page (the same full sync as on the dashboard, which also re-reads library names from Plex).
 
 ### Changed
+- **Alerts that end by themselves clear themselves**: stalls that are over, members' commands Discord had given up on (left unfinished or answered late), Seerr/Discord/Plex trouble once the service works again, a reaction post once it publishes. The log lines stay, marked *Resolved by WooSarr* with the reason; real errors still wait for an admin.
 - Wording: *Recent activity* says a member "requested media" (not "a title", which reads like a role); the `/request` results menu says "Choose a movie or show".
 - The Connections widget's title says when the next full sync runs: "Connections - Next Sync in 12 minutes" (or *Syncing now* / *Sync queued*).
 - The dashboard starts with the **Setup checklist** first and full width (it was hidden by default). Admins who already saved their own layout keep it; anyone on the default layout sees the checklist too and can hide it in *Customize*.

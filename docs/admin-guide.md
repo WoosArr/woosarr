@@ -116,6 +116,12 @@ Circle and bar views exist for the number tiles (e.g. Plex users by link status,
 | Setup checklist | Connections, role mappings, unmanaged libraries, dry-run. First and full width on a new install; hide it in *Customize* once you're done |
 | Security | Failed sign-ins (24 h), active sessions, API keys |
 
+**Problems that end by themselves resolve themselves.** WooSarr clears an alert from the dashboard when it's over, and marks the log line *Resolved by WooSarr* with the reason (the line itself stays in the log):
+- over by the time it's logged: a pause or blocked event loop that has ended, a member's command or button Discord had already given up on (left unfinished, or answered late and the member was asked to retry), a discarded spare connection, one emoji preview that couldn't load;
+- over when something works again: Seerr answering, the Discord connection healthy (reconnected, or its once-a-minute check working), a later sync finishing without errors, the event loop running, a reaction post publishing, the first admin account created.
+
+Anything else, real errors included, stays until an admin resolves it. If the same problem happens again after it was resolved, it shows again.
+
 **Resolve** hides what has happened so far from the dashboard (the banner count and the widget); if the problem happens again, even right away, it shows up again. It's audited (`error_resolved`) and shared by all admins. *Show resolved* lists resolved problems with **Unresolve**. The Logs page always shows everything. Warnings and errors are also written to their own log file, `/config/logs/alerts.log` (warnings and errors only, 2 MB × 3 files, so it holds far more history than the busy main log). The latest 2,000 are reloaded from it when the container starts, so a restart doesn't clear the dashboard. Download it from the API with `GET /api/v1/logs/file?name=alerts`.
 
 **Account alerts** come from the audit log, so they survive restarts for as long as audit entries are kept. They name everyone involved:

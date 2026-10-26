@@ -111,6 +111,11 @@ function AppLog({ initialLevel }: { initialLevel: string | null }) {
             <span className="muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{e.logger}</span>
             <span className="msg">
               {e.message}
+              {e.resolved_by ? (
+                <span className="small muted" style={{ display: "block" }}>
+                  ✓ Resolved by {e.resolved_by.replace(/^admin:/, "")}
+                </span>
+              ) : null}
               {e.exc ? <pre>{e.exc}</pre> : null}
             </span>
           </div>

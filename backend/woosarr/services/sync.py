@@ -26,7 +26,7 @@ from woosarr.core import app_settings
 from woosarr.db.models import ManualGrant, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import audit, impact, inventory, invites
+from woosarr.services import audit, impact, inventory, invites, self_resolve
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.apply import apply_plan
 from woosarr.sync.engine import Plan, plan_for_user
@@ -371,6 +371,8 @@ class SyncService:
                     report.errors += 1
                     report.error_messages.append(f"user {uid}: {type(exc).__name__}: {exc}")
         report.finished_at = utcnow()
+        if report.full and not report.errors:
+            self_resolve.recovered("sync")
         log.info("sync done checked=%s changed=%s writes=%s drift=%s errors=%s dry_run=%s",
                  report.users_checked, report.users_changed, report.writes,
                  report.skipped_drift, report.errors, report.dry_run)

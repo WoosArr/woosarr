@@ -32,6 +32,7 @@ from woosarr.services import (
     invites,
     link_service,
     reaction_text,
+    self_resolve,
 )
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
@@ -259,6 +260,7 @@ class WooSarrBot(discord.Client):
             await asyncio.sleep(KEEP_WARM_SECONDS)
             try:
                 await self.http.request(discord.http.Route("GET", "/gateway"))
+                self_resolve.recovered("discord")  # a minute of healthy connection
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - next minute tries again
@@ -292,6 +294,7 @@ class WooSarrBot(discord.Client):
     async def on_resumed(self) -> None:
         self._gateway_up = True
         log.info("discord session resumed")
+        self_resolve.recovered("discord")
 
     async def on_disconnect(self) -> None:
         self._gateway_up = False
@@ -741,6 +744,7 @@ class _GuildFeatures:
             return before
 
         await self.reconcile_reactions(before=await self.run_db(retire))
+        self_resolve.recovered(f"reaction_post:{post_id}")
         return {"channel_id": str(channel.id), "channel": channel.name, "message_id": str(message.id),
                 "pinned": pinned, "jump_url": message.jump_url, "notes": notes}
 
@@ -1141,10 +1145,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def set_error(self, message: str) -> None:
         self._error = message
         self._ready_at = None
-        log.error("discord: %s", message)
+        log.error("discord connection problem: %s", message)
 
     def connected(self, guild_name: str) -> None:
         self._error, self._guild_name, self._ready_at = None, guild_name, time.time()
+        self_resolve.recovered("discord")
 
     def _token(self) -> str | None:
         with self._db.session() as s:

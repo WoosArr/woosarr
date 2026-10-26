@@ -45,10 +45,12 @@ class SelfResolveTests(unittest.TestCase):
         logging.getLogger("woosarr.app").error("unhandled error request_id=abc GET /api/v1/x")
         with self.assertLogs("woosarr.alerts", "INFO") as logs:
             still_open = self.open_alerts()
-        self.assertEqual(still_open, {"Ignoring exception in command 'link'", "unhandled error request_id=abc GET /api/"})
-        # 3, not 4: a suggestion Discord had dropped never becomes an alert at all (discord_bot's log filter).
-        self.assertEqual(len(logs.output), 3)
-        self.assertIn("alert resolved by WooSarr (the member was asked to try again)", "\n".join(logs.output))
+        # Late answers stay (the owner keeps an eye on them); so do real errors.
+        self.assertEqual(still_open, {"discord: /link from member 1 answered to", "Ignoring exception in command 'link'",
+                                      "unhandled error request_id=abc GET /api/"})
+        # 2: the pause and the spare connection. A suggestion Discord had dropped never becomes an alert
+        # at all (discord_bot's log filter).
+        self.assertEqual(len(logs.output), 2)
         groups = self.c.get("/api/v1/errors").json()
         paused = next(g for g in groups if g["message"].startswith("WooSarr was paused"))
         self.assertEqual((paused["count"], paused["resolved_by"]), (0, "WooSarr: it was over when it was logged"))

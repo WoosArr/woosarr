@@ -1,9 +1,9 @@
 """Alerts that end by themselves leave the dashboard by themselves.
 
 Two kinds (RULES):
-- over by the time they're logged: a stall that has ended, a member's command Discord had already
-  given up on (they left it unfinished, or the answer was late and they were told to retry), a
-  discarded pooled connection, one emoji preview that couldn't load. Resolved straight away.
+- over by the time they're logged: a stall that has ended, a member's button or form that expired
+  (left unfinished), a discarded pooled connection, one emoji preview that couldn't load. Resolved
+  straight away. Late answers to commands are not: they stay for an admin.
 - over when something works again: Seerr answering, the Discord connection healthy, a sync of
   Plex finishing, the event loop running, a reaction post publishing. Services call recovered(key)
   when that happens; occurrences before it are resolved.
@@ -58,9 +58,10 @@ def _r(logger: str, message: str, reason: str, key: str | None = None, exc: str 
 RULES: tuple[Rule, ...] = (
     # Over when logged.
     _r("woosarr.stall", r"^WooSarr was paused|^WooSarr's event loop was blocked", "it was over when it was logged"),
-    _r("woosarr.discord", r"answered too late", "the member was asked to try again"),
-    _r("discord.app_commands.tree", r"^Ignoring exception in (command|autocomplete)",
-       "the command was no longer waiting (left unfinished, or Discord gave up)", exc=_GONE),
+    # Late answers to commands ("answered too late") deliberately stay until an admin resolves them
+    # (owner, 2026-10-25: kept an eye on). Only suggestions Discord dropped while the member typed on.
+    _r("discord.app_commands.tree", r"^Ignoring exception in autocomplete",
+       "the member typed on; Discord dropped the old suggestions", exc=_GONE),
     _r("discord.ui.view", r"^Ignoring exception in view", "the member's button or menu had expired", exc=_GONE),
     _r("discord.ui.modal", r"^Ignoring exception in modal", "the member's form had expired", exc=_GONE),
     _r("urllib3.connectionpool", r"^Connection pool is full", "harmless: an extra connection was closed"),

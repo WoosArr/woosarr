@@ -27,6 +27,15 @@ async function login(page: Page) {
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 }
 
+/** Save the dashboard layout and wait until the server has it (a reload right after clicking used to
+ * beat the save on a slow CI runner). */
+async function saveLayout(page: Page) {
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/dashboard/layout") && r.request().method() === "PUT" && r.ok()),
+    page.getByRole("button", { name: "Save layout" }).click(),
+  ]);
+}
+
 test.beforeEach(({ page }) => watchConsole(page));
 test.afterEach(() => expect(errors, "browser console errors / CSP violations").toEqual([]));
 
@@ -370,7 +379,7 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await page.getByLabel("Chart for Link coverage").selectOption("bar");
   const a11yCharts = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(a11yCharts.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await expect(page.getByText("Dashboard saved.")).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
@@ -384,7 +393,7 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await expect(page.getByRole("list", { name: /Plex users by link status: Verified \d+/ })).toBeVisible();
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Alerts" })).toBeVisible();
@@ -400,7 +409,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
     "Discord users", "Linked Discord users", "Time drift"]) {
     await more.getByRole("listitem").filter({ hasText: new RegExp(`^${name}`) }).getByRole("button", { name: "Add" }).click();
   }
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await expect(page.getByRole("heading", { name: "Roles that grant libraries" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Open request list" })).toBeVisible();
   // Demo server: 50 slots each, none used yet.
@@ -414,7 +423,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await page.goto("/");
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
 
   // Blank space: as many as wanted, empty outside Customize, removed rather than hidden.
   await page.getByRole("button", { name: "Customize" }).click();
@@ -422,32 +431,32 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await blank.click();
   await blank.click();
   await expect(page.getByRole("region", { name: "Blank space 2" })).toBeVisible();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.locator(".dash-spacer")).toHaveCount(2);
   await expect(page.locator(".dash-spacer").first()).toBeEmpty();
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("region", { name: "Blank space 1" }).getByRole("button", { name: "Remove" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.locator(".dash-spacer")).toHaveCount(1);
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
 
   // A second copy of a widget, renamed and drawn differently; the original keeps its name.
   await page.getByRole("button", { name: "Customize" }).click();
   await more.getByRole("button", { name: "Add another Library access" }).click();
   await page.getByLabel("Name of Library access 2").fill("Libraries at a glance");
   await page.getByLabel("Chart for Libraries at a glance").selectOption("donut");
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Library access", exact: true })).toBeVisible();
   await expect(page.getByRole("img", { name: /^Users with access per library/ })).toBeVisible();  // the copy, as a circle
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Remove Libraries at a glance" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toHaveCount(0);
 
@@ -458,7 +467,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   const filter = page.getByRole("dialog", { name: "Filter Library access 2" });
   await filter.getByLabel("Movies", { exact: true }).check();
   await filter.getByRole("button", { name: "Apply" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   const copy = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: /^Library access 2/ }) });
   await expect(copy.getByRole("heading")).toHaveText(/Library access 2 · 1 of \d+ libraries/);
@@ -468,7 +477,7 @@ test("new widgets: open requests and roles that grant libraries; libraries page 
   await expect(original.getByRole("listitem")).toHaveCount(6);  // the original still shows everything
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Remove Library access 2" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
 
   await page.goto("/libraries");
   await page.getByRole("button", { name: "Sync now" }).click();

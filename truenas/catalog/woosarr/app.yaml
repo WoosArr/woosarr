@@ -33,6 +33,7 @@ screenshots:
 - https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot3.png
 - https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot4.png
 sources:
+- https://apps.truenas.com/catalog/woosarr_community/
 - https://github.com/WoosArr/woosarr
 - https://github.com/WoosArr/woosarr/pkgs/container/woosarr
 title: WooSarr

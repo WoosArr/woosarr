@@ -50,6 +50,14 @@ Updates show on the Docker tab like any other container (**apply update**). Deta
 
 Prefer Compose (the *Docker Compose Manager* plugin today, built into Unraid 8)? Use [`compose.yaml`](compose.yaml) with `WOOSARR_CONFIG=/mnt/user/appdata/woosarr`; see [Unraid notes → Docker Compose](docs/unraid-notes.md#docker-compose).
 
+### TrueNAS
+
+TrueNAS 24.10 or later: create a dataset owned by the **apps** user (568), then *Apps → Discover Apps → ⋮ → Install via YAML* with [`truenas/compose.yaml`](truenas/compose.yaml) (set your dataset's path in it). WooSarr runs as the apps user with no capabilities. The setup code is in the app's logs. Step by step, updates and backups: [docs/truenas-notes.md](docs/truenas-notes.md). A listing in the TrueNAS Apps catalog is prepared but not yet submitted.
+
+### Proxmox VE
+
+Run Docker in a small Debian 13 LXC (Options → Features: **nesting** and **keyctl**) or a VM, then follow [Docker Compose](#docker-compose) below. Proxmox VE 9.1's OCI-image containers (a technology preview) can also run the image directly. Both, step by step: [docs/proxmox-notes.md](docs/proxmox-notes.md).
+
 ### Docker Compose
 
 ```bash
@@ -169,6 +177,8 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 | [Single sign-on](docs/sso.md) | OIDC providers for admin sign-in |
 | [Plex notes](docs/plex-notes.md) | How WooSarr talks to Plex and what was verified on a real server |
 | [Unraid notes](docs/unraid-notes.md) | The Unraid template |
+| [TrueNAS notes](docs/truenas-notes.md) | Install via YAML as the apps user; the TrueNAS Apps catalog listing |
+| [Proxmox notes](docs/proxmox-notes.md) | Docker Compose in an LXC or VM; OCI image as an LXC (9.1+) |
 | [Threat model](docs/threat-model.md) | What's protected and how |
 | [Changelog](CHANGELOG.md) | What changed |
 

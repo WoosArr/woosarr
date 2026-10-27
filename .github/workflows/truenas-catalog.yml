@@ -1,0 +1,83 @@
+name: TrueNAS catalog check
+
+# Checks truenas/catalog/woosarr the way TrueNAS's own apps CI will once it is submitted
+# (docs/truenas-notes.md → Catalog listing). Copies the folder into a checkout of truenas/apps,
+# validates the catalog, checks the default port is free, then renders the app with their
+# library and starts it (as 568, with the permissions helper) until it reports healthy.
+# Nothing is pushed anywhere. Runs when the folder changes on develop, or by hand (Actions tab /
+# gh workflow run, once this file is on main).
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "truenas/catalog/**"
+      - ".github/workflows/truenas-catalog.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to start instead of the one in ix_values.yaml (e.g. develop)"
+        required: false
+        default: ""
+
+permissions: {}
+
+jobs:
+  check:
+    name: Validate, render and start in TrueNAS's apps CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout WooSarr
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: woosarr
+
+      - name: Checkout truenas/apps
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: truenas/apps
+          ref: master
+          persist-credentials: false
+          fetch-depth: 0  # their validator compares changed apps with master
+          path: apps
+
+      # As the PR will: the folder at ix-dev/community/woosarr, committed on a branch.
+      - name: Add the app to the catalog checkout
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          cp -r woosarr/truenas/catalog/woosarr apps/ix-dev/community/woosarr
+          if [ -n "$TAG" ]; then
+            sed -i "/repository: ghcr.io\/woosarr\/woosarr/{n;s|tag: .*|tag: \"$TAG\"|}" apps/ix-dev/community/woosarr/ix_values.yaml
+          fi
+          cat apps/ix-dev/community/woosarr/ix_values.yaml
+          cd apps
+          git checkout -q -b add-woosarr
+          git -c user.name=ci -c user.email=ci@localhost add ix-dev/community/woosarr
+          git -c user.name=ci -c user.email=ci@localhost commit -qm "Add woosarr"
+
+      - name: Default port is free (their port_validation.py)
+        working-directory: apps
+        run: python3 .github/scripts/port_validation.py
+
+      - name: Validate the catalog (their apps_dev_charts_validate)
+        run: |
+          docker run --rm -e FAKE_ENV=1 -v "$PWD/apps:/workspace" -w /workspace ghcr.io/truenas/apps_validation:slim \
+            /bin/bash -c 'git config --global --add safe.directory /workspace && /usr/local/bin/apps_dev_charts_validate validate --path /workspace'
+
+      # ci.py copies their library into the app, regenerates app.yaml metadata, renders the compose
+      # file from basic-values.yaml and runs it until every container is healthy or has finished.
+      - name: Render and start (their ci.py)
+        working-directory: apps
+        run: python3 .github/scripts/ci.py --train community --app woosarr --test-file basic-values.yaml
+
+      # What the metadata step changed (lib_version, lib_version_hash, version): copy into
+      # truenas/catalog/woosarr before submitting.
+      - name: Metadata changes to carry back
+        if: always()
+        working-directory: apps
+        run: git diff -- ix-dev/community/woosarr/app.yaml ix-dev/community/woosarr/item.yaml || true

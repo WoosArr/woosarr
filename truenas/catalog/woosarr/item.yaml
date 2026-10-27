@@ -1,0 +1,12 @@
+categories:
+- media
+icon_url: https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png
+screenshots:
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/libraries.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png
+tags:
+- media
+- plex
+- discord

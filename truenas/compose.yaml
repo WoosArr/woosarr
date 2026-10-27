@@ -1,4 +1,4 @@
-# WooSarr on TrueNAS (25.04+): Apps → Discover Apps → ⋮ → Install via YAML, paste this, Save.
+# WooSarr on TrueNAS (24.10+): Apps → Discover Apps → ⋮ → Install via YAML, paste this, Save.
 # Then open http://<truenas-ip>:31337 and enter the setup code from the app's logs.
 # Full guide: https://github.com/WoosArr/woosarr/blob/main/docs/truenas-notes.md
 #

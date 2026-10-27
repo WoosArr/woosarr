@@ -1,0 +1,40 @@
+app_version: 1.1.1
+capabilities: []
+categories:
+- media
+changelog_url: https://github.com/WoosArr/woosarr/blob/main/CHANGELOG.md
+date_added: '2026-10-27'
+description: WooSarr gives Discord members access to Plex libraries based on their
+  Discord roles, and keeps that access in step as roles change. Members link their
+  Plex account with a slash command; admins manage everything in the web UI.
+home: https://github.com/WoosArr/woosarr
+host_mounts: []
+icon: https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png
+keywords:
+- media
+- plex
+- discord
+lib_version: 2.3.17
+lib_version_hash: b02a8040f1971a601638300b595bbd5b72f0664ba13fdf7759c212867caeed24
+maintainers:
+- email: dev@truenas.com
+  name: truenas
+  url: https://www.truenas.com/
+name: woosarr
+run_as_context:
+- description: Container [woosarr] can run as any non-root user and group.
+  gid: 568
+  group_name: Host group is [apps]
+  uid: 568
+  user_name: Host user is [apps]
+screenshots:
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/libraries.png
+- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png
+sources:
+- https://github.com/WoosArr/woosarr
+- https://github.com/WoosArr/woosarr/pkgs/container/woosarr
+title: WooSarr
+train: community
+version: 1.0.0

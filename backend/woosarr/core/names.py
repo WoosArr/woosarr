@@ -33,6 +33,11 @@ def update(discord: dict[str, str] | None = None, plex: dict[str, str] | None = 
             _plex = dict(plex)
 
 
+def snapshot() -> dict[str, str]:
+    """The current Discord id -> name map (members, roles, channels, server, bot)."""
+    return _discord
+
+
 def annotate(text: str) -> str:
     discord_names, plex_names = _discord, _plex  # one consistent snapshot, no lock needed to read
     if discord_names:

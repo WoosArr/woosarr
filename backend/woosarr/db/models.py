@@ -343,3 +343,5 @@ class AuditLog(Base):
     target_id: Mapped[str | None] = mapped_column(String(100), index=True)
     details: Mapped[dict[str, Any]] = mapped_column(default=dict)
     dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
+    # "<kind>:<id>" -> name when written (services/audit_names.py); NULL = not named yet (pre-1.2 entries).
+    names: Mapped[dict[str, str] | None] = mapped_column(JSON(none_as_null=True), nullable=True, default=None)

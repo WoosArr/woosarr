@@ -149,7 +149,7 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
 - **Dashboard → Alerts**: open warnings, errors and account events. Most problems show up here first, with the message that explains them (for example a missing bot permission).
 - **Logs page**: live application log; filter by level or search for a request id from an error message.
 - Log lines (INFO and up, so Alerts and the audit lines too) show names next to Discord and Plex ids, e.g. `User: 284362693538742273 (@rWoot715)`, `user=183715749 (Plex rwoot)`, `#plex-bot`, `server …`, `role …`. The names come from WooSarr's caches (refreshed every minute); the id stays so you can still search for it. DEBUG lines keep bare ids. The same problem for different members is still one alert.
-- **Audit trail** (Logs → Audit trail): every access change with who/what/why, every role mapping, link and settings change.
+- **Audit trail** (Logs → Audit trail): every access change with who/what/why, every role mapping, link and settings change. Ids show with their names (members, roles, channels, Plex users, libraries, admins, reaction posts), as they were named when it happened; hover a cell for the raw ids. Entries from before 1.2 were named once, with the names they had at the upgrade.
 - Set *Log level* to DEBUG in Settings to see every Plex and Discord call (secrets are always redacted).
 - **Remote troubleshooting without a shell**: create a **read** API key (*Settings → API keys*) and use it:
 

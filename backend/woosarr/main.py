@@ -38,7 +38,14 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import emoji_library, friendly_names, media_requests, stall_watch, updates
+from woosarr.services import (
+    audit_names,
+    emoji_library,
+    friendly_names,
+    media_requests,
+    stall_watch,
+    updates,
+)
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -134,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             emoji_refresh = asyncio.create_task(emoji_library.run_refresher(emoji_lib), name="woosarr-emoji-refresh")
         names_refresh = asyncio.create_task(friendly_names.run_refresher(db, discord_service),
                                             name="woosarr-friendly-names")
+        audit_backfill = asyncio.create_task(audit_names.run_backfill(db), name="woosarr-audit-names")
         update_task = None
         if update_checker.checkable and not settings.demo:
             update_task = asyncio.create_task(updates.run_checker(update_checker, update_check_settings),
@@ -143,7 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
-        for task in (poller, emoji_refresh, names_refresh, update_task):
+        for task in (poller, emoji_refresh, names_refresh, update_task, audit_backfill):
             if task is not None:
                 task.cancel()
         if discord_service is not None:

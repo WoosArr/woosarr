@@ -19,6 +19,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **Sync now** on the Libraries page (the same full sync as on the dashboard, which also re-reads library names from Plex).
 
 ### Changed
+- **The audit trail shows names, not just ids**: who did it (e.g. `@rWoot715`), what it was done to (`Plex rwoot`, `role Movie Night`) and the ids in the details (`Movies (2)`), for Discord members, roles, channels and the server, Plex users, libraries, admins, reaction posts and API keys. Names are kept as they were when it happened. Existing entries are named once at the first start after the update (with the names they have then). *Recent activity* on the dashboard says which member did something instead of "A member". The API keeps the raw ids and adds `actor_label`, `target_label`, `details_named` and `names`.
 - **Alerts that end by themselves clear themselves**: stalls that are over, members' buttons or forms that expired (left unfinished), Seerr/Discord/Plex trouble once the service works again, a reaction post once it publishes. The log lines stay, marked *Resolved by WooSarr* with the reason; real errors, and commands answered too late, still wait for an admin.
 - Wording: *Recent activity* says a member "requested media" (not "a title", which reads like a role); the `/request` results menu says "Choose a movie or show".
 - The Connections widget's title says when the next full sync runs: "Connections - Next Sync in 12 minutes" (or *Syncing now* / *Sync queued*).

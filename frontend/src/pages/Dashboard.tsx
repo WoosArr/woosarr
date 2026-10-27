@@ -817,7 +817,7 @@ function actor(a: string): string {
 
 function Activity({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="activity" /><Loading ins={ins} /></>;
-  const rows = ins.activity as { ts: string; actor: string; action: string; target_id: string | null }[];
+  const rows = ins.activity as { ts: string; actor: string; actor_label?: string; action: string; target_label?: string | null }[];
   return (
     <>
       <Title id="activity"><Link to="/logs?tab=audit" className="small">Audit trail →</Link></Title>
@@ -825,7 +825,7 @@ function Activity({ ins }: { ins: Insights | null }) {
         <ul className="dash-list small">
           {rows.map((r, i) => (
             <li key={i} className="row spread">
-              <span><strong>{actor(r.actor)}</strong> {ACTION_TEXT[r.action] ?? r.action.replace(/_/g, " ")}</span>
+              <span title={r.target_label ?? undefined}><strong>{r.actor_label ?? actor(r.actor)}</strong> {ACTION_TEXT[r.action] ?? r.action.replace(/_/g, " ")}</span>
               <span className="muted">{ago(r.ts)}</span>
             </li>
           ))}

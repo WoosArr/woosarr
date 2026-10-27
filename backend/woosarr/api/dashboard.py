@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, sta
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
+from woosarr.api.audit_api import audit_out
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import kv
 from woosarr.db.models import (
@@ -148,10 +149,12 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     access_by_day = [{"date": d["date"], "changed": d["changed"], "planned": d["planned"], "users": len(d["users"])}
                      for d in days.values()]
 
-    activity = [{"ts": a.ts, "actor": a.actor, "action": a.action, "target_type": a.target_type,
-                 "target_id": a.target_id, "dry_run": a.dry_run}
-                for a in db.scalars(select(AuditLog).where(AuditLog.action.not_in(ACTIVITY_SKIP))
-                                    .order_by(AuditLog.ts.desc()).limit(12))]
+    activity = []
+    for a in db.scalars(select(AuditLog).where(AuditLog.action.not_in(ACTIVITY_SKIP)).order_by(AuditLog.ts.desc()).limit(12)):
+        out = audit_out(db, a)
+        activity.append({"ts": a.ts, "actor": a.actor, "action": a.action, "target_type": a.target_type,
+                         "target_id": a.target_id, "dry_run": a.dry_run, "actor_label": out.actor_label,
+                         "target_label": out.target_label})
 
     libs = db.scalars(select(Library).where(Library.removed.is_(False))).all()
     # Shares cover friends only; the owner sees every library of their own server.

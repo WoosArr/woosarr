@@ -196,6 +196,9 @@ test("logs and audit trail", async ({ page }) => {
   await page.getByRole("tab", { name: "Audit trail" }).click();
   await expect(page.getByRole("cell", { name: "Role mapping changed" }).first()).toBeVisible();
   await expect(page.getByRole("cell", { name: "Unlinked by admin" }).first()).toBeVisible();
+  // Names, not ids: the role's name in Target, not "role:<snowflake>".
+  await expect(page.getByRole("cell", { name: /^role \D/ }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^role:\d/ })).toHaveCount(0);
 });
 
 test("theme, colour-vision palette and API key", async ({ page }) => {

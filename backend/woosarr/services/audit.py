@@ -10,6 +10,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import AuditLog, utcnow
+from woosarr.services import audit_names
 
 log = logging.getLogger("woosarr.audit")
 
@@ -30,6 +31,7 @@ def record(
         target_id=target_id,
         details=details,
         dry_run=dry_run,
+        names=audit_names.names_for(session, actor, action, target_type, target_id, details),
     )
     session.add(entry)
     # Mirror into the app log so remote diagnosis via /api/v1/logs sees it too.

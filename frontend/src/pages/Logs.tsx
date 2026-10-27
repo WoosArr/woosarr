@@ -253,13 +253,13 @@ function AuditTrail() {
               {entries.map((a) => (
                 <tr key={a.id}>
                   <td className="small" style={{ whiteSpace: "nowrap" }}>{fmtTime(a.ts)}</td>
-                  <td className="small">{a.actor}</td>
+                  <td className="small" title={a.actor}>{a.actor_label}</td>
                   <td>
                     {actionLabel(a.action)}
                     {a.dry_run ? <> <Badge tone="warn" icon="eye">dry run</Badge></> : null}
                   </td>
-                  <td className="small">{a.target_type ? `${a.target_type}:${a.target_id}` : "—"}</td>
-                  <td className="small"><AuditDetails d={a.details} /></td>
+                  <td className="small" title={a.target_type ? `${a.target_type}:${a.target_id ?? ""}` : undefined}>{a.target_label ?? "—"}</td>
+                  <td className="small"><AuditDetails d={a.details_named} raw={a.details} /></td>
                 </tr>
               ))}
             </tbody>
@@ -275,12 +275,13 @@ function AuditTrail() {
   );
 }
 
-function AuditDetails({ d }: { d: Record<string, unknown> }) {
+/** The details with names next to ids (d); hovering shows the raw ids (raw). */
+function AuditDetails({ d, raw }: { d: Record<string, unknown>; raw: Record<string, unknown> }) {
   const add = d.add as string[] | undefined;
   const remove = d.remove as string[] | undefined;
   if (add || remove) {
     return (
-      <span>
+      <span title={JSON.stringify(raw)}>
         {add?.length ? <span>+ {add.join(", ")} </span> : null}
         {remove?.length ? <span>− {remove.join(", ")} </span> : null}
         {d.trigger ? <span className="muted">({String(d.trigger)})</span> : null}
@@ -288,5 +289,5 @@ function AuditDetails({ d }: { d: Record<string, unknown> }) {
     );
   }
   const text = JSON.stringify(d);
-  return <code title={text}>{text.length > 160 ? `${text.slice(0, 160)}…` : text}</code>;
+  return <code title={JSON.stringify(raw)}>{text.length > 160 ? `${text.slice(0, 160)}…` : text}</code>;
 }

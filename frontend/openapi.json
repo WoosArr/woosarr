@@ -518,9 +518,18 @@
             "title": "Actor",
             "type": "string"
           },
+          "actor_label": {
+            "title": "Actor Label",
+            "type": "string"
+          },
           "details": {
             "additionalProperties": true,
             "title": "Details",
+            "type": "object"
+          },
+          "details_named": {
+            "additionalProperties": true,
+            "title": "Details Named",
             "type": "object"
           },
           "dry_run": {
@@ -530,6 +539,13 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "object"
           },
           "target_id": {
             "anyOf": [
@@ -541,6 +557,17 @@
               }
             ],
             "title": "Target Id"
+          },
+          "target_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Label"
           },
           "target_type": {
             "anyOf": [
@@ -567,7 +594,11 @@
           "target_type",
           "target_id",
           "details",
-          "dry_run"
+          "dry_run",
+          "names",
+          "actor_label",
+          "target_label",
+          "details_named"
         ],
         "title": "AuditOut",
         "type": "object"

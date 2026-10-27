@@ -1,6 +1,9 @@
 #!/bin/sh
-# Unraid-friendly entrypoint: honor PUID/PGID (defaults 99:100 = nobody:users),
-# make sure /config is writable, then drop privileges.
+# Two ways to start, both tested by scripts/smoke-test.sh:
+# - as root (Unraid, Docker, Compose): honor PUID/PGID (defaults 99:100 = nobody:users), make sure
+#   /config is writable, then drop privileges for good;
+# - as a non-root user already (TrueNAS apps run as 568, `docker run --user`): run WooSarr directly;
+#   /config must belong to that user.
 set -e
 
 # New files (database, logs, backups) are not readable by other users on the host.

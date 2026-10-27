@@ -102,6 +102,19 @@ jobs:
           curl -fsS http://127.0.0.1:31339/api/health; echo
           docker compose -p woosarr-ci down
 
+      - name: TrueNAS compose smoke test (truenas/compose.yaml, runs as 568 with no capabilities)
+        run: |
+          conf="$RUNNER_TEMP/woosarr-truenas-config"
+          mkdir -p "$conf"
+          sudo chown 568:568 "$conf"  # a TrueNAS dataset owned by the apps user
+          export WOOSARR_IMAGE=woosarr:smoke WOOSARR_CONFIG="$conf" WOOSARR_HOST_PORT=31340
+          docker compose -f truenas/compose.yaml -p woosarr-truenas config -q
+          docker compose -f truenas/compose.yaml -p woosarr-truenas up -d --wait --wait-timeout 120 \
+            || { docker compose -f truenas/compose.yaml -p woosarr-truenas logs; exit 1; }
+          curl -fsS http://127.0.0.1:31340/api/health; echo
+          sudo test -f "$conf/app.db"
+          docker compose -f truenas/compose.yaml -p woosarr-truenas down
+
       - name: Scan image for secrets and fixable HIGH/CRITICAL vulnerabilities (both fail)
         run: |
           trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c "$@"; }

@@ -1,0 +1,31 @@
+# WooSarr on TrueNAS (25.04+): Apps → Discover Apps → ⋮ → Install via YAML, paste this, Save.
+# Then open http://<truenas-ip>:31337 and enter the setup code from the app's logs.
+# Full guide: https://github.com/WoosArr/woosarr/blob/main/docs/truenas-notes.md
+#
+# Before installing, create a dataset for WooSarr's data (database, logs, secrets) owned by the
+# "apps" user (568), e.g. /mnt/tank/apps/woosarr, and change the path below to it.
+#
+# WooSarr runs as the apps user (568) from the start, never as root, with no capabilities.
+
+services:
+  woosarr:
+    image: ${WOOSARR_IMAGE:-ghcr.io/woosarr/woosarr:latest}
+    container_name: woosarr
+    restart: unless-stopped
+    user: "568:568"
+    ports:
+      - "${WOOSARR_HOST_PORT:-31337}:31337"
+    volumes:
+      - "${WOOSARR_CONFIG:-/mnt/tank/apps/woosarr}:/config"
+    environment:
+      WOOSARR_LOG_LEVEL: "INFO"
+      TZ: "Etc/UTC"
+      # Behind an HTTPS reverse proxy (see the README → HTTPS and reverse proxies):
+      # WOOSARR_FORWARDED_ALLOW_IPS: "172.16.0.2"
+      # WOOSARR_COOKIE_SECURE: "always"
+    # The image's health check polls /api/health; WooSarr stops within a few seconds.
+    stop_grace_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

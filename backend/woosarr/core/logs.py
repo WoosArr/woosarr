@@ -264,6 +264,12 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     stream.setFormatter(formatter)
 
     settings.log_dir.mkdir(parents=True, exist_ok=True)
+    # Before the files are opened: lines written before a redaction pattern existed lose their
+    # secrets too (once per redaction.VERSION). Reported once logging is up.
+    try:
+        scrubbed: dict[str, int] | str = redaction.scrub_files(settings.log_dir)
+    except OSError as exc:
+        scrubbed = f"{type(exc).__name__}: {exc}"
     file_handler = logging.handlers.RotatingFileHandler(
         settings.log_file,
         maxBytes=settings.log_file_max_bytes,
@@ -314,6 +320,12 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     _state.handlers = handlers
     _state.buffer = ring
     _state.sinks, _state.queue, _state.listener = sinks, records, listener
+    if isinstance(scrubbed, str):
+        logging.getLogger("woosarr.logs").warning("log files: redacting older lines failed: %s", scrubbed)
+    elif scrubbed:
+        logging.getLogger("woosarr.logs").info(
+            "log files: redacted %d older lines logged before redaction covered them (%s)", sum(scrubbed.values()),
+            ", ".join(f"{name}: {n}" for name, n in scrubbed.items()))
     if earlier:
         logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from %s for Alerts",
                                                min(len(earlier), ring.PROBLEMS_CAPACITY),

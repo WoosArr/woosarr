@@ -47,6 +47,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - The reaction post emoji picker shows emoji added to the server since WooSarr started (it fetched the list once per session, and the bot didn't receive emoji updates from Discord). It now also has a *Hide animated* switch.
 
 ### Security
+- **Logs no longer keep sign-in codes or signed links.** The single sign-on callback's one-time `code` and `state` (in the web server's request lines) and the signatures of GitHub download links (update check, debug level) are now redacted, along with other secret-like URL parameters. Log files already on disk are cleaned once at the first start after the update (the log says how many lines). These values were short-lived and single-use, but they don't belong in a log.
 - Input review: no endpoint turns input into code, SQL, file paths or HTML (see the threat model). Hardening: the Discord bot now defaults to never pinging @everyone, @here or roles, and `%`/`_` in the member search match literally. A hostile-input test sweep runs in CI.
 
 ## [1.1.1] - 2026-10-21

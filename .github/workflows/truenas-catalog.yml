@@ -68,6 +68,8 @@ jobs:
         run: |
           docker run --rm -e FAKE_ENV=1 -v "$PWD/apps:/workspace" -w /workspace ghcr.io/truenas/apps_validation:slim \
             /bin/bash -c 'git config --global --add safe.directory /workspace && /usr/local/bin/apps_dev_charts_validate validate --path /workspace'
+          # The validator runs as root and leaves root-owned library copies that ci.py must replace.
+          sudo chown -R "$(id -u):$(id -g)" apps
 
       # ci.py copies their library into the app, regenerates app.yaml metadata, renders the compose
       # file from basic-values.yaml and runs it until every container is healthy or has finished.

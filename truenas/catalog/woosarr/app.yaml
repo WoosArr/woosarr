@@ -9,7 +9,7 @@ description: WooSarr gives Discord members access to Plex libraries based on the
   Plex account with a slash command; admins manage everything in the web UI.
 home: https://github.com/WoosArr/woosarr
 host_mounts: []
-icon: https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png
+icon: https://media.sys.truenas.net/apps/woosarr/icons/icon.png
 keywords:
 - media
 - plex
@@ -28,10 +28,10 @@ run_as_context:
   uid: 568
   user_name: Host user is [apps]
 screenshots:
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/libraries.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot1.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot2.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot3.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot4.png
 sources:
 - https://github.com/WoosArr/woosarr
 - https://github.com/WoosArr/woosarr/pkgs/container/woosarr

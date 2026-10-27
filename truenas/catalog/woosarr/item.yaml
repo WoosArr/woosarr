@@ -1,11 +1,11 @@
 categories:
 - media
-icon_url: https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png
+icon_url: https://media.sys.truenas.net/apps/woosarr/icons/icon.png
 screenshots:
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/dashboard-dark.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/roles.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/libraries.png
-- https://raw.githubusercontent.com/WoosArr/woosarr/main/docs/images/users.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot1.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot2.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot3.png
+- https://media.sys.truenas.net/apps/woosarr/screenshots/screenshot4.png
 tags:
 - media
 - plex

@@ -385,6 +385,11 @@
             "title": "Request All Members",
             "type": "boolean"
           },
+          "request_auto_retry": {
+            "default": true,
+            "title": "Request Auto Retry",
+            "type": "boolean"
+          },
           "request_channel_id": {
             "anyOf": [
               {
@@ -3823,6 +3828,18 @@
             "title": "Media Type",
             "type": "string"
           },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
           "plex_username": {
             "anyOf": [
               {
@@ -3839,6 +3856,23 @@
             "title": "Public",
             "type": "boolean"
           },
+          "retried_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retried At"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
           "seasons": {
             "items": {
               "type": "integer"
@@ -3853,6 +3887,18 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "status_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status At"
           },
           "title": {
             "title": "Title",
@@ -8118,6 +8164,49 @@
           }
         },
         "summary": "Seerr Test",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/requests/{row_id}/retry": {
+      "post": {
+        "description": "Have Seerr send a failed request to Radarr/Sonarr again.",
+        "operationId": "retry_request_api_v1_requests__row_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "row_id",
+            "required": true,
+            "schema": {
+              "title": "Row Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Request",
         "tags": [
           "requests"
         ]

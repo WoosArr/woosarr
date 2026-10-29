@@ -127,6 +127,15 @@ class FakeSeerr:
             return FakeResponse(200, show)
         if path == "/request" and method == "POST":
             return self._create(user, json or {})
+        if path.startswith("/request/") and path.endswith("/retry") and method == "POST":
+            rid = int(path.split("/")[2])
+            if rid not in self.requests:
+                return FakeResponse(404, {"message": "Request not found."})
+            if self.requests[rid]["status"] != 4:
+                return FakeResponse(409, {"message": "Only failed requests can be retried."})
+            # Seerr answers with the request alone (no media), approved again.
+            self.requests[rid]["status"] = 2
+            return FakeResponse(200, {k: v for k, v in self.requests[rid].items() if k != "media"})
         if path.startswith("/request/") and method == "GET":
             rid = int(path.rsplit("/", 1)[1])
             if rid not in self.requests:

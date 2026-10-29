@@ -347,9 +347,90 @@ class PollTests(Base):
             for r in s.scalars(select(MediaRequest)):
                 r.created_at = utcnow() - timedelta(days=30)
                 if r.status == "available":
-                    r.updated_at = utcnow() - timedelta(days=8)
+                    r.status_at = utcnow() - timedelta(days=8)
         with self.db.session() as s:
             self.assertEqual([r["status"] for r in media_requests.recent(s)], ["pending"])
+
+    def row(self):
+        with self.db.session() as s:
+            return s.scalars(select(MediaRequest).where(MediaRequest.seerr_request_id == self.rid)).one()
+
+    def backdate(self, **ago):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        with self.db.session() as s:
+            row = s.scalars(select(MediaRequest).where(MediaRequest.seerr_request_id == self.rid)).one()
+            for field, hours in ago.items():
+                setattr(row, field, utcnow() - timedelta(hours=hours))
+
+    def test_failed_and_declined_are_rechecked_for_a_month(self):
+        self.settings(request_auto_retry=False)
+        self.seerr.set_request_status(self.rid, status=4)
+        self.assertEqual([n.state for n in self.svc.poll()], ["failed"])
+        self.seerr.set_request_status(self.rid, status=2, media_status=3)  # an admin retried it in Seerr
+        self.assertEqual([n.text for n in self.svc.poll()],
+                         ["Your request for **Inception** (2010) is approved, on its way."])
+        self.seerr.set_request_status(self.rid, status=3)
+        self.assertEqual([n.state for n in self.svc.poll()], ["declined"])
+        self.seerr.set_request_status(self.rid, status=2)  # approved after all
+        self.assertEqual([n.state for n in self.svc.poll()], ["approved"])
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.backdate(status_at=31 * 24)
+        self.seerr.set_request_status(self.rid, status=2)
+        self.assertEqual(self.svc.poll(), [])  # failed over 30 days ago: no longer checked
+        with self.db.session() as s:
+            from woosarr.services import media_requests
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], [])
+
+    def test_failed_requests_are_retried_automatically(self):
+        from woosarr.services import media_requests
+        self.seerr.set_request_status(self.rid, status=4)
+        self.assertEqual(self.svc.poll(), [])  # WooSarr will retry: the member isn't told yet
+        row = self.row()
+        self.assertEqual((row.status, row.retries, row.notified_status), ("failed", 0, "pending"))
+        with self.db.session() as s:
+            listed = media_requests.recent(s)[0]
+        self.assertEqual(listed["next_retry_at"], row.status_at + media_requests.RETRY_AFTER[0])
+        self.svc.poll()  # not due before an hour
+        self.assertFalse(any(c[0] == "POST" and c[1].endswith("/retry") for c in self.seerr.calls))
+        self.backdate(status_at=2)
+        self.assertEqual(self.svc.poll(), [])
+        row = self.row()
+        self.assertEqual((row.status, row.retries, self.seerr.requests[self.rid]["status"]), ("approved", 1, 2))
+        with self.db.session() as s:
+            entry = s.scalars(select(AuditLog).where(AuditLog.action == "request_retried")).one()
+        self.assertEqual((entry.actor, entry.details["automatic"], entry.details["attempt"]), ("system", True, 1))
+        self.seerr.set_request_status(self.rid, status=4)  # failed again: next try after 6 h
+        self.assertEqual(self.svc.poll(), [])
+        self.backdate(status_at=2)
+        self.svc.poll()
+        self.assertEqual(self.row().retries, 1)
+        with self.db.session() as s:
+            s.scalars(select(MediaRequest)).one().retries = 3  # every try used
+        notes = self.svc.poll()
+        self.assertEqual([n.text for n in notes], [
+            "Your request for **Inception** (2010) is approved, but downloading failed (an admin can retry it)."])
+        self.assertEqual(self.svc.poll(), [])  # once
+
+    def test_admin_retry(self):
+        with self.assertRaises(RequestDenied):  # pending, not failed
+            self.svc.retry(self.row().id, "admin:dave")
+        self.seerr.set_request_status(self.rid, status=4)
+        self.settings(request_auto_retry=False)
+        self.svc.poll()
+        self.seerr.set_request_status(self.rid, status=2)  # already retried in Seerr: 409, read it instead
+        self.assertEqual(self.svc.retry(self.row().id, "admin:dave"), "approved")
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.assertEqual(self.svc.retry(self.row().id, "admin:dave"), "approved")
+        self.assertEqual((self.row().retries, self.seerr.requests[self.rid]["status"]), (0, 2))
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.seerr.down = True
+        with self.assertRaises(SeerrError):
+            self.svc.retry(self.row().id, "admin:dave")
 
     def test_notify_off_and_deleted(self):
         self.settings(request_notify=False)
@@ -727,6 +808,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.c.get("/api/v1/requests").json(), [])
         self.assertEqual(self.c.post("/api/v1/requests/poll").json(), {"notified": 0})
         self.assertFalse(self.c.delete("/api/v1/requests/seerr").json()["configured"])
+
+    def test_retry_failed_request(self):
+        self.c.put("/api/v1/requests/seerr", json={"url": URL, "api_key": KEY})
+        self.seerr.requests[300] = {"id": 300, "status": 4, "media": {"tmdbId": 27205, "mediaType": "movie",
+                                                                      "status": 3}}
+        with self.h.app.state.db.session() as s:
+            s.add(MediaRequest(seerr_request_id=300, discord_user_id="501", seerr_user_id=2, media_type="movie",
+                               tmdb_id=27205, title="Inception", status="failed"))
+        row = self.c.get("/api/v1/requests").json()[0]
+        self.assertEqual(row["status"], "failed")
+        self.assertIsNotNone(row["next_retry_at"])
+        r = self.c.post(f"/api/v1/requests/{row['id']}/retry")
+        self.assertEqual((r.status_code, r.json()["status"]), (200, "approved"), r.text)
+        self.assertEqual(self.c.post(f"/api/v1/requests/{row['id']}/retry").status_code, 409)
+        self.assertEqual(self.c.post("/api/v1/requests/999/retry").status_code, 409)
+        audit = self.c.get("/api/v1/audit", params={"action": "request_retried"}).json()["entries"][0]
+        self.assertEqual((audit["actor"], audit["details"]["automatic"]), ("admin:admin", False))
 
     def test_public_without_channel_rejected(self):
         self.assertEqual(self.c.patch("/api/v1/settings", json={"request_visibility": "public"}).status_code, 422)

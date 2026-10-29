@@ -14,6 +14,14 @@ const STATE: Record<string, [Tone, string]> = {
   deleted: ["neutral", "Removed in Seerr"],
 };
 
+// "in 3h": when an automatic retry is due (the next check after it, every 30 minutes).
+function due(iso: string): string {
+  const s = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  if (s < 60) return "at the next check";
+  if (s < 3600) return `in ${Math.round(s / 60)}m`;
+  return `in ${Math.round(s / 3600)}h`;
+}
+
 export default function RequestsPage() {
   const seerr = useLoad(() => api.get<SeerrStatus>("/api/v1/requests/seerr"));
   const list = useLoad(() => api.get<RequestOut[]>("/api/v1/requests"));
@@ -29,6 +37,20 @@ export default function RequestsPage() {
       toast.error(e);
     } finally {
       setBusy(false);
+    }
+  };
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const retry = async (r: RequestOut) => {
+    setRetrying(r.id);
+    try {
+      const next = await api.post<RequestOut>(`/api/v1/requests/${r.id}/retry`);
+      list.setData((list.data ?? []).map((x) => (x.id === r.id ? next : x)));
+      toast.ok(`Seerr is sending ${r.title} to ${r.media_type === "movie" ? "Radarr" : "Sonarr"} again.`);
+    } catch (e) {
+      toast.error(e);
+      await list.reload();
+    } finally {
+      setRetrying(null);
     }
   };
   const name = seerr.data?.command_registered;
@@ -49,12 +71,14 @@ export default function RequestsPage() {
         <p className="small muted">
           {name ? <>Members request with <code>/{name}</code>. </> : <>The request command registers when the bot is connected. </>}
           Who may request and the command's name are in <Link to="/settings?tab=requests">Settings → Requests</Link>.
-          Open requests are checked every 30 minutes, however old; members are told by DM, or by a reply in the requests channel for public requests.
-          Finished requests (available, declined, failed, removed in Seerr) are listed for 7 days.
+          Open requests are checked every 30 minutes, however old; failed and declined ones for 30 days, in case they're retried or approved in Seerr.
+          Failed requests are retried automatically after 1, 6 and 24 hours (<Link to="/settings?tab=requests">setting</Link>), or retry one now with <strong>Retry</strong>.
+          Members are told by DM, or by a reply in the requests channel for public requests.
+          Available and removed requests are listed for 7 days.
         </p>
       ) : null}
       {!list.data ? <Spinner /> : list.data.length === 0 ? (
-        <Empty title="No requests to show">Requests made with the Discord command show up here: open ones until they're done, finished ones for 7 days.</Empty>
+        <Empty title="No requests to show">Requests made with the Discord command show up here: open ones until they're done, failed and declined ones for 30 days, the rest for 7 days.</Empty>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests">
           <table>
@@ -76,7 +100,21 @@ export default function RequestsPage() {
                       {r.discord_name ?? r.discord_user_id}
                       {r.plex_username ? <div className="small muted">Plex: {r.plex_username}</div> : null}
                     </td>
-                    <td><Badge tone={tone}>{label}</Badge>{r.public ? <div className="small muted">Posted publicly</div> : null}</td>
+                    <td>
+                      <Badge tone={tone}>{label}</Badge>
+                      {r.status === "failed" ? (
+                        <div className="small muted">
+                          {r.next_retry_at ? `Retrying ${due(r.next_retry_at)}` : r.retries ? "Not retrying again" : "Not retried automatically"}
+                          {r.retries ? ` · retried ${r.retries}×` : ""}
+                        </div>
+                      ) : null}
+                      {r.public ? <div className="small muted">Posted publicly</div> : null}
+                      {r.status === "failed" ? (
+                        <button className="btn sm" style={{ marginTop: 4 }} disabled={retrying !== null} onClick={() => void retry(r)} aria-label={`Retry ${r.title}`}>
+                          <Icon name="refresh" size={14} /> {retrying === r.id ? "Retrying…" : "Retry"}
+                        </button>
+                      ) : null}
+                    </td>
                     <td className="small">{ago(r.created_at)}</td>
                     <td className="small">{ago(r.checked_at)}</td>
                   </tr>
@@ -300,6 +338,7 @@ export function RequestSettings() {
       <Switch checked={!!v.request_require_verified} onChange={(x) => set({ request_require_verified: x })} label={<><strong>Verified links only</strong> <span className="muted small">— members who linked by typing a username can't request as that Plex account</span></>} />
       <Switch checked={!!v.request_import_users} onChange={(x) => set({ request_import_users: x })} label={<><strong>Create missing Seerr users</strong> <span className="muted small">— import the member's Plex account into Seerr on their first request (Seerr's default permissions)</span></>} />
       <Switch checked={!!v.request_notify} onChange={(x) => set({ request_notify: x })} label={<><strong>Notify members</strong> <span className="muted small">— {isPublic ? "reply to the request's post, mentioning them," : "DM them"} when a request is approved, declined or available</span></>} />
+      <Switch checked={!!v.request_auto_retry} onChange={(x) => set({ request_auto_retry: x })} label={<><strong>Retry failed requests</strong> <span className="muted small">— when Seerr couldn't hand an approved request to Radarr or Sonarr, ask it again after 1, 6 and 24 hours; the member hears of the failure only if every try fails</span></>} />
       <div className="row">
         <button className="btn primary" disabled={!Object.keys(draft).length || !!nameError || !!channelError} onClick={() => void save()}>Save</button>
         <button className="btn" disabled={!Object.keys(draft).length} onClick={() => setDraft({})}>Discard</button>

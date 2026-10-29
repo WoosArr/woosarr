@@ -41,6 +41,7 @@ Public needs a channel. The bot needs **View Channels, Send Messages, Embed Link
 | **Verified links only** | on | Only members whose link is verified (Sign in with Plex) may request. A username-only `/link` is a claim anyone could make, and requests are made as that Plex account's Seerr user. |
 | **Create missing Seerr users** | on | If the member's Plex account has no Seerr user yet, WooSarr imports it (`POST /api/v1/user/import-from-plex` with that Plex id). Seerr gives it its **default permissions** (Seerr → Settings → Users). Off = the member is told to ask an admin. |
 | **Notify members** | on | DM status changes. |
+| **Retry failed requests** | on | Ask Seerr to send a failed request to Radarr/Sonarr again, 1, 6 and 24 hours after it failed. The member hears of the failure only if every try fails. |
 
 A member always needs a link: requests are made as their Seerr user, which is found from their Plex account. Members who share one Plex account (a family) request as that account's Seerr user, so Seerr counts their requests together. Matching order: Seerr user with the same **Plex id**, then the same **email**, then the same **Plex username**.
 
@@ -56,11 +57,15 @@ Discord doesn't let one bot see another bot's commands, so WooSarr can't detect 
 
 ## Status tracking
 
-WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 30 minutes, however old they are: pending → approved → (partly) available, or declined / failed. Requests deleted in Seerr show as *Removed in Seerr*. The Requests page lists every open request and finished ones (available, declined, failed, removed in Seerr) for 7 days after they finished. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
+WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 30 minutes, however old they are: pending → approved → (partly) available, or declined / failed. Failed and declined requests are re-read too, for 30 days after they got that status, so a request an admin retries or approves in Seerr afterwards is picked up and the member told. Requests deleted in Seerr show as *Removed in Seerr*. The Requests page lists every request still being re-read, and available or removed ones for 7 days. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
+
+### Failed requests
+
+*Failed* means Seerr approved the request but couldn't hand it to Radarr or Sonarr (one of them was down, a quality profile or root folder is missing...). With **Retry failed requests** on, WooSarr asks Seerr to try again (`POST /api/v1/request/{id}/retry`, the same as Seerr's *Retry* button) 1 hour after the request failed, then 6 and 24 hours after each try that failed again. The Requests page shows when the next try is due; **Retry** on a failed request tries now (it doesn't use up an automatic try). The member is told only when every automatic try has failed (or straight away with retrying off), and again when it's approved or available after all. Retries are audited as `request_retried` (`automatic`, `attempt`, `before`, `after`, `error`). Seerr's API key user needs *Manage Requests* to retry, which the admin key has.
 
 ## Diagnostics (logs API)
 
-Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_status`, `seerr_connected`):
+Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_status`, `request_retried`, `seerr_connected`):
 
 ```bash
 curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=seerr&limit=200"

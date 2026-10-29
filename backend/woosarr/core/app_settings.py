@@ -73,6 +73,9 @@ class AppSettings(BaseModel):
     request_import_users: bool = True
     # DM the member when their request is approved, declined or becomes available.
     request_notify: bool = True
+    # Ask Seerr to send a failed request to Radarr/Sonarr again, 1 h, 6 h and 24 h after it failed;
+    # the member hears of the failure only once every try has failed.
+    request_auto_retry: bool = True
     # private: only the member sees the request (status by DM). public: the request is
     # posted in request_channel_id mentioning the member, and status updates are replies there.
     request_visibility: Literal["private", "public"] = "private"

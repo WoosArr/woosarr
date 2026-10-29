@@ -255,6 +255,11 @@ class SeerrClient:
         _code, data = self._call("GET", f"/request/{int(request_id)}")
         return data or {}
 
+    def retry_request(self, request_id: int) -> dict:
+        """Send a failed request to Radarr/Sonarr again (409: it isn't failed anymore)."""
+        _code, data = self._call("POST", f"/request/{int(request_id)}/retry")
+        return data if isinstance(data, dict) else {}
+
 
 def request_state(request: dict) -> str:
     """One status for members: pending, approved, declined, failed, partially_available, available."""

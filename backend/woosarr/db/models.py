@@ -317,6 +317,11 @@ class MediaRequest(Base):
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
     checked_at: Mapped[datetime | None]
+    # When `status` last changed (updated_at also moves on every check).
+    status_at: Mapped[datetime | None] = mapped_column(default=utcnow)
+    # Automatic retries of a failed request in Seerr (RETRY_AFTER), and when the last one was.
+    retries: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    retried_at: Mapped[datetime | None]
 
 
 class ErrorResolution(Base):

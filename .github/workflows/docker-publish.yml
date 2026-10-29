@@ -165,6 +165,10 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # Registries need lowercase names; the repository is WoosArr/woosarr.
+      - name: Image name
+        run: echo "IMAGE=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -192,7 +196,7 @@ jobs:
             WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
             WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
           labels: ${{ steps.meta.outputs.labels }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: ${{ env.IMAGE }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=image-${{ matrix.arch }}
 
@@ -230,6 +234,10 @@ jobs:
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Registries need lowercase names; the repository is WoosArr/woosarr.
+      - name: Image name
+        run: echo "IMAGE=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -269,8 +277,6 @@ jobs:
 
       - name: Create the multi-platform image and push its tags
         working-directory: ${{ runner.temp }}/digests
-        env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
           [ "$(ls -1 | wc -l)" -eq 2 ] || { echo "expected amd64 + arm64 digests, got: $(ls -1)"; exit 1; }
           docker buildx imagetools create \
@@ -279,7 +285,6 @@ jobs:
 
       - name: Check both platforms are in it
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           docker buildx imagetools inspect "$IMAGE:$VERSION" | tee manifest.txt

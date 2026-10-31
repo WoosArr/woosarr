@@ -167,7 +167,10 @@ class ManualGrantsOut(BaseModel):
 @router.post("/users/manual-grants", response_model=ManualGrantsOut)
 def manual_grants(body: ManualGrantsIn, request: Request, db: DbDep, principal: AdminDep) -> ManualGrantsOut:
     known_users = set(db.scalars(select(PlexUser.plex_user_id).where(PlexUser.plex_user_id.in_(body.plex_user_ids))))
-    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids))))
+    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids),
+                                                                 Library.removed.is_(False))))
+    if body.action == "remove":  # taking a removed library's grant away is fine
+        known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids))))
     missing = (set(body.plex_user_ids) - known_users) | (set(body.library_ids) - known_libs)
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown ids: {sorted(missing)[:10]}")
@@ -269,7 +272,8 @@ def restore_access(body: RestoreIn, request: Request, db: DbDep, principal: Admi
     known = set(db.scalars(select(PlexUser.plex_user_id).where(
         PlexUser.plex_user_id.in_([i.plex_user_id for i in body.items]))))
     libs = {lib for i in body.items for lib in (*i.library_ids, *i.manual_library_ids)}
-    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(libs))))
+    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(libs),
+                                                                 Library.removed.is_(False))))
     if {i.plex_user_id for i in body.items} - known or libs - known_libs:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown users or libraries")
     db.commit()

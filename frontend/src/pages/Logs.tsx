@@ -134,6 +134,7 @@ const ACTION_LABEL: Record<string, string> = {
   access_restored_admin: "Libraries restored by admin",
   role_mapping_changed: "Role mapping changed",
   role_removed: "Deleted role removed",
+  library_forgotten: "Removed library forgotten",
   manual_grant_add: "Manual grant added",
   manual_grant_remove: "Manual grant removed",
   manual_grant_kept: "Libraries kept as manual grants",

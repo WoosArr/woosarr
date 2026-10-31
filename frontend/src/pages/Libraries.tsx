@@ -83,7 +83,7 @@ export default function LibrariesPage() {
                 <tr key={l.library_id}>
                   <td data-label="Library">
                     <strong>{l.title}</strong> <span className="small muted">#{l.library_id}</span>
-                    {l.removed ? <div><Badge tone="danger">Missing on server</Badge></div> : null}
+                    {l.removed ? <div><Badge tone="danger">Missing on server</Badge> <span className="small muted">its role mappings and manual grants were removed</span></div> : null}
                   </td>
                   <td data-label="Type" className="small">{l.type}</td>
                   <td data-label="Granted by roles">

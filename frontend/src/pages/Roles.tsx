@@ -84,6 +84,12 @@ export default function RolesPage() {
           <Icon name="plus" /> Create role
         </button>
       </PageHead>
+      {gone.length ? (
+        <p className="small muted">
+          Roles deleted in Discord are removed here by themselves after the next full sync that takes away the access they gave
+          (not while dry-run is on). <strong>Remove</strong> does it now.
+        </p>
+      ) : null}
       <ErrorBanner error={roles.error ?? libraries.error} />
       {roles.loading && !roles.data ? <Spinner /> : null}
       {roles.data && shown.length === 0 ? (

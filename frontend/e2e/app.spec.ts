@@ -245,6 +245,21 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   await expect(page.getByLabel("Check for updates every")).toHaveValue("15");
 });
 
+// While dry-run is on: once live, a full sync removes deleted roles by itself (tests/test_cleanup.py).
+test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
+  await login(page);
+  await page.goto("/roles");
+  const row = page.getByRole("row", { name: /Old Movie Night/ });
+  await expect(row.getByText("Deleted in Discord")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
+  await row.getByRole("button", { name: "Remove Old Movie Night from WooSarr" }).click();
+  await expect(page.getByRole("dialog")).toContainText("no longer exists in Discord");
+  await expect(page.getByRole("dialog")).toContainText("nothing else refers to it");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("Removed 1 role.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+});
+
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {
   await login(page);
   await page.goto("/settings");
@@ -522,20 +537,6 @@ test("users page Discord tab: members, filters and a role change preview", async
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("tab", { name: "Plex" }).click();
   await expect(page.getByRole("region", { name: "Plex users" })).toBeVisible();
-});
-
-test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
-  await login(page);
-  await page.goto("/roles");
-  const row = page.getByRole("row", { name: /Old Movie Night/ });
-  await expect(row.getByText("Deleted in Discord")).toBeVisible();
-  await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
-  await row.getByRole("button", { name: "Remove Old Movie Night from WooSarr" }).click();
-  await expect(page.getByRole("dialog")).toContainText("no longer exists in Discord");
-  await expect(page.getByRole("dialog")).toContainText("nothing else refers to it");
-  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
-  await expect(page.getByText("Removed 1 role.")).toBeVisible();
-  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
 });
 
 test("libraries: create role lets the admin set the name", async ({ page }) => {

@@ -26,7 +26,7 @@ from woosarr.core import app_settings
 from woosarr.db.models import ManualGrant, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import audit, impact, inventory, invites, self_resolve
+from woosarr.services import audit, cleanup, impact, inventory, invites, self_resolve
 from woosarr.services.access import load_snapshot, user_state
 from woosarr.sync.apply import apply_plan
 from woosarr.sync.engine import Plan, plan_for_user
@@ -338,6 +338,7 @@ class SyncService:
                     log.info("inventory libraries=%s users=%s (removed libs=%s users=%s)",
                              inv.libraries, inv.users, inv.libraries_removed, inv.users_removed)
                     invites.match_pending(s)
+                    cleanup.forget_removed_libraries(s)
                     audit.prune(s, settings.audit_retention_days)
                 snap = load_snapshot(s)
         except Exception as exc:  # surface any Plex/DB failure in status, keep worker alive
@@ -370,6 +371,13 @@ class SyncService:
                     log.exception("sync failed for user=%s", uid)
                     report.errors += 1
                     report.error_messages.append(f"user {uid}: {type(exc).__name__}: {exc}")
+        if report.full and not report.dry_run and not report.errors and not report.skipped_drift:
+            # Every member who had access only through a deleted role has lost it now.
+            try:
+                with self._db.session() as s:
+                    cleanup.forget_deleted_roles(s)
+            except Exception:
+                log.exception("forgetting roles deleted in Discord failed; the Roles page can remove them")
         report.finished_at = utcnow()
         if report.full and not report.errors:
             self_resolve.recovered("sync")

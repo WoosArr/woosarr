@@ -50,6 +50,10 @@ def refresh_libraries(session: Session, gateway: PlexGateway) -> tuple[int, int]
         row.title, row.type, row.removed = lib.title, lib.type, False
         row.synced_at = utcnow()
     removed = 0
+    if not live and existing:
+        log.warning("Plex listed no libraries at all; keeping the %d known ones (not marking them removed)",
+                    len(existing))
+        return 0, 0
     for lib_id, row in existing.items():
         if lib_id not in live and not row.removed:
             row.removed = True

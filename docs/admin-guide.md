@@ -29,6 +29,11 @@ The rules:
 - A full reconcile when you change a role mapping, an exemption, or certain settings, and on a schedule (default every 15 minutes).
 - **Sync now** on the dashboard.
 
+### Libraries removed from Plex, roles deleted in Discord
+
+- **A library is deleted in Plex**: the next full sync marks it *Missing on server* (Libraries page) and removes everything that pointed at it: role mappings, manual grants, the shares WooSarr had seen, and dashboard filters for it (audited as `library_forgotten`, listing the roles and users it had). WooSarr never tries to share it again, and it can't be mapped or granted any more. If Plex suddenly lists no libraries at all, WooSarr treats it as a glitch and changes nothing.
+- **A role is deleted in Discord**: members lose it at once, and a sync takes away the libraries that only it gave. After the next full sync that runs live and without errors, WooSarr removes the role's mappings, the settings that named it (link roles, who may invite / request / link by username), its reaction post options and dashboard filters (audited as `role_removed`, by WooSarr). In dry-run they stay, listed on the Roles page as *Deleted in Discord*, where **Remove** does it by hand. Mapped role ids WooSarr has never seen in Discord are only removed by hand.
+
 ### Discord commands
 
 - `/help`: lists the commands below with their options (only the asker sees it; `/request` appears only when Seerr is set up).

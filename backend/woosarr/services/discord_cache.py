@@ -118,9 +118,13 @@ def full_sync(session: Session, roles: Iterable[RoleData], members: Iterable[Mem
     for r in roles:
         upsert_role(session, r)
         role_ids.add(r.role_id)
+    if not role_ids:
+        log.warning("discord sent no roles at all; keeping the cached ones (not marking them deleted)")
     for row in session.scalars(select(DiscordRole)):
-        if row.role_id not in role_ids:
+        if role_ids and row.role_id not in role_ids and not row.deleted:
             row.deleted = True
+            log.info("discord role gone id=%s name=%s (its references are removed after the next full sync)",
+                     row.role_id, row.name)
     present = set()
     for m in members:
         member_changed(session, m, in_guild=True)

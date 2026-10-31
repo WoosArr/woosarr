@@ -61,6 +61,9 @@ class AppSettings(BaseModel):
     update_check_minutes: Literal[360, 180, 60, 30, 15, 5] = 360
     # The bot's custom status in Discord (under its name in the member list); empty = none.
     bot_status: str = Field("Try /help for help", max_length=128)
+    # Leave deleted things out of the web UI's lists: libraries missing on the Plex server, roles
+    # deleted in Discord, Plex users no longer shared with, requests removed in Seerr.
+    hide_deleted: bool = True
     # Requests through Seerr (P13-01). Name of the slash command, without the "/";
     # change it if another bot in the server already has /request.
     request_command_name: str = Field("request", pattern=r"^[a-z0-9_-]{1,32}$")

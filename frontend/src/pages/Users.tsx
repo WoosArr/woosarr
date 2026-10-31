@@ -20,6 +20,7 @@ import {
 import { ImpactList } from "../Impact";
 import { LibraryChooser } from "./LibraryChooser";
 import DiscordUsers from "./DiscordUsers";
+import { useHideDeleted } from "../hidden";
 import { LinkFilter, TriStateBox, type Filter } from "./UserFilters";
 
 type LinkOut = UserOut["links"][number];
@@ -47,7 +48,9 @@ function PlexUsers() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<null | "add" | "remove">(null);
   const [linking, setLinking] = useState<UserOut | null>(null);
-  const users = useLoad(() => api.get<UserOut[]>(`/api/v1/users${qs({ link: filter })}`), [filter]);
+  const hideDeleted = useHideDeleted();
+  const users = useLoad(() => api.get<UserOut[]>(`/api/v1/users${qs({ link: filter, include_removed: hideDeleted ? undefined : true })}`),
+    [filter, hideDeleted]);
   const libraries = useLoad(() => api.get<LibraryOut[]>("/api/v1/libraries"));
   const confirm = useConfirm();
   const toast = useToast();

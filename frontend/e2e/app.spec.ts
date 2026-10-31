@@ -249,6 +249,14 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
 test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
   await login(page);
   await page.goto("/roles");
+  // Hidden by default (Settings → General → Hide deleted items).
+  await expect(page.getByText("1 role deleted in Discord is hidden.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: /Hide deleted items/ }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await page.goto("/roles");
   const row = page.getByRole("row", { name: /Old Movie Night/ });
   await expect(row.getByText("Deleted in Discord")).toBeVisible();
   await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
@@ -258,6 +266,10 @@ test("roles deleted in Discord can be removed from WooSarr", async ({ page }) =>
   await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText("Removed 1 role.")).toBeVisible();
   await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: /Hide deleted items/ }).click();  // back to the default
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
 });
 
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {

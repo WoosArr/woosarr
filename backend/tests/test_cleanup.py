@@ -177,3 +177,8 @@ class RemovedLibraryApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 404)
         self.assertIn("36", r.json()["detail"])
         self.assertEqual(self.c.put(f"/api/v1/roles/{MOVIES}/libraries", json={"library_ids": ["1"]}).status_code, 200)
+
+    def test_deleted_items_hidden_by_default(self):
+        self.assertTrue(self.c.get("/api/v1/settings").json()["hide_deleted"])
+        r = self.c.patch("/api/v1/settings", json={"hide_deleted": False})
+        self.assertEqual((r.status_code, r.json()["hide_deleted"]), (200, False))

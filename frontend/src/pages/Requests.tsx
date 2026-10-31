@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AppSettings, type ChannelOut, type RequestOut, type RoleOut, type SeerrStatus, type SeerrTest } from "../api";
+import { HiddenNote, useHideDeleted } from "../hidden";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast, type Tone } from "../ui";
 
@@ -40,6 +41,8 @@ export default function RequestsPage() {
     }
   };
   const [retrying, setRetrying] = useState<number | null>(null);
+  const hideDeleted = useHideDeleted();
+  const rows = (list.data ?? []).filter((r) => !hideDeleted || r.status !== "deleted");
   const retry = async (r: RequestOut) => {
     setRetrying(r.id);
     try {
@@ -77,14 +80,14 @@ export default function RequestsPage() {
           Available and removed requests are listed for 7 days.
         </p>
       ) : null}
-      {!list.data ? <Spinner /> : list.data.length === 0 ? (
+      {!list.data ? <Spinner /> : rows.length === 0 ? (
         <Empty title="No requests to show">Requests made with the Discord command show up here: open ones until they're done, failed and declined ones for 30 days, the rest for 7 days.</Empty>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests">
           <table>
             <thead><tr><th>Title</th><th>Member</th><th>Status</th><th>Requested</th><th>Checked</th></tr></thead>
             <tbody>
-              {list.data.map((r) => {
+              {rows.map((r) => {
                 const [tone, label] = STATE[r.status] ?? ["neutral", r.status];
                 return (
                   <tr key={r.id}>
@@ -124,6 +127,7 @@ export default function RequestsPage() {
           </table>
         </div>
       )}
+      <HiddenNote count={(list.data?.length ?? 0) - rows.length} what={["request removed in Seerr", "requests removed in Seerr"]} />
     </>
   );
 }

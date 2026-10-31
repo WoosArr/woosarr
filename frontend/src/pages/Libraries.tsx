@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type LibraryOut, type PlexServerOut } from "../api";
 import { CreateRoleModal } from "./Roles";
 import { useDiscordFeatures } from "../features";
+import { HiddenNote, useHideDeleted } from "../hidden";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, PageHead, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
 
@@ -12,6 +13,8 @@ export default function LibrariesPage() {
   const toast = useToast();
   const { available, why } = useDiscordFeatures();
   const [roleFor, setRoleFor] = useState<LibraryOut | null>(null);
+  const hideDeleted = useHideDeleted();
+  const rows = (libs.data ?? []).filter((l) => !hideDeleted || !l.removed);
   const [syncing, setSyncing] = useState(false);
   // Same as the dashboard's: a full sync, which also re-reads the libraries from Plex.
   const syncNow = async () => {
@@ -74,12 +77,12 @@ export default function LibrariesPage() {
       {libs.data?.length === 0 ? (
         <div className="card"><Empty icon="library" title="No libraries yet">They appear after WooSarr reads your Plex server.</Empty></div>
       ) : null}
-      {libs.data && libs.data.length > 0 ? (
+      {rows.length > 0 ? (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Plex libraries">
           <table className="responsive">
             <thead><tr><th>Library</th><th>Type</th><th>Granted by roles</th><th>Shared with</th><th>Exempt</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {libs.data.map((l) => (
+              {rows.map((l) => (
                 <tr key={l.library_id}>
                   <td data-label="Library">
                     <strong>{l.title}</strong> <span className="small muted">#{l.library_id}</span>
@@ -106,6 +109,7 @@ export default function LibrariesPage() {
           </table>
         </div>
       ) : null}
+      <HiddenNote count={(libs.data?.length ?? 0) - rows.length} what={["library missing on the Plex server", "libraries missing on the Plex server"]} />
       {roleFor && libs.data ? (
         <CreateRoleModal
           title={`Create a role for ${roleFor.title}`}

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, type ImpactOut, type LibraryOut, type RoleCreated, type RoleOut } from "../api";
 import type { components } from "../generated/api";
 import { useDiscordFeatures } from "../features";
+import { HiddenNote, useHideDeleted } from "../hidden";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Modal, PageHead, RoleChip, Spinner, useConfirm, useLoad, useToast } from "../ui";
 
@@ -42,8 +43,10 @@ export default function RolesPage() {
   const [creating, setCreating] = useState(false);
   const { available, why } = useDiscordFeatures();
   const titles = new Map((libraries.data ?? []).map((l) => [l.library_id, l.title]));
-  const shown = (roles.data ?? []).filter((r) => showManaged || !r.managed || r.library_ids.length);
-  const gone = deleted.data ?? [];
+  const hideDeleted = useHideDeleted();
+  const listed = (roles.data ?? []).filter((r) => showManaged || !r.managed || r.library_ids.length);
+  const shown = listed.filter((r) => !hideDeleted || !r.deleted);
+  const gone = hideDeleted ? [] : deleted.data ?? [];
 
   const remove = async (refs: RoleReferences[]) => {
     const one = refs.length === 1;
@@ -133,8 +136,9 @@ export default function RolesPage() {
           </table>
         </div>
       ) : null}
+      <HiddenNote count={listed.length - shown.length} what={["role deleted in Discord", "roles deleted in Discord"]} />
       {creating && libraries.data ? (
-        <CreateRoleModal libraries={libraries.data} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); void roles.reload(); }} />
+        <CreateRoleModal libraries={libraries.data.filter((l) => !l.removed)} onClose={() => setCreating(false)} onCreated={() => { setCreating(false); void roles.reload(); }} />
       ) : null}
       {editing && libraries.data ? (
         <RoleEditor

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import discord
@@ -22,6 +23,7 @@ from woosarr.services.discord_text import link_text, safe
 from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
 from woosarr.services.seerr import Details, Hit, SeerrError, split_year, title_words
+from woosarr.services.tvdb_pages import TvdbPages
 
 if TYPE_CHECKING:
     from woosarr.services.discord_bot import DiscordService
@@ -33,6 +35,7 @@ AUTOCOMPLETE_SECONDS = 2.5  # Discord drops autocomplete answers after 3 s
 # on: wait this long and search only if nothing newer came from the same member.
 SUGGEST_SETTLE_SECONDS = 0.35
 PICK = re.compile(r"^(movie|tv):(\d{1,10})$")
+TVDB_SECONDS = 1.2  # reading a TVDB page while suggesting (it usually takes 0.5-1 s); else search by name
 LINK_HELP = "help:links"  # value of the suggestion that explains which links work
 REQUESTABLE = ("unknown", "deleted")
 STATUS_LINE = {
@@ -218,6 +221,7 @@ class RequestCommands:
     """Request handlers of DiscordService (needs .requests, .run_db)."""
 
     requests: RequestService | None
+    tvdb_pages: TvdbPages
 
     def request_command_name(self, session: Any) -> str | None:
         """The name to register, or None while Seerr isn't set up."""
@@ -257,6 +261,11 @@ class RequestCommands:
         except media_links.LinkRejected as exc:
             return [app_commands.Choice(name=exc.short, value=LINK_HELP)]
         try:
+            if lookup is not None and lookup.title:  # a TVDB name link: its page names the exact title
+                started = time.monotonic()
+                lookup = await asyncio.wait_for(asyncio.to_thread(self.tvdb_pages.resolve, lookup, TVDB_SECONDS),
+                                                budget)
+                budget -= time.monotonic() - started
             if lookup is not None and lookup.tmdb_id is not None:
                 item = await asyncio.wait_for(asyncio.to_thread(self.requests.details, lookup.media_type,
                                                                 lookup.tmdb_id), budget)
@@ -320,6 +329,8 @@ class RequestCommands:
             log.info("request by %s: link to %s refused", uid, exc.host or "?")
             await interaction.followup.send(str(exc), ephemeral=True)
             return
+        if lookup is not None and lookup.title:  # a TVDB name link: its page names the exact title
+            lookup = await asyncio.to_thread(self.tvdb_pages.resolve, lookup, TVDB_SECONDS * 3)
         if lookup is not None and lookup.tmdb_id is not None:
             log.info("request by %s: %s link to %s %s", uid, lookup.site, lookup.media_type, lookup.tmdb_id)
             await self.show_details(interaction, lookup.media_type, lookup.tmdb_id)

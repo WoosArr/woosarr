@@ -27,6 +27,7 @@ from woosarr.services import discord_requests, media_links
 from woosarr.services.discord_bot import DiscordService, WooSarrBot
 from woosarr.services.media_requests import RequestDenied, RequestService
 from woosarr.services.seerr import SeerrClient, SeerrError, normalize_url, request_state
+from woosarr.services.tvdb_pages import TvdbPages
 
 GUILD = 709961910967206019
 URL = "http://seerr.local:5055"
@@ -581,10 +582,37 @@ class FakeInteraction:
         self.log.append(("edit_original", kw))
 
 
+class FakeTvdb:
+    """thetvdb.com for TvdbPages: pages[url] = html (or an exception to raise); others are 404."""
+
+    def __init__(self, pages=None):
+        self.pages = pages or {}
+        self.gets: list[tuple[str, dict]] = []
+
+    def get(self, url, **kw):
+        self.gets.append((url, kw))
+        page = self.pages.get(url)
+        if isinstance(page, Exception):
+            raise page
+        if isinstance(page, int):
+            return SimpleNamespace(status_code=page, close=lambda: None)
+        body = (page or "").encode()
+        return SimpleNamespace(status_code=200 if page is not None else 404, close=lambda: None,
+                               raw=SimpleNamespace(read=lambda n, decode_content=True: body[:n]))
+
+
+def tvdb_page(series_id="210171", tmdb=None, imdb=None):
+    links = "".join(f'<a href="{u}">x</a>' for u in (tmdb, imdb) if u)
+    return (f'<li><strong>TheTVDB.com Series ID</strong>\n   <span>{series_id}</span></li>{links}'
+            '<a href="https://www.themoviedb.org/movie/603">a movie elsewhere on the page</a>')
+
+
 class DiscordTests(Base):
     def setUp(self):
         super().setUp()
         self.discord = DiscordService(self.db, self.secrets, lambda *a, **k: None, plex=None, requests=self.svc)
+        self.tvdb = FakeTvdb()
+        self.discord.tvdb_pages = TvdbPages(session=self.tvdb)
 
     def run_async(self, coro):
         return asyncio.run(coro)
@@ -775,6 +803,45 @@ class DiscordTests(Base):
         self.assertNotIn("movie:3", values)  # a series link: shows only
         choices = self.run_async(self.discord.request_suggestions("https://thetvdb.com/series/the-killing-2011"))
         self.assertEqual(choices[0].value, "tv:2")
+
+    def test_tvdb_name_link_uses_the_title_its_page_names(self):
+        # Live: thetvdb.com/series/the-killing-2011 suggested ten titles; TVDB's page links the one.
+        self.connect()
+        self.tvdb.pages["https://www.thetvdb.com/series/the-killing-2011"] = tvdb_page(
+            tmdb="https://www.themoviedb.org/tv/1396", imdb="https://www.imdb.com/title/tt0903747/")
+        choices = self.run_async(self.discord.request_suggestions("https://www.thetvdb.com/series/the-killing-2011"))
+        self.assertEqual([c.value for c in choices], ["tv:1396"])  # one suggestion: that title
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "thetvdb.com/series/the-killing-2011/seasons"))
+        self.assertEqual(it.log[-1][2]["embed"].title, "Breaking Bad (2008)")
+        self.assertEqual(len(self.tvdb.gets), 1)  # the page is read once, then remembered
+        url, kw = self.tvdb.gets[0]
+        self.assertEqual((url, kw["allow_redirects"]), ("https://www.thetvdb.com/series/the-killing-2011", False))
+        self.assertFalse(any(c[1] == "/search" for c in self.seerr.calls))  # no name search needed
+
+    def test_tvdb_page_without_tmdb_link_uses_imdb_then_tvdb_id(self):
+        from woosarr.services.tvdb_pages import read_page
+
+        self.assertEqual(read_page(tvdb_page(imdb="https://www.imdb.com/title/tt0903747/"), "tv").query,
+                         "imdb:tt0903747")
+        self.assertEqual(read_page(tvdb_page("81189"), "tv").query, "tvdb:81189")
+        movie_page = "<strong>TheTVDB.com Movie ID</strong> <span>113</span>"
+        self.assertIsNone(read_page(movie_page, "movie"))  # TMDB doesn't know TVDB movie ids
+        self.assertEqual(read_page(movie_page + "https://www.themoviedb.org/movie/27205", "movie").tmdb_id, 27205)
+        two = tvdb_page(tmdb="https://www.themoviedb.org/tv/1") + '<a href="https://www.themoviedb.org/tv/2">'
+        self.assertEqual(read_page(two, "tv").query, "tvdb:210171")  # two TMDB links: not trusted
+        self.assertIsNone(read_page("<html>changed</html>", "tv"))
+
+    def test_tvdb_page_unavailable_falls_back_to_the_name(self):
+        self.connect()
+        url = "https://www.thetvdb.com/series/breaking-bad"
+        for page in (__import__("requests").ConnectionError("down"), 301, "<html>no ids</html>"):
+            self.tvdb.pages = {url: page}
+            self.discord.tvdb_pages = TvdbPages(session=self.tvdb)
+            it = FakeInteraction()
+            with self.assertLogs("woosarr.tvdb", "INFO"):
+                self.run_async(self.discord.handle_request_command(it, url))
+            self.assertEqual(it.log[-1][2]["embed"].title, "Breaking Bad (2008)", page)  # found by name
 
     def test_link_suggestions(self):
         self.connect()

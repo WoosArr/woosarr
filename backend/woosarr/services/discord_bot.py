@@ -37,6 +37,7 @@ from woosarr.services import (
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
 from woosarr.services.discord_timing import DiscordTiming, acknowledge
+from woosarr.services.tvdb_pages import TvdbPages
 
 log = logging.getLogger("woosarr.discord")
 
@@ -1110,6 +1111,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
                  sync: Any = None, requests: Any = None) -> None:
         self.requests = requests
+        self.tvdb_pages = TvdbPages()  # exact titles for TVDB name links in /request
         self.timing = DiscordTiming()  # how long interactions take (and the server clock's offset)
         self._latest_suggestion: dict[str, int] = {}  # member -> newest suggestion ask (request command)
         self._db = db

@@ -85,6 +85,54 @@ class ClientTests(unittest.TestCase):
                                                                                        "2008")])
         self.assertIn("query=Breaking%20Bad", fake.calls[-1][2]["raw_query"])
 
+    def test_search_ranks_close_and_well_known_titles_first(self):
+        # Live: "The Fall" listed TMDB's order: The Fall Guy (1981) first, the famous films not at all.
+        fake = FakeSeerr()
+
+        def movie(i, title, year, votes, poster="/p.jpg", popularity=1.0, **extra):
+            return {"id": i, "mediaType": "movie", "title": title, "releaseDate": f"{year}-01-01" if year else "",
+                    "posterPath": poster, "voteCount": votes, "popularity": popularity, **extra}
+
+        fake.search_results = (
+            [{"id": 1, "mediaType": "tv", "name": "The Fall Guy", "firstAirDate": "1981-11-04", "posterPath": "/p.jpg",
+              "voteCount": 150, "popularity": 30}, movie(2, "Legends of the Fall", 1994, 3500),
+             movie(3, "The Fall", 2019, 2), movie(4, "The Fall", None, 0, poster=None),
+             movie(5, "The Fall Guy", 2024, 2600, popularity=80)]
+            + [movie(100 + i, f"Filler {i}", 2000, 5) for i in range(16)]
+            + [movie(6, "The Fall", 2006, 1100, popularity=20), {"id": 287, "mediaType": "person", "name": "x"}])
+        client = SeerrClient(URL, KEY, session=fake)
+        self.assertNotIn(6, [h.tmdb_id for h in client.search("the fall")])  # one page: not among the 20
+        hits = client.search("The Fall", pages=2)
+        # Well-known exact and near titles first; a namesake nobody has rated falls below them.
+        self.assertEqual([h.tmdb_id for h in hits[:5]], [6, 5, 1, 2, 3])
+        self.assertEqual([h.tmdb_id for h in hits if "Fall" in h.title][-1], 4)  # no year, poster or votes
+        self.assertTrue(hits[-1].title.startswith("Filler"))  # unrelated titles last
+        self.assertIn("page=2", fake.calls[-1][2]["raw_query"])
+        # A year after the title: that year first, and it isn't sent to TMDB as a word.
+        self.assertEqual(client.search("the fall (2019)", pages=2)[0].tmdb_id, 3)
+        self.assertIn("query=the%20fall&", fake.calls[-1][2]["raw_query"])
+        # Unfinished last word while typing; original-language titles count too.
+        self.assertEqual(client.search("legends of the fa", pages=2)[0].tmdb_id, 2)
+        fake.search_results = [movie(7, "Amélie", 2001, 10), movie(8, "Le Fabuleux", 2001, 50, originalTitle="Amélie")]
+        self.assertEqual([h.tmdb_id for h in client.search("amelie")], [8, 7])
+
+    def test_split_year(self):
+        from woosarr.services.seerr import split_year
+
+        self.assertEqual(split_year("The Fall 2006"), ("The Fall", "2006"))
+        self.assertEqual(split_year(" the fall (2006) "), ("the fall", "2006"))
+        self.assertEqual(split_year("1917"), ("1917", None))  # a title alone stays a title
+
+    def test_a_title_ending_in_a_number_is_not_mistaken_for_a_year(self):
+        from woosarr.services.seerr import Hit, rank
+
+        def hit(i, title, year, votes):
+            return Hit("movie", i, title, year, "", "p", "unknown", votes=votes)
+
+        hits = [hit(1, "Blade Runner", "1982", 14000), hit(2, "Blade Runner 2049", "2017", 13000)]
+        self.assertEqual([h.tmdb_id for h in rank(hits, "blade runner 2049")], [2, 1])
+        self.assertEqual([h.tmdb_id for h in rank(hits, "blade runner")], [1, 2])
+
     def test_bad_key_and_unreachable(self):
         fake = FakeSeerr()
         with self.assertRaisesRegex(SeerrError, "API key"):
@@ -139,7 +187,15 @@ class UntrustedTextTests(unittest.TestCase):
                    "unknown")
         line = discord_requests.pick_list([evil]).description
         self.assertTrue(line.endswith("](https://www.themoviedb.org/movie/1)"))
-        self.assertIn("\\]\\(https://evil.example\\)", line)  # inert text, not a second link
+        self.assertEqual(line.count("]("), 1)  # inert text, not a second link
+        self.assertIn("Fine⁆(https://evil.example) ⁅x", line)
+
+    def test_pick_list_shows_titles_without_backslashes(self):
+        # Live: Discord showed "The Fall \\(2013\\)": escapes stay visible inside a link's text.
+        from woosarr.services.seerr import Hit
+
+        line = discord_requests.pick_list([Hit("tv", 2, "M*A*S*H_", "1972", "", None, "available")]).description
+        self.assertEqual(line, "1. [\N{TELEVISION} M∗A∗S∗Hˍ (1972) · available](https://www.themoviedb.org/tv/2)")
 
     def test_urls_from_seerr_validated(self):
         from woosarr.services.seerr import _hit
@@ -622,8 +678,8 @@ class DiscordTests(Base):
         self.assertIsInstance(kw["view"], discord_requests.PickView)
         # Numbered TMDB links above the menu; menu options are numbered to match and carry no links.
         listing = kw["embed"].description.splitlines()
-        # Brackets are escaped inside the link text (Discord shows "\(" as "(").
-        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception \\(2010\\)](https://www.themoviedb.org/movie/27205)")
+        # No backslashes in the link text: Discord shows them there (test_pick_list_shows_titles_...).
+        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception (2010)](https://www.themoviedb.org/movie/27205)")
         self.assertTrue(any("(https://www.themoviedb.org/tv/1396)" in line for line in listing))
         labels = [o.label for o in kw["view"].select.options]
         self.assertTrue(labels[0].startswith("1. "))

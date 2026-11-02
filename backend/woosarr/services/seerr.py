@@ -13,13 +13,18 @@ Findings from Seerr's source and `seerr-api.yml` (develop, 2026-10):
     seasons are left to request. Errors carry `{"message": ...}`.
   * Search queries must be strictly percent-encoded (Seerr's OpenAPI
     validator rejects raw `!'()*` and similar), so the URL is built by hand.
+  * Search results come in TMDB's order, which for short titles made of common
+    words ("The Fall") puts many obscure namesakes and loose matches near the
+    top, so they are ranked again here (rank()).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import re
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -70,6 +75,10 @@ class Hit:
     overview: str
     poster: str | None
     status: str  # MEDIA_STATUS value
+    # Search ranking only: TMDB's vote count and popularity, and the original-language title.
+    votes: int = field(default=0, compare=False, repr=False)
+    popularity: float = field(default=0.0, compare=False, repr=False)
+    original_title: str = field(default="", compare=False, repr=False)
 
     @property
     def key(self) -> str:
@@ -128,8 +137,72 @@ def _hit(item: dict) -> Hit | None:
     date = str((item.get("releaseDate") if kind == "movie" else item.get("firstAirDate")) or "")
     year = date[:4] if date[:4].isdigit() else ""
     poster = str(item.get("posterPath") or "")
+    original = item.get("originalTitle") if kind == "movie" else item.get("originalName")
     return Hit(kind, int(item["id"]), str(title or "?"), year, str(item.get("overview") or ""),
-               POSTER.format(path=poster) if POSTER_PATH.match(poster) else None, _media_status(item.get("mediaInfo")))
+               POSTER.format(path=poster) if POSTER_PATH.match(poster) else None, _media_status(item.get("mediaInfo")),
+               votes=_number(item.get("voteCount"), int), popularity=_number(item.get("popularity"), float),
+               original_title=str(original or ""))
+
+
+def _number(value: Any, kind: type) -> Any:
+    try:
+        return max(kind(value or 0), 0)
+    except (TypeError, ValueError):
+        return kind(0)
+
+
+# ---- search ranking -------------------------------------------------------------------
+
+# "The Fall 2006" / "The Fall (2006)": a release year after the title.
+YEAR_SUFFIX = re.compile(r"^(.*\S)\s+\(?((?:18|19|20)\d\d)\)?$")
+
+
+def split_year(query: str) -> tuple[str, str | None]:
+    """(title, year) when the query ends in a release year, else (query, None)."""
+    m = YEAR_SUFFIX.match(query.strip())
+    return (m.group(1), m.group(2)) if m else (query.strip(), None)
+
+
+def _words(text: str) -> list[str]:
+    """Lowercase words without accents or punctuation; & counts as "and"."""
+    text = unicodedata.normalize("NFKD", text.lower().replace("&", " and "))
+    return re.findall(r"[^\W_]+", "".join(c for c in text if not unicodedata.combining(c)))
+
+
+def _match(query: list[str], title: str) -> int:
+    """3: same title, 2: title starts with the query, 1: has every word, 0: looser. The last
+    query word may be unfinished (suggestions while typing)."""
+    words = _words(title)
+    if not query or not words:
+        return 0
+    if words == query:
+        return 3
+    *done, last = query
+    n = len(done)
+    if words[:n] == done and len(words) > n and words[n].startswith(last):
+        return 2
+    if set(done) <= set(words) and any(w.startswith(last) for w in words):
+        return 1
+    return 0
+
+
+def rank(hits: list[Hit], query: str) -> list[Hit]:
+    """Best guesses first: how closely the title matches, then how well known it is (TMDB
+    votes, popularity), so a famous "The Fall" beats a dozen unseen shorts of the same name.
+    A year in the query (split_year) puts that year's releases on top."""
+    title, year = split_year(query)
+    asked, whole = _words(title), _words(query)
+
+    def score(h: Hit) -> float:
+        names = [t for t in (h.title, h.original_title) if t]
+        closeness = max(_match(asked, t) for t in names)
+        # The year was asked for, or it's part of the title ("Blade Runner 2049").
+        pinned = year is not None and (h.year == year or any(_match(whole, t) == 3 for t in names))
+        known = math.log10(h.votes + 1)  # 0 for unseen, ~3 for a film most people know
+        return 1.5 * closeness + known + (5 if pinned else 0) - (0 if h.year and h.poster else 1)
+
+    order = sorted(range(len(hits)), key=lambda i: (-score(hits[i]), -hits[i].popularity, i))
+    return [hits[i] for i in order]
 
 
 class SeerrClient:
@@ -212,11 +285,23 @@ class SeerrClient:
 
     # ---- media ----------------------------------------------------------------------
 
-    def search(self, query: str, timeout: float | None = None) -> list[Hit]:
-        _code, data = self._call("GET", f"/search?query={quote(query.strip(), safe='')}&page=1&language=en",
-                                 timeout=timeout)
-        hits = [_hit(i) for i in (data or {}).get("results") or []]
-        return [h for h in hits if h is not None]
+    def search(self, query: str, timeout: float | None = None, pages: int = 1) -> list[Hit]:
+        """Titles matching the query, best guesses first (rank()). A trailing year is left out of
+        the search itself, which TMDB would otherwise try to match as a word. pages: TMDB pages of
+        20 to read; the well-known match for a common title can be on the second."""
+        title, _year = split_year(query)
+        hits: list[Hit] = []
+        for page in range(1, pages + 1):
+            _code, data = self._call("GET", f"/search?query={quote(title, safe='')}&page={page}&language=en",
+                                     timeout=timeout)
+            found = [_hit(i) for i in (data or {}).get("results") or []]
+            hits += [h for h in found if h is not None and h.key not in {x.key for x in hits}]
+            if page >= int((data or {}).get("totalPages") or 1):
+                break
+        ranked = rank(hits, query)
+        log.debug("search %r: %d result(s), first %s", query[:50], len(ranked),
+                  [f"{h.title} ({h.year})" for h in ranked[:3]])
+        return ranked
 
     def details(self, media_type: str, tmdb_id: int) -> Details:
         if media_type not in ("movie", "tv"):

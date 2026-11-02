@@ -53,6 +53,7 @@ class FakeSeerr:
         self.quota_exceeded: set[int] = set()
         self.down = False
         self.search_delay = 0.0
+        self.search_results: list[dict] | None = None  # set: every search answers these, 20 a page
 
     # --- helpers for tests -----------------------------------------------------
     def add_user(self, plex_id=None, email=None, plex_username=None, can_request=True) -> int:
@@ -107,6 +108,10 @@ class FakeSeerr:
             if any(c in raw for c in " !'()*"):
                 return FakeResponse(400, {"message": "query must be URL encoded"})
             q = unquote(raw).lower()
+            if self.search_results is not None:
+                page, n = int(query.get("page", 1)), len(self.search_results)
+                return FakeResponse(200, {"page": page, "totalPages": max((n + 19) // 20, 1), "totalResults": n,
+                                          "results": self.search_results[(page - 1) * 20:page * 20]})
             results = [self._movie(i) for i, m in MOVIES.items() if q in m["title"].lower()]
             results += [self._show(i) for i, t in SHOWS.items() if q in t["name"].lower()]
             results.append({"id": 287, "mediaType": "person", "name": "Brad Pitt"})

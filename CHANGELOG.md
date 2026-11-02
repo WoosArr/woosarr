@@ -33,6 +33,8 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- **Request search finds the title you meant.** For short titles made of common words (*The Fall*), the list showed TMDB's order: loose matches and obscure namesakes first, sometimes without the well-known title at all. Matches are now ordered by how closely the title matches, then how well known it is, the `/request` list reads 40 results instead of 20, and a year after the title (`The Fall 2006`) puts that year first.
+- The `/request` list showed backslashes in titles (`The Fall \(2013\)`).
 - The Discord status could crash right after the bot reconnected (`'NoneType' object has no attribute 'guild_permissions'`): Discord had sent the server but not yet the bot's own member. That moment now counts as still connecting.
 - The emoji and Time drift tiles said *Discord bot not connected* for up to 30 s after a restart while the bot was still connecting. They now say *Connecting to Discord…*, and fill in as soon as it's connected.
 - WooSarr logs at startup how much CPU it may use (cores it may run on, any pinning, any CPU time limit); the *paused* stall warning repeats it.

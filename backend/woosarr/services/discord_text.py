@@ -5,6 +5,10 @@ discord.utils.escape_markdown misses fragments such as `](https://x) [`, which
 turn part of a line into a masked link once the text sits inside our own
 `[label](url)`. Mentions are escaped too, so `<@&role>` / `@everyone` show as
 text even where allowed_mentions would already stop the ping.
+
+Inside the text of a masked link Discord shows backslash escapes literally
+("The Fall \\(2013\\)"), so link text uses link_text(): characters that would
+end the link or format it are swapped for look-alikes instead of escaped.
 """
 
 from __future__ import annotations
@@ -26,3 +30,17 @@ def safe(text: str, limit: int | None = None) -> str:
     text = _EXTRA.sub(r"\\\1", text)
     # Zero-width joiner after @ so @everyone / @here never form a mention.
     return text.replace("@everyone", "@‍everyone").replace("@here", "@‍here")
+
+
+# Look-alikes for characters that would end a masked link's text or format it.
+_LINK_SWAPS = str.maketrans({"[": "⁅", "]": "⁆", "*": "∗", "_": "ˍ", "~": "∼", "`": "ˋ", "|": "ǀ",
+                             "\\": "⧵", "<": "‹", ">": "›"})
+
+
+def link_text(text: str, limit: int | None = None) -> str:
+    """Plain, single-line text for inside `[text](url)`: renders as written, without backslashes."""
+    text = _SPACE.sub(" ", str(text)).strip()
+    if limit is not None and len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    text = text.translate(_LINK_SWAPS)
+    return text.replace("@everyone", "@\u200deveryone").replace("@here", "@\u200dhere")

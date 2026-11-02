@@ -18,7 +18,7 @@ from discord import app_commands
 
 from woosarr.core import app_settings
 from woosarr.services import audit
-from woosarr.services.discord_text import safe
+from woosarr.services.discord_text import link_text, safe
 from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
 from woosarr.services.seerr import Details, Hit, SeerrError
@@ -133,7 +133,7 @@ class PickView(_Owned):
 def pick_list(hits: list[Hit]) -> discord.Embed:
     """Numbered titles linking to TMDB, shown above the pick menu. Links only open the
     page; choosing still happens in the menu (menu options can't hold links)."""
-    lines = [f"{n}. [{safe(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
+    lines = [f"{n}. [{link_text(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
     return discord.Embed(description="\n".join(lines)[:4096], color=COLOR)
 
 
@@ -291,7 +291,7 @@ class RequestCommands:
             await self.show_details(interaction, picked.group(1), int(picked.group(2)))
             return
         try:
-            hits = await asyncio.to_thread(self.requests.search, title, None, uid)
+            hits = await asyncio.to_thread(self.requests.search, title, None, uid, 2)
         except SeerrError as exc:
             text = str(exc) if exc.status == 429 else f"Seerr isn't answering right now ({safe(str(exc), 200)})."
             await interaction.followup.send(text, ephemeral=True)

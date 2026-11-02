@@ -108,7 +108,7 @@ class RequestService:
         self._session_factory = session_factory  # tests inject a fake HTTP session
         self._lock = threading.Lock()
         self._users: tuple[float, list[dict]] | None = None
-        self._search: dict[str, tuple[float, list[Hit]]] = {}
+        self._search: dict[tuple[str, int], tuple[float, list[Hit]]] = {}
         self.last_error: str | None = None
         self.last_ok_at: float | None = None
         self.search_limiter = auth.RateLimiter(SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS)
@@ -276,12 +276,14 @@ class RequestService:
 
     # ---- search / details -------------------------------------------------------------
 
-    def search(self, query: str, timeout: float | None = None, member: str | None = None) -> list[Hit]:
-        """Seerr search (cached a minute). member: count it against that member's search limit."""
+    def search(self, query: str, timeout: float | None = None, member: str | None = None,
+               pages: int = 1) -> list[Hit]:
+        """Seerr search (cached a minute), best guesses first. member: count it against that
+        member's search limit. pages: TMDB pages to read (the pick list reads two)."""
         query = " ".join(query.split())[:100]
         if len(query) < 2:
             return []
-        key = query.lower()
+        key = (query.lower(), pages)
         with self._lock:
             cached = self._search.get(key)
         if cached and time.monotonic() - cached[0] < SEARCH_CACHE_SECONDS:
@@ -294,7 +296,7 @@ class RequestService:
         if client is None:
             return []
         try:
-            hits = client.search(query, timeout=timeout)
+            hits = client.search(query, timeout=timeout, pages=pages)
         except SeerrError as exc:
             self._failed(exc)
             raise

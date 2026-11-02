@@ -5,6 +5,11 @@ and paste it after /request than to type the title. Only these three sites are r
 to anywhere else is refused with a note on what works (LinkRejected). Links are only read, never
 opened, so a pasted link can't make WooSarr contact anything.
 
+Most TVDB links name the title instead of numbering it (thetvdb.com/series/the-killing-2011).
+Its number is only on TVDB's page or API, so the name is searched for instead (Lookup.title):
+"the killing 2011" among shows, and the card opens directly when exactly one title has that name
+and year.
+
 Also accepted, unadvertised: tt1375666, imdb:tt1375666, tmdb:27205, tvdb:81189 (Seerr's own
 search prefixes, which is what IMDb and TVDB links are turned into).
 """
@@ -25,8 +30,8 @@ _LINK = re.compile(r"(?i)(?:https?://|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[
 _LANG = r"(?:[a-z]{2}(?:-[a-z]{2})?/)?"  # imdb.com/de/title/…, themoviedb.org/en-US/movie/…
 _IMDB_PATH = re.compile(rf"(?i)^/{_LANG}title/(tt\d{{7,10}})(?:/|$)")
 _TMDB_PATH = re.compile(rf"(?i)^/{_LANG}(movie|tv)/(\d{{1,10}})(?:[-/]|$)")
-_TVDB_PATH = re.compile(r"(?i)^/(?:dereferrer/)?series/(\d{1,10})/?$")
-_TVDB_NAMED = re.compile(r"(?i)^/(?:series|movies)/[^/]+")
+_TVDB_PATH = re.compile(r"(?i)^/(?:dereferrer/)?series/(\d{1,10})(?:/|$)")
+_TVDB_NAMED = re.compile(r"(?i)^/(series|movies)/([a-z0-9][a-z0-9-]{0,99})(?:/|$)")
 _IMDB_ID = re.compile(r"(?i)^(?:imdb:)?(tt\d{7,10})$")
 _PREFIXED = re.compile(r"(?i)^(tmdb|tvdb):(\d{1,10})$")
 SITES = {"imdb.com": "IMDb", "themoviedb.org": "TMDB", "thetvdb.com": "TVDB"}
@@ -36,16 +41,18 @@ SITES = {"imdb.com": "IMDb", "themoviedb.org": "TMDB", "thetvdb.com": "TVDB"}
 class Lookup:
     site: str  # IMDb | TMDB | TVDB, for messages and logs
     query: str | None = None  # Seerr search text, e.g. "imdb:tt1375666"
-    media_type: str | None = None  # movie | tv: a TMDB link names the title exactly
+    media_type: str | None = None  # movie | tv: a TMDB link names the title exactly; with title, the kind
     tmdb_id: int | None = None
+    title: str | None = None  # a TVDB link's name to search for ("the killing 2011")
 
 
 class LinkRejected(Exception):
     """The text holds a link WooSarr can't use; the message is safe to show the member."""
 
-    def __init__(self, message: str, host: str) -> None:
+    def __init__(self, message: str, host: str, short: str = HOW_SHORT) -> None:
         super().__init__(message)
         self.host = host  # for the log
+        self.short = short  # at most 100 characters, as the one suggestion while typing
 
 
 def _site(host: str) -> str | None:
@@ -79,7 +86,8 @@ def parse(text: str) -> Lookup | None:
         tvdb_id = (parse_qs(parts.query).get("id") or [""])[0]
         if tvdb_id.isdigit() and len(tvdb_id) <= 10:
             return Lookup(site, query=f"tvdb:{int(tvdb_id)}")
-        if _TVDB_NAMED.match(parts.path):
-            raise LinkRejected("That TVDB link has the show's name instead of its number, so it can't be looked "
-                               "up. Paste the title's IMDb or TMDB link instead, or type the title.", host)
-    raise LinkRejected(f"That {site} link isn't a movie or TV show's page. {HOW}", host)
+        if m := _TVDB_NAMED.match(parts.path):
+            return Lookup(site, media_type="tv" if m.group(1).lower() == "series" else "movie",
+                          title=" ".join(m.group(2).lower().split("-")))
+    raise LinkRejected(f"That {site} link isn't a movie or TV show's page. {HOW}", host,
+                       f"That {site} link isn't a movie or show: open the title's own page and share that")

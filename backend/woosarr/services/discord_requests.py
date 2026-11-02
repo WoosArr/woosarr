@@ -21,7 +21,7 @@ from woosarr.services import audit, media_links
 from woosarr.services.discord_text import link_text, safe
 from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
-from woosarr.services.seerr import Details, Hit, SeerrError
+from woosarr.services.seerr import Details, Hit, SeerrError, split_year, title_words
 
 if TYPE_CHECKING:
     from woosarr.services.discord_bot import DiscordService
@@ -254,19 +254,30 @@ class RequestCommands:
         budget = AUTOCOMPLETE_SECONDS - (SUGGEST_SETTLE_SECONDS if interaction is not None else 0)
         try:
             lookup = media_links.parse(current)
-        except media_links.LinkRejected:
-            return [app_commands.Choice(name=media_links.HOW_SHORT, value=LINK_HELP)]
+        except media_links.LinkRejected as exc:
+            return [app_commands.Choice(name=exc.short, value=LINK_HELP)]
         try:
             if lookup is not None and lookup.tmdb_id is not None:
                 item = await asyncio.wait_for(asyncio.to_thread(self.requests.details, lookup.media_type,
                                                                 lookup.tmdb_id), budget)
                 return [app_commands.Choice(name=item.label(), value=item.key)]
-            query = lookup.query if lookup is not None else current
-            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, query, budget, member), budget)
+            hits = await asyncio.wait_for(asyncio.to_thread(self.search_for, lookup, current, budget, member, 1),
+                                          budget)
         except (TimeoutError, SeerrError) as exc:
             log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
             return []
         return [app_commands.Choice(name=h.label(), value=h.key) for h in hits[:25]]
+
+    def search_for(self, lookup: media_links.Lookup | None, text: str, timeout: float | None, member: str | None,
+                   pages: int) -> list[Hit]:
+        """Search for what was typed or pasted: Seerr's id lookup for a link, its name for a
+        TVDB name link (only that kind: movie or show), else the text."""
+        if lookup is None:
+            return self.requests.search(text, timeout, member, pages)
+        if lookup.query:
+            return self.requests.search(lookup.query, timeout, member, pages)
+        return [h for h in self.requests.search(lookup.title or "", timeout, member, pages)
+                if h.media_type == lookup.media_type]
 
     async def handle_request_command(self, interaction: discord.Interaction, title: str) -> None:
         name = getattr(getattr(interaction, "command", None), "name", None) or "request"
@@ -314,10 +325,9 @@ class RequestCommands:
             await self.show_details(interaction, lookup.media_type, lookup.tmdb_id)
             return
         if lookup is not None:
-            log.info("request by %s: %s link, looking up %s", uid, lookup.site, lookup.query)
+            log.info("request by %s: %s link, looking up %s", uid, lookup.site, lookup.query or repr(lookup.title))
         try:
-            hits = await asyncio.to_thread(self.requests.search, lookup.query if lookup else title, None, uid,
-                                           1 if lookup else 2)
+            hits = await asyncio.to_thread(self.search_for, lookup, title, None, uid, 1 if lookup and lookup.query else 2)
         except SeerrError as exc:
             text = str(exc) if exc.status == 429 else f"Seerr isn't answering right now ({safe(str(exc), 200)})."
             await interaction.followup.send(text, ephemeral=True)
@@ -327,6 +337,12 @@ class RequestCommands:
                     if lookup else f"Nothing found for **{safe(title, 100)}**.")
             await interaction.followup.send(text, ephemeral=True)
             return
+        if lookup is not None and lookup.title:
+            name, year = split_year(lookup.title)
+            same = [h for h in hits if h.year == year] if year else hits
+            same = [h for h in same if any(title_words(t) == title_words(name) for t in (h.title, h.original_title) if t)]
+            if len(same) == 1:  # the TVDB link's name and year fit one title
+                hits = same
         if len(hits) == 1:
             await self.show_details(interaction, hits[0].media_type, hits[0].tmdb_id)
             return

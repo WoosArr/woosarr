@@ -223,6 +223,10 @@ class LinkParsingTests(unittest.TestCase):
             "tmdb:27205": Lookup("TMDB", query="tmdb:27205"),
             "https://thetvdb.com/dereferrer/series/81189": Lookup("TVDB", query="tvdb:81189"),
             "tvdb:81189": Lookup("TVDB", query="tvdb:81189"),
+            "https://www.thetvdb.com/series/the-killing-2011": Lookup("TVDB", media_type="tv", title="the killing 2011"),
+            "https://thetvdb.com/series/breaking-bad/seasons/official/1": Lookup("TVDB", media_type="tv",
+                                                                                title="breaking bad"),
+            "thetvdb.com/movies/inception": Lookup("TVDB", media_type="movie", title="inception"),
         }
         for text, want in cases.items():
             self.assertEqual(parse(text), want, text)
@@ -738,10 +742,39 @@ class DiscordTests(Base):
         _kind, content, kw = ask("https://www.youtube.com/watch?v=YoHD9XEInc0")
         self.assertEqual(content, "Links to www.youtube.com don't work here. " + media_links.HOW)
         self.assertNotIn("embed", kw)
-        self.assertIn("instead of its number", ask("https://thetvdb.com/series/breaking-bad")[1])
+        # TVDB name links (the usual kind): searched by name among shows (or movies).
+        self.assertEqual(ask("https://www.thetvdb.com/series/breaking-bad/seasons")[2]["embed"].title,
+                         "Breaking Bad (2008)")
+        self.assertIn("Nothing found for that TVDB link", ask("https://thetvdb.com/movies/breaking-bad")[1])
         self.assertIn("isn't a movie or TV show's page", ask("https://www.imdb.com/name/nm0000138/")[1])
         self.assertIn("Nothing found for that IMDb link", ask("https://www.imdb.com/title/tt9999999/")[1])
         self.assertEqual(ask(discord_requests.LINK_HELP)[1], media_links.HOW)
+
+    def test_tvdb_name_link_opens_the_title_with_that_name_and_year(self):
+        # Live: thetvdb.com/series/the-killing-2011 was refused; most TVDB links look like that.
+        self.connect()
+
+        def show(i, name, year, original=None):
+            return {"id": i, "mediaType": "tv", "name": name, "firstAirDate": f"{year}-04-03", "posterPath": "/p.jpg",
+                    "voteCount": 500, "originalName": original or name}
+
+        self.seerr.search_results = [show(1, "The Killing", 2007, "Forbrydelsen"), show(2, "The Killing", 2011),
+                                     {"id": 3, "mediaType": "movie", "title": "The Killing", "releaseDate": "2011-01-01"},
+                                     show(4, "The Killing Fields", 2011)]
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "https://www.thetvdb.com/series/the-killing-2011"))
+        self.assertIn("query=the%20killing&", next(c[2]["raw_query"] for c in reversed(self.seerr.calls)
+                                                  if c[1] == "/search"))
+        self.assertEqual(self.seerr.calls[-1][1], "/tv/2")  # straight to the 2011 show's card
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "https://thetvdb.com/series/the-killing"))
+        _kind, content, kw = it.log[-1]
+        self.assertEqual(content, "Which one? Titles link to TMDB; choose in the menu.")  # two shows of that name
+        values = [o.value for o in kw["view"].select.options]
+        self.assertEqual(sorted(values[:2]), ["tv:1", "tv:2"])
+        self.assertNotIn("movie:3", values)  # a series link: shows only
+        choices = self.run_async(self.discord.request_suggestions("https://thetvdb.com/series/the-killing-2011"))
+        self.assertEqual(choices[0].value, "tv:2")
 
     def test_link_suggestions(self):
         self.connect()
@@ -754,6 +787,9 @@ class DiscordTests(Base):
         self.assertEqual(suggest("https://letterboxd.com/film/inception/"),
                          [(media_links.HOW_SHORT, discord_requests.LINK_HELP)])
         self.assertLessEqual(len(media_links.HOW_SHORT), 100)
+        (choice,) = self.run_async(self.discord.request_suggestions("https://www.imdb.com/name/nm0000138/"))
+        self.assertEqual(choice.name, "That IMDb link isn't a movie or show: open the title's own page and share that")
+        self.assertLessEqual(len(choice.name), 100)
 
     def test_show_season_menu_and_unavailable_titles(self):
         self.connect()

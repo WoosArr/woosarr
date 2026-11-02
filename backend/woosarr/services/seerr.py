@@ -163,7 +163,7 @@ def split_year(query: str) -> tuple[str, str | None]:
     return (m.group(1), m.group(2)) if m else (query.strip(), None)
 
 
-def _words(text: str) -> list[str]:
+def title_words(text: str) -> list[str]:
     """Lowercase words without accents or punctuation; & counts as "and"."""
     text = unicodedata.normalize("NFKD", text.lower().replace("&", " and "))
     return re.findall(r"[^\W_]+", "".join(c for c in text if not unicodedata.combining(c)))
@@ -172,7 +172,7 @@ def _words(text: str) -> list[str]:
 def _match(query: list[str], title: str) -> int:
     """3: same title, 2: title starts with the query, 1: has every word, 0: looser. The last
     query word may be unfinished (suggestions while typing)."""
-    words = _words(title)
+    words = title_words(title)
     if not query or not words:
         return 0
     if words == query:
@@ -191,7 +191,7 @@ def rank(hits: list[Hit], query: str) -> list[Hit]:
     votes, popularity), so a famous "The Fall" beats a dozen unseen shorts of the same name.
     A year in the query (split_year) puts that year's releases on top."""
     title, year = split_year(query)
-    asked, whole = _words(title), _words(query)
+    asked, whole = title_words(title), title_words(query)
 
     def score(h: Hit) -> float:
         names = [t for t in (h.title, h.original_title) if t]

@@ -73,6 +73,9 @@ RULES: tuple[Rule, ...] = (
     _r("discord.gateway", r"heartbeat blocked|Can't keep up", "the Discord connection is healthy again", key="discord"),
     _r("discord.client", r"^Attempting a reconnect", "the bot reconnected to Discord", key="discord"),
     _r("woosarr.discord", r"^discord connection problem: ", "the bot connected to Discord", key="discord"),
+    # A sync finished while the bot was still connecting; connecting applies the roles (on_ready).
+    _r("woosarr.discord", r"^link-status roles not applied: .*\(bot not connected\)",
+       "the bot connected to Discord and applied them", key="discord"),
     _r("woosarr.sync", r"^sync aborted while reading inventory|^batch share read failed|^sync run crashed",
        "a later sync finished without errors", key="sync"),
     _r("woosarr.discord", r"^reaction post (\d+) not published", "the post was published", key="reaction_post:{0}"),

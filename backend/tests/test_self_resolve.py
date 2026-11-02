@@ -80,6 +80,17 @@ class SelfResolveTests(unittest.TestCase):
         seerr.warning("seerr GET /request/190 failed: SSLError")  # fails again: shows again
         self.assertIn("seerr GET /request/190 failed: SSLError", self.open_alerts())
 
+    def test_link_roles_before_the_bot_connected_clear_once_it_has(self):
+        # Live: a sync at startup finished before the bot connected; on_ready applies the roles.
+        text = "link-status roles not applied: Link-status roles unavailable (bot not connected)"
+        logging.getLogger("woosarr.discord").warning(text)
+        self.assertEqual(self.open_alerts(), {text[:40]})
+        self_resolve.recovered("discord")
+        self.assertEqual(self.open_alerts(), set())
+        logging.getLogger("woosarr.discord").warning("link-status roles not applied: bot lacks Manage Roles")
+        self_resolve.recovered("discord")
+        self.assertEqual(self.open_alerts(), {"link-status roles not applied: bot lacks"})  # stays for an admin
+
     def test_reaction_post_alert_clears_only_for_that_post(self):
         logging.getLogger("woosarr.discord").warning("reaction post 3 not published: bot lacks Add Reactions in #x")
         self_resolve.recovered("reaction_post:4")

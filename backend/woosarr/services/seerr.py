@@ -226,7 +226,8 @@ class SeerrClient:
             r = self._http.request(method, url, headers=headers, json=body, timeout=timeout or self._timeout,
                                    allow_redirects=False)
         except requests.Timeout:
-            log.warning("seerr %s %s timed out", method, log_path)
+            log.warning("seerr %s %s timed out after %.1f s (limit %s s)", method, log_path,
+                        time.monotonic() - started, timeout or self._timeout)
             raise SeerrError("Seerr didn't answer in time.") from None
         except requests.RequestException as exc:
             log.warning("seerr %s %s failed: %s", method, log_path, type(exc).__name__)

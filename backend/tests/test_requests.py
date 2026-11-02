@@ -23,7 +23,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox
 from woosarr.db.models import AuditLog, DiscordLink, DiscordMember, MediaRequest, PlexUser, Secret
 from woosarr.db.session import Database, make_engine, migrate
-from woosarr.services import discord_requests
+from woosarr.services import discord_requests, media_links
 from woosarr.services.discord_bot import DiscordService, WooSarrBot
 from woosarr.services.media_requests import RequestDenied, RequestService
 from woosarr.services.seerr import SeerrClient, SeerrError, normalize_url, request_state
@@ -205,6 +205,38 @@ class UntrustedTextTests(unittest.TestCase):
         for bad in ("@evil.example/x.jpg", "/../../x.jpg", "//evil.example/x.jpg", "/x.jpg?y", "/x.svg"):
             self.assertIsNone(_hit({"mediaType": "movie", "id": 1, "title": "x", "posterPath": bad}).poster, bad)
         self.assertEqual(_hit({"mediaType": "movie", "id": 1, "title": "x", "releaseDate": "](x"}).year, "")
+
+
+class LinkParsingTests(unittest.TestCase):
+    def test_links_and_ids(self):
+        from woosarr.services.media_links import Lookup, parse
+
+        self.assertIsNone(parse("The Fall"))
+        self.assertIsNone(parse("Face/Off"))  # a slash isn't a link
+        self.assertIsNone(parse("Mr. Robot"))
+        cases = {
+            "https://www.imdb.com/title/tt1375666/": Lookup("IMDb", query="imdb:tt1375666"),
+            "https://m.imdb.com/de/title/tt1375666/?ref_=x": Lookup("IMDb", query="imdb:tt1375666"),
+            "IMDB:TT1375666": Lookup("IMDb", query="imdb:tt1375666"),
+            "https://www.themoviedb.org/en-US/tv/1396-breaking-bad/seasons": Lookup("TMDB", media_type="tv", tmdb_id=1396),
+            "themoviedb.org/movie/27205": Lookup("TMDB", media_type="movie", tmdb_id=27205),
+            "tmdb:27205": Lookup("TMDB", query="tmdb:27205"),
+            "https://thetvdb.com/dereferrer/series/81189": Lookup("TVDB", query="tvdb:81189"),
+            "tvdb:81189": Lookup("TVDB", query="tvdb:81189"),
+        }
+        for text, want in cases.items():
+            self.assertEqual(parse(text), want, text)
+
+    def test_lookalike_and_other_sites_are_refused(self):
+        from woosarr.services.media_links import LinkRejected, parse
+
+        for text, host in (("https://imdb.com.evil.example/title/tt1375666", "imdb.com.evil.example"),
+                           ("https://evilimdb.com/title/tt1375666", "evilimdb.com"),
+                           ("https://www.imdb.com@evil.example/title/tt1375666", "evil.example"),
+                           ("www.netflix.com/title/70131314", "www.netflix.com")):
+            with self.assertRaises(LinkRejected, msg=text) as cm:
+                parse(text)
+            self.assertEqual(cm.exception.host, host)
 
 
 class SettingsTests(unittest.TestCase):
@@ -687,6 +719,41 @@ class DiscordTests(Base):
         nobody = FakeInteraction(user_id=999)
         self.run_async(self.discord.handle_request_command(nobody, "inception"))
         self.assertIn("/link", nobody.log[-1][1])
+
+    def test_pasted_links_open_the_title_and_other_sites_are_refused(self):
+        self.connect()
+
+        def ask(text):
+            it = FakeInteraction()
+            self.run_async(self.discord.handle_request_command(it, text))
+            return it.log[-1]
+
+        for link in ("https://m.imdb.com/title/tt0027205/?ref_=ext_shr_lnk", "Inception on IMDb: imdb.com/title/tt0027205",
+                     "https://www.themoviedb.org/movie/27205-inception?language=en-US", "tt0027205"):
+            _kind, _content, kw = ask(link)
+            self.assertEqual(kw["embed"].title, "Inception (2010)", link)
+        self.assertEqual(ask("https://thetvdb.com/?tab=series&id=81189")[2]["embed"].title, "Breaking Bad (2008)")
+        self.assertIn("imdb:tt0027205", next(c[2]["raw_query"] for c in self.seerr.calls if c[1] == "/search")
+                      .replace("%3A", ":"))
+        _kind, content, kw = ask("https://www.youtube.com/watch?v=YoHD9XEInc0")
+        self.assertEqual(content, "Links to www.youtube.com don't work here. " + media_links.HOW)
+        self.assertNotIn("embed", kw)
+        self.assertIn("instead of its number", ask("https://thetvdb.com/series/breaking-bad")[1])
+        self.assertIn("isn't a movie or TV show's page", ask("https://www.imdb.com/name/nm0000138/")[1])
+        self.assertIn("Nothing found for that IMDb link", ask("https://www.imdb.com/title/tt9999999/")[1])
+        self.assertEqual(ask(discord_requests.LINK_HELP)[1], media_links.HOW)
+
+    def test_link_suggestions(self):
+        self.connect()
+
+        def suggest(text):
+            return [(c.name, c.value) for c in self.run_async(self.discord.request_suggestions(text))]
+
+        self.assertEqual(suggest("https://www.themoviedb.org/tv/1396"), [("\N{TELEVISION} Breaking Bad (2008)", "tv:1396")])
+        self.assertEqual(suggest("imdb.com/title/tt0157336"), [("\N{POPCORN} Interstellar (2014)", "movie:157336")])
+        self.assertEqual(suggest("https://letterboxd.com/film/inception/"),
+                         [(media_links.HOW_SHORT, discord_requests.LINK_HELP)])
+        self.assertLessEqual(len(media_links.HOW_SHORT), 100)
 
     def test_show_season_menu_and_unavailable_titles(self):
         self.connect()

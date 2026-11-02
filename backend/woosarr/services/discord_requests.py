@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 
 from woosarr.core import app_settings
-from woosarr.services import audit
+from woosarr.services import audit, media_links
 from woosarr.services.discord_text import link_text, safe
 from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
@@ -33,6 +33,7 @@ AUTOCOMPLETE_SECONDS = 2.5  # Discord drops autocomplete answers after 3 s
 # on: wait this long and search only if nothing newer came from the same member.
 SUGGEST_SETTLE_SECONDS = 0.35
 PICK = re.compile(r"^(movie|tv):(\d{1,10})$")
+LINK_HELP = "help:links"  # value of the suggestion that explains which links work
 REQUESTABLE = ("unknown", "deleted")
 STATUS_LINE = {
     "unknown": "Not on Plex yet",
@@ -199,7 +200,7 @@ class RequestView(_Owned):
 
 
 def build_command(service: DiscordService, name: str) -> app_commands.Command:
-    @app_commands.describe(title="Movie or TV show; pick one of the suggestions")
+    @app_commands.describe(title="Movie or TV show: type and pick a suggestion, or paste an IMDb, TMDB or TVDB link")
     async def request(interaction: discord.Interaction, title: str) -> None:
         await service.handle_request_command(interaction, title)
 
@@ -252,7 +253,16 @@ class RequestCommands:
                 return []  # the member typed on; Discord has already dropped this ask
         budget = AUTOCOMPLETE_SECONDS - (SUGGEST_SETTLE_SECONDS if interaction is not None else 0)
         try:
-            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, budget, member), budget)
+            lookup = media_links.parse(current)
+        except media_links.LinkRejected:
+            return [app_commands.Choice(name=media_links.HOW_SHORT, value=LINK_HELP)]
+        try:
+            if lookup is not None and lookup.tmdb_id is not None:
+                item = await asyncio.wait_for(asyncio.to_thread(self.requests.details, lookup.media_type,
+                                                                lookup.tmdb_id), budget)
+                return [app_commands.Choice(name=item.label(), value=item.key)]
+            query = lookup.query if lookup is not None else current
+            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, query, budget, member), budget)
         except (TimeoutError, SeerrError) as exc:
             log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
             return []
@@ -290,15 +300,32 @@ class RequestCommands:
         if picked:
             await self.show_details(interaction, picked.group(1), int(picked.group(2)))
             return
+        if title.strip() == LINK_HELP:
+            await interaction.followup.send(media_links.HOW, ephemeral=True)
+            return
         try:
-            hits = await asyncio.to_thread(self.requests.search, title, None, uid, 2)
+            lookup = media_links.parse(title)
+        except media_links.LinkRejected as exc:
+            log.info("request by %s: link to %s refused", uid, exc.host or "?")
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        if lookup is not None and lookup.tmdb_id is not None:
+            log.info("request by %s: %s link to %s %s", uid, lookup.site, lookup.media_type, lookup.tmdb_id)
+            await self.show_details(interaction, lookup.media_type, lookup.tmdb_id)
+            return
+        if lookup is not None:
+            log.info("request by %s: %s link, looking up %s", uid, lookup.site, lookup.query)
+        try:
+            hits = await asyncio.to_thread(self.requests.search, lookup.query if lookup else title, None, uid,
+                                           1 if lookup else 2)
         except SeerrError as exc:
             text = str(exc) if exc.status == 429 else f"Seerr isn't answering right now ({safe(str(exc), 200)})."
             await interaction.followup.send(text, ephemeral=True)
             return
         if not hits:
-            await interaction.followup.send(f"Nothing found for **{safe(title, 100)}**.",
-                                            ephemeral=True)
+            text = (f"Nothing found for that {lookup.site} link. Check it's the title's own page, or type the title."
+                    if lookup else f"Nothing found for **{safe(title, 100)}**.")
+            await interaction.followup.send(text, ephemeral=True)
             return
         if len(hits) == 1:
             await self.show_details(interaction, hits[0].media_type, hits[0].tmdb_id)

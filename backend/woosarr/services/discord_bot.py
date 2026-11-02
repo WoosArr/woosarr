@@ -115,7 +115,8 @@ def help_text(request_name: str | None) -> str:
     ]
     if request_name:
         lines.append(f"`/{request_name} title`: request a movie or TV show. Start typing and pick one of the "
-                     "suggestions. Needs a linked Plex account.")
+                     "suggestions, or paste a link to the title on IMDb, TMDB or TVDB (Share → Copy link in "
+                     "their app). Needs a linked Plex account.")
     lines.append("`/help`: show this message.")
     return "\n".join(lines)
 

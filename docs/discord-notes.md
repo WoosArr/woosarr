@@ -37,10 +37,10 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
 ## Runtime
 
-- Intents: `guilds`, `members` and `guild_reactions` (for reaction posts); never message content.
+- Intents: `guilds`, `members` (privileged: *Server Members Intent*), `guild_reactions` (reaction posts) and `emojis_and_stickers` (keeps the emoji picker current); never message content.
 - `/link`, `/unlink`, `/invite`, `/help` and the request command are **guild** commands (`tree.sync(guild=…)`), so they appear immediately (global commands can take up to an hour). The log line `discord commands registered in guild …` lists them.
 - On connect: full cache sync (`guild.roles`, `guild.fetch_members()`), then a full reconcile.
-- Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`.
+- Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`. `on_raw_reaction_add/remove` give and take reaction post roles.
 - Reconnect/resume is discord.py's (`reconnect=True`). `PrivilegedIntentsRequired` and `LoginFailure` are shown on the dashboard and Integrations page; **Restart bot** retries without a container restart.
 - DB work runs in `asyncio.to_thread`; Plex calls run on the sync worker, so the gateway heartbeat never waits on Plex.
 
@@ -71,11 +71,11 @@ Audited as `unlink_self` (with the policy and the members who remain).
 
 ## `/help`
 
-A private reply listing every command the bot has registered with its options: `/link`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up) and `/help`. `help` can't be used as the request command's name.
+A private reply listing every command the bot has registered with its options: `/link`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up; it mentions pasting an IMDb, TMDB or TVDB link) and `/help`. `help` can't be used as the request command's name.
 
 ## `/invite email [member]`
 
-- Members holding a role in **Settings → Linking → Plex Invites** may invite **themselves**. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
+- Members holding a role in **Settings → Linking → Plex Invites** (or anyone in the server, if *anyone* is ticked there) may invite **themselves**; with neither, only Discord admins can invite. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
 - Libraries = what the target member's roles grant (exempt libraries are never granted by roles). No libraries → refused.
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
 - Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, a full sync finds them by email/username and links them (`method=invite`; verified when an admin sent it). Pending invites are listed on the Users page.
@@ -92,7 +92,9 @@ Libraries page → **Create role** opens the same dialog as the Roles page with 
 
 ## Roles deleted in Discord
 
-When a role is deleted in Discord (or was deleted while the bot was offline), the Roles page marks it **Deleted in Discord** and keeps its mappings so nothing changes silently. **Remove** (per role) or **Remove N deleted roles** forgets it in WooSarr and cleans up everything that refers to it: role → library mappings, the link-status roles and the *Plex Invites*, *request* and *link by typing a username* role lists in Settings, and reaction-post options that give it (the post's legend is updated). The confirmation lists exactly what will be removed. Roles that still exist in Discord can't be removed here (delete them in Discord first). No one can hold a deleted role, so no Plex access changes; a sync runs anyway when mappings were removed. Audited as `role_removed`.
+When a role is deleted in Discord (or was deleted while the bot was offline), members lose it at once and the next sync takes away the libraries only that role gave. WooSarr keeps the role's mappings until then, so that sync knows which libraries to take away. After the next full sync that runs live and without errors, WooSarr forgets the role and everything that refers to it: role → library mappings, the link-status roles and the *Plex Invites*, *request* and *link by typing a username* role lists in Settings, reaction-post options that give it (the post's legend is updated) and dashboard filters. It's audited as `role_removed` by WooSarr.
+
+In dry-run nothing is forgotten automatically: the Roles page marks the role **Deleted in Discord** (turn off *Settings → General → Hide deleted items* to see it), and **Remove** (per role) or **Remove N deleted roles** does the same clean-up by hand, after a confirmation that lists exactly what will be removed. Role ids mapped before the bot ever saw them in Discord are only removed by hand. Roles that still exist in Discord can't be removed here (delete them in Discord first). If Discord suddenly reports no roles at all, nothing is marked deleted.
 
 ## Reaction posts
 

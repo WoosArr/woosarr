@@ -19,7 +19,7 @@ Members request movies and TV shows from Discord with a slash command (default *
 - **Request** sends it to Seerr; the reply says whether it's waiting for approval or already approved. Titles that are available or already requested have the button disabled.
 - When the request is approved, declined, fails, or becomes (partly) available, the member gets a DM from the bot. Members who don't accept DMs from server members just don't get it; the Requests page still shows the status.
 
-All replies are ephemeral (only the member sees them).
+All replies are ephemeral (only the member sees them); with *Public* visibility the request itself is also posted in a channel (below).
 
 ## Private or public (Settings → Requests → Visibility)
 
@@ -77,14 +77,19 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 |----------|---------|
 | `discord commands registered in guild … /request` | The command is live (also shows a rename: `request command was /old`). |
 | `seerr GET /search -> 403` | API key wrong or regenerated in Seerr; enter it again on the Integrations page. |
+| `seerr GET /search timed out after 2.1 s (limit 2.15 s)` | Seerr was slow. A limit around 2 s is a suggestion while typing (Discord's 3 s); 15 s is everything else. Clears by itself once Seerr answers again. |
 | `no seerr user for plex <name>` | Member's Plex account isn't in Seerr and import is off, or Seerr couldn't import it (not a Plex friend with library access). |
 | `request <id> created for discord … as seerr user …` | Request made; the Seerr user id it ran as. |
 | `request suggestions … unavailable: timeout` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
 | `request notice for … not sent: member doesn't accept DMs` | The member has DMs from server members turned off. |
-| `request poll: N open, M changed, K to notify` | Periodic status check. |
+| `request poll: N checked, M changed, K to notify, R retried` | Periodic status check (every 30 minutes). |
 | `request <id> posted in #channel` / `request notice for … posted in #channel` | Public request post and status reply. |
 | `bot can't post requests in #… missing …` | Give the bot those permissions in the requests channel. |
 | `request by … refused: used in channel …` | *Only in this channel* is on and the member used another channel. |
+| `request by …: IMDb link, looking up imdb:tt…` / `TMDB link to movie …` | A pasted link, and what it was looked up as. |
+| `request by …: link to <host> refused` | A link to a site other than IMDb, TMDB or TVDB (or not a title's page); the member was told what works. |
+| `tvdb page series/<name> is tmdb tv <id>` | A TVDB link resolved to that exact title. Warnings `tvdb page … unavailable` / `has no TMDB, IMDb or TVDB id` mean it fell back to searching by name. |
+| `request <id> (<title>) retried in Seerr by …` (audit `request_retried`) | A failed request was sent to Seerr again (automatically or with **Retry**). |
 
 ## API details used (Seerr develop, 2026-10)
 

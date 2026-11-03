@@ -13,11 +13,12 @@ Automatically grants and removes **Plex library access** based on **Discord role
 - **Shared Plex accounts.** Several Discord members can share one Plex account (a family); it gets the libraries all their roles give.
 - **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change.
 - **Exemptions and manual grants.** Exempt libraries are never touched by roles; admins can grant or remove libraries per user.
-- **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role) and link-status roles (Verified / Unverified / Linked).
+- **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role), link-status roles (Verified / Unverified / Linked) and adding or removing roles for many members at once.
 - **Custom Emoji:** search emoji.gg, OpenMoji and slackmojis and add emoji to your Discord server (animated ones hidden unless you want them); rename and delete server emoji.
-- **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, and hear back when it's available ([docs/requests.md](docs/requests.md)).
+- **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, by typing the title or pasting an IMDb, TMDB or TVDB link, and hear back when it's available. Failed requests are retried ([docs/requests.md](docs/requests.md)).
+- **Keeps itself tidy:** libraries deleted in Plex and roles deleted in Discord are cleaned out of mappings, grants and settings, and hidden from the lists (*Hide deleted items*).
 - **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
-- **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs.
+- **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs, and a check for newer versions.
 - **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
 
@@ -106,7 +107,7 @@ Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (curren
 4. **Roles** page: choose which libraries each Discord role grants. **Libraries** page: exempt any library that roles should never touch.
 5. **Dashboard**: check *Pending changes*. When they look right, turn off **dry-run** in *Settings → General*.
 
-How access is decided, the Discord commands, troubleshooting, backups and all settings: [docs/admin-guide.md](docs/admin-guide.md). Bot permissions per feature: [docs/discord-notes.md](docs/discord-notes.md).
+How access is decided, the pages, the Discord commands, every setting, troubleshooting and backups: [docs/admin-guide.md](docs/admin-guide.md). Bot permissions per feature: [docs/discord-notes.md](docs/discord-notes.md).
 
 ## HTTPS and reverse proxies
 
@@ -171,12 +172,12 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 
 | Doc | For |
 |-----|-----|
-| [Admin guide](docs/admin-guide.md) | How access is decided, Discord commands, shared accounts, dashboard and alerts, troubleshooting, backups, environment variables |
+| [Admin guide](docs/admin-guide.md) | How access is decided, the pages, Discord commands, shared accounts, dashboard and alerts, every setting, troubleshooting, backups, environment variables |
 | [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, custom emoji, link-status roles, bot avatar |
-| [Requests](docs/requests.md) | `/request` through Seerr: setup, who may request, public or private, diagnostics |
+| [Requests](docs/requests.md) | `/request` through Seerr: setup, search and pasted links, who may request, public or private, failed requests, diagnostics |
 | [Single sign-on](docs/sso.md) | OIDC providers for admin sign-in |
 | [Plex notes](docs/plex-notes.md) | How WooSarr talks to Plex and what was verified on a real server |
-| [Unraid notes](docs/unraid-notes.md) | The Unraid template |
+| [Unraid notes](docs/unraid-notes.md) | The Unraid template, Community Applications, development builds, Docker Compose |
 | [TrueNAS notes](docs/truenas-notes.md) | Install via YAML as the apps user; the TrueNAS Apps catalog listing |
 | [Proxmox notes](docs/proxmox-notes.md) | Docker Compose in an LXC or VM; OCI image as an LXC (9.1+) |
 | [Threat model](docs/threat-model.md) | What's protected and how |

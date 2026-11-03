@@ -27,7 +27,7 @@ The rules:
 
 - Right away (after a few seconds of debounce) when a member's roles change, a role is edited or deleted, a member joins or leaves, a link changes, or you change a manual grant.
 - A full reconcile when you change a role mapping, an exemption, or certain settings, and on a schedule (default every 15 minutes).
-- **Sync now** on the dashboard.
+- **Sync now** on the dashboard or the Libraries page (a full sync that also re-reads library names from Plex).
 
 ### Libraries removed from Plex, roles deleted in Discord
 
@@ -40,13 +40,13 @@ The rules:
 - `/help`: lists the commands below with their options (only the asker sees it; `/request` appears only when Seerr is set up).
 - `/link`: link your Plex account (Plex sign-in = verified, or typed username). *Settings → Linking → Who may link by typing a Plex username* can limit the typed-username option to chosen roles; everyone else only sees Plex sign-in, and a typed username from them is refused (audited as `link_failed`, reason `username_link_not_allowed`).
 - `/unlink`: remove your own link. What happens to access is set under *Settings → Linking → When a member unlinks themselves*.
-- `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).
-- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Linking → Plex Invites*; Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
+- `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Members type the title and pick a suggestion, or paste the title's IMDb, TMDB or TVDB link. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).
+- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Linking → Plex Invites* (or anyone, if that's ticked; nobody by default); Discord admins can invite for anyone. Accepted invites link automatically; pending ones are listed on the Users page. Not available in dry-run.
 
 ### Discord roles managed by WooSarr
 
-- Link-status roles (Verified / Unverified / Linked), per-library roles and reaction posts (react to get a role): see `docs/discord-notes.md`.
-- Bot permissions per feature, and how to grant only what you need: `docs/discord-notes.md` → *Bot permissions by feature*.
+- Link-status roles (Verified / Unverified / Linked), per-library roles and reaction posts (react to get a role): see [Discord notes](discord-notes.md).
+- Bot permissions per feature, and how to grant only what you need: [Discord notes → Bot permissions by feature](discord-notes.md#bot-permissions-by-feature).
 
 ### Custom emoji
 
@@ -88,6 +88,21 @@ Several Discord members can be linked to one Plex account, for example a family 
   - Either way, signing in with Plex replaces links other members made by typing the username (they're unproven), and every new member on an account others are linked to shows up in **Alerts**.
 - **A member leaves the Discord server** (*When a linked member leaves the Discord server*): *Remove role-granted libraries* drops what only their roles gave and keeps what the others' roles give; *Leave their access as it is* keeps counting their last known roles. If every member has left, it works as for a single member.
 - **A member unlinks** (`/unlink`, or the unlink button on the Users page): the account stays linked to the others. *Remove role-granted libraries* drops what only their roles gave; *Leave their access as it is* turns those libraries into manual grants (audited as `manual_grant_kept`), so nothing is taken away and an admin can remove them later. The last member unlinking works as for a single member.
+
+## The pages
+
+| Page | What it's for |
+|------|---------------|
+| **Dashboard** | Widgets for status, alerts, pending changes and activity; **Sync now** ([below](#dashboard)). |
+| **Users** | *Plex* tab: every Plex user, their linked members, roles and where each library comes from; link, add a member, add or remove libraries. *Discord* tab: every server member; add or remove roles for many at once ([above](#users-page-plex-and-discord-tabs)). Pending Plex invites are listed here too. |
+| **Roles** | Each Discord role with the libraries it grants and its linked members. **Edit** a role's libraries (with an impact preview before saving), **Create role** in Discord and map it straight away, and **Remove** roles deleted in Discord. |
+| **Libraries** | Every library on the Plex server: who it's shared with, which roles grant it, and the **Exempt** switch. **Create role** makes a `Plex · <library>` role mapped to it; **Sync now**. Libraries deleted in Plex show as *Missing on server*. |
+| **Reaction Posts** | Messages members react to for a role ([Discord notes → Reaction posts](discord-notes.md#reaction-posts)). |
+| **Custom Emoji** | Add emoji from emoji.gg, OpenMoji and slackmojis to the server; rename and delete server emoji ([Discord notes → Custom emoji](discord-notes.md#custom-emoji)). |
+| **Requests** | Requests made with `/request`: member, title, status, when it was last checked; **Check status now** and **Retry** for failed ones ([requests.md](requests.md)). |
+| **Logs** | *Application log*: live, filter by level, search. *Audit trail*: every access change, link, mapping and settings change, with who did it; **Load older**. |
+| **Settings** | All settings ([below](#settings)). |
+| **Integrations** | Connect Plex, Discord and Seerr. Plex: **Verify sharing on a test user…**. Discord: *Bot features and permissions* (with an invite link for exactly those), *Bot avatar*, **Restart bot**. |
 
 ## Dashboard
 
@@ -168,8 +183,8 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
 
 ## Admin accounts
 
-- Single sign-on (Okta, Entra ID, Google, ADFS, Custom OIDC): *Settings → Single sign-on*; setup steps per provider in `docs/sso.md`.
-
+- Single sign-on (Okta, Entra ID, Google, ADFS, Custom OIDC): *Settings → Single sign-on*; setup steps per provider in [sso.md](sso.md).
+- *Settings → API keys*: **read** keys (GET only, for troubleshooting) or **admin** keys; each is shown once and can be revoked.
 - *Settings → Admins*: add, disable, delete, reset passwords, unlock locked accounts. The last active admin can't be disabled or deleted.
 - Locked out or forgot the password? Open the container console (Unraid: Docker tab → WooSarr icon → *Console*) and run:
 
@@ -194,19 +209,57 @@ Everything WooSarr needs is in `/config` (`/mnt/user/appdata/woosarr` on Unraid)
 - **Lost `master.key`**: settings, mappings and links are fine, but the stored Plex and Discord tokens can't be decrypted. Delete them by re-running the Plex and Discord setup, which stores new tokens.
 - **Keep the key elsewhere**: set `WOOSARR_MASTER_KEY_FILE=/run/secrets/woosarr_key` (Docker secret) or `WOOSARR_MASTER_KEY` so a DB backup alone can't reveal tokens.
 
+## Settings
+
+Changes take effect when you **Save**; settings that change access show an impact preview first.
+
+**General**
+
+| Setting | Default | |
+|---------|---------|---|
+| Dry-run | on | Log and audit what would change without touching Plex ([Dry-run](#dry-run)). |
+| Full reconcile every (minutes) | 15 | 5-1440. Discord events sync right away; this catches anything missed. |
+| Ignore unverified links | off | Manage only members who proved their Plex account. |
+| Log level | INFO (or `WOOSARR_LOG_LEVEL`) | DEBUG shows every Plex and Discord call; applies at once. |
+| Check GitHub for newer versions / every | on / 6 hours | Also 3 h, 1 h, 30, 15 or 5 min ([Versions and updates](#versions-and-updates)). |
+| Discord bot status | *Try /help for help* | Shown under the bot's name; empty for none; up to 128 characters. |
+| Hide deleted items | on | Leave out libraries missing on the Plex server, roles deleted in Discord, Plex users no longer shared with and requests removed in Seerr. |
+| Keep audit entries for (days) | 365 | 7-3650; older entries are deleted. |
+
+**Linking**
+
+| Setting | Default | |
+|---------|---------|---|
+| Who may link by typing a Plex username | anyone | Or only members with chosen roles; everyone else only sees *Sign in with Plex*. |
+| Shared Plex accounts (families) | Admins only | Or *Admins, or members who sign in with that Plex account* ([Shared Plex accounts](#shared-plex-accounts-families)). |
+| `/link` cooldown (seconds) | 300 | Wait between a member's link attempts; 0 = none. |
+| When a linked member leaves the Discord server | Remove role-granted libraries | Or *Leave their access as it is*. |
+| When a member unlinks themselves | Remove role-granted libraries | Or *Leave their access as it is*. |
+| Discord roles for Plex link status | none | Verified / Unverified / Linked roles, each picked or created ([Discord notes](discord-notes.md#link-status-roles)). |
+| Plex Invites | nobody (admins only) | Roles whose members may `/invite` themselves, or anyone in the server. |
+
+**Requests**: command name, who may request, verified links only, create missing Seerr users, notify members, retry failed requests, private or public and the requests channel ([requests.md → Who may request](requests.md#who-may-request-settings--requests)).
+
+**Appearance** (per browser): theme (match system, light, dark), colour vision palette (standard, red-green friendly, blue-yellow friendly), extra contrast.
+
+**Account**: change your own password. **Admins**, **Single sign-on** and **API keys**: see [Admin accounts](#admin-accounts) and [Troubleshooting](#troubleshooting).
+
 ## Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `WOOSARR_PORT` | `31337` | Port inside the container |
+| `WOOSARR_HOST` | `0.0.0.0` | Address to listen on inside the container |
+| `WOOSARR_CONFIG_DIR` | `/config` | Where the database, logs and secrets live |
 | `WOOSARR_LOG_LEVEL` | `INFO` | Startup log level (the Settings page can override it) |
 | `WOOSARR_LOG_FORMAT` | `json` | `json` or `text` for the container log |
 | `WOOSARR_LOG_FILE_MAX_BYTES` / `WOOSARR_LOG_FILE_BACKUPS` | `5242880` / `5` | Size and count of `logs/woosarr.log` files |
 | `WOOSARR_ALERTS_FILE_MAX_BYTES` / `WOOSARR_ALERTS_FILE_BACKUPS` | `2097152` / `2` | Size and count of `logs/alerts.log` files (warnings and errors only) |
+| `WOOSARR_LOG_BUFFER_SIZE` | `5000` | Log lines kept in memory for the Logs page and logs API |
 | `WOOSARR_MASTER_KEY` / `WOOSARR_MASTER_KEY_FILE` | — | Supply the encryption key instead of `/config/secrets/master.key` |
 | `WOOSARR_COOKIE_SECURE` | `auto` | `always` behind an HTTPS proxy that isn't in `WOOSARR_FORWARDED_ALLOW_IPS` |
 | `WOOSARR_FORWARDED_ALLOW_IPS` | `127.0.0.1` | Reverse proxy IPs whose `X-Forwarded-*` headers are trusted |
 | `WOOSARR_SESSION_IDLE_HOURS` / `WOOSARR_SESSION_MAX_DAYS` | `12` / `7` | Session lifetime |
 | `WOOSARR_SETUP_CODE_REQUIRED` | `true` | First admin needs the code from the container log |
-| `PUID` / `PGID` | `99` / `100` | File ownership in `/config` |
+| `PUID` / `PGID` | `99` / `100` | File ownership in `/config` (ignored when the container is started as a non-root user, as on TrueNAS) |
 | `WOOSARR_DEMO` | `false` | Fake Plex/Discord data for trying the UI. Never on a real install. |

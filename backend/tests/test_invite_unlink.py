@@ -129,6 +129,76 @@ class InviteTests(Base):
             self.assertEqual(s.scalars(select(PlexInvite.status)).one(), "accepted")
         self.assertEqual(self.gw.shares["22"], {"1"})  # roles give Movies; nothing extra
 
+    def test_invite_check_links_an_accepted_invite_without_a_full_sync(self):
+        self.invite()
+        self.assertEqual(self.sync.check_invites(), [])  # not accepted yet
+        self.gw.users.append(GwUser("22", "newbie", "newbie@x.com"))
+        self.gw.shares["22"] = {"1"}
+        queued = []
+        self.sync.trigger = lambda ids, reason, delay=None: queued.append((list(ids), reason, delay))
+        self.assertEqual(self.sync.check_invites(), ["22"])
+        self.assertEqual(queued, [(["22"], "invite accepted", 0)])  # synced (and roles set) right away
+        with self.db.session() as s:
+            link = s.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == "d2"))
+            self.assertEqual((link.plex_user_id, link.method, link.verified), ("22", "invite", False))
+            self.assertEqual(s.scalars(select(PlexInvite.status)).one(), "accepted")
+        self.assertEqual(self.sync.check_invites(), [])  # nothing pending: Plex isn't read
+
+    def test_invite_check_only_adds_users(self):
+        """It reads part of the roster, so users it doesn't list stay (the full sync decides)."""
+        from woosarr.db.models import PlexUser
+        self.invite()
+        self.gw.shares["11"] = set()  # alice has no share now: not in the shared list
+        self.sync.check_invites()
+        with self.db.session() as s:
+            self.assertFalse(s.get(PlexUser, "11").removed)
+
+    def test_invite_check_skips_old_invites_and_plex_failures(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        self.invite()
+        with self.db.session() as s:
+            s.scalars(select(PlexInvite)).one().created_at = utcnow() - timedelta(days=2)
+        calls = []
+        self.gw.list_shared_users = lambda: calls.append(1) or []
+        self.assertEqual(self.sync.check_invites(), [])
+        self.assertEqual(calls, [])  # older than a day: left to the full sync
+        with self.db.session() as s:
+            s.scalars(select(PlexInvite)).one().created_at = utcnow()
+
+        def down():
+            raise ConnectionError("plex.tv down")
+        self.gw.list_shared_users = down
+        with self.assertLogs("woosarr.sync", "WARNING") as logs:
+            self.assertEqual(self.sync.check_invites(), [])
+        self.assertIn("invite check failed (ConnectionError", logs.output[0])
+        self.gw.list_shared_users = list
+        with self.assertLogs("woosarr.sync", "INFO") as logs:
+            self.sync.check_invites()
+        self.assertIn("invite check works again", logs.output[0])
+
+    def test_worker_runs_the_invite_check_between_full_syncs(self):
+        import time
+
+        self.invite()
+        self.gw.users.append(GwUser("22", "newbie", "newbie@x.com"))
+        self.gw.shares["22"] = {"1"}
+        self.sync._next_periodic = time.monotonic() + 3600  # no full sync during the test
+        self.sync._next_invite_check = time.monotonic()
+        self.sync.start()
+        try:
+            deadline = time.monotonic() + 5
+            while self.sync.last_report is None and time.monotonic() < deadline:
+                time.sleep(0.02)
+        finally:
+            self.sync.stop()
+        report = self.sync.last_report
+        self.assertIsNotNone(report)
+        self.assertEqual((report.full, report.reason), (False, "invite accepted"))
+        with self.db.session() as s:
+            self.assertEqual(s.scalars(select(PlexInvite.status)).one(), "accepted")
+
 
 class UnlinkTests(Base):
     def service(self):

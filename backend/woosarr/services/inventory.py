@@ -138,6 +138,25 @@ def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
     return len(live), removed
 
 
+def add_users(session: Session, users: list) -> int:
+    """Add users that are new (or back) without touching anyone else: the invite check reads only
+    part of the roster, so missing users mean nothing here (the full sync marks those removed)."""
+    added = 0
+    for user in users:
+        row = session.get(PlexUser, user.plex_user_id)
+        if row is None:
+            session.add(PlexUser(plex_user_id=user.plex_user_id, username=user.username, email=user.email,
+                                 is_managed=user.is_managed, is_owner=user.is_owner))
+        elif row.removed:
+            row.username, row.email, row.removed = user.username, user.email, False
+        else:
+            continue
+        added += 1
+        log.info("plex user added id=%s username=%s", user.plex_user_id, user.username)
+    session.flush()
+    return added
+
+
 def store_shares(session: Session, plex_user_id: str, library_ids: frozenset[str]) -> None:
     """Record what Plex reported for one user (cache for UI and previews)."""
     session.execute(delete(LibraryState).where(LibraryState.plex_user_id == plex_user_id))

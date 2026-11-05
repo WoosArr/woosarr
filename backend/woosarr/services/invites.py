@@ -3,7 +3,8 @@
 Libraries come from the target member's Discord roles (exempt libraries are
 never granted by roles). Members may invite themselves if they hold a role in
 `invite_role_ids`; Discord admins (Manage Server) may invite for any member.
-Accepted invites are matched by email/username during full syncs and linked
+Accepted invites are matched by email/username during full syncs, and once a
+minute while a recent invite is pending (SyncService.check_invites), and linked
 (verified when an admin sent the invite).
 """
 

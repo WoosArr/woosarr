@@ -5,6 +5,9 @@
 * trigger() debounces per user (bursts of role events collapse into one run);
   trigger(None) queues a full reconcile. A periodic full reconcile runs every
   `reconcile_interval_minutes`.
+* While a recent /invite is pending, the shared-users list is read once a minute
+  (check_invites), so an accepted invite links within about a minute instead of
+  waiting for the next full reconcile.
 * A global lock serialises runs (no two reconciles at once) and per-user locks
   guard any direct run_now() calls; running twice makes no changes the second
   time because plans are computed from fresh live state (idempotent).
@@ -18,12 +21,12 @@ import threading
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from woosarr.core import app_settings
-from woosarr.db.models import ManualGrant, utcnow
+from woosarr.db.models import ManualGrant, PlexInvite, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
 from woosarr.services import audit, cleanup, impact, inventory, invites, self_resolve
@@ -35,6 +38,10 @@ log = logging.getLogger("woosarr.sync")
 
 DEBOUNCE_SECONDS = 5.0
 STARTUP_DELAY_SECONDS = 15.0
+INVITE_CHECK_SECONDS = 60.0
+# Invites older than this are left to the full reconcile (one forgotten invite shouldn't mean a
+# plex.tv call every minute forever).
+INVITE_CHECK_HOURS = 24
 
 
 @dataclass
@@ -74,6 +81,8 @@ class SyncService:
         self._pending_full_at: float | None = None
         self._pending_reasons: list[str] = []
         self._next_periodic = time.monotonic() + STARTUP_DELAY_SECONDS
+        self._next_invite_check = time.monotonic() + STARTUP_DELAY_SECONDS + INVITE_CHECK_SECONDS
+        self._invite_check_failed = False
         self._stop = False
         self._thread: threading.Thread | None = None
         self.running = False
@@ -143,23 +152,35 @@ class SyncService:
                     self._next_periodic <= now
                 )
                 due_users = [u for u, t in self._pending_users.items() if t <= now]
-                if not full_due and not due_users:
+                invites_due = self._next_invite_check <= now
+                if not full_due and not due_users and not invites_due:
                     waits = [t - now for t in self._pending_users.values()]
                     waits.append(self._next_periodic - now)
+                    waits.append(self._next_invite_check - now)
                     if self._pending_full_at is not None:
                         waits.append(self._pending_full_at - now)
                     self._cond.wait(timeout=max(0.05, min(waits)))
                     continue
-                reasons = sorted(set(self._pending_reasons))
-                if self._next_periodic <= now:
-                    reasons.insert(0, "periodic")
-                if full_due:
-                    self._pending_users.clear()
-                    self._pending_full_at = None
+                invites_only = not full_due and not due_users
+                if invites_only:
+                    self._next_invite_check = now + INVITE_CHECK_SECONDS
                 else:
-                    for u in due_users:
-                        del self._pending_users[u]
-                self._pending_reasons = []
+                    reasons = sorted(set(self._pending_reasons))
+                    if self._next_periodic <= now:
+                        reasons.insert(0, "periodic")
+                    if full_due:
+                        self._pending_users.clear()
+                        self._pending_full_at = None
+                    else:
+                        for u in due_users:
+                            del self._pending_users[u]
+                    self._pending_reasons = []
+            if invites_only:
+                try:
+                    self.check_invites()
+                except Exception:  # the worker must survive it; the next check tries again
+                    log.exception("invite check crashed")
+                continue
             reason = ", ".join(reasons) or "periodic"
             try:
                 self.run_now(None if full_due else due_users, reason)
@@ -174,6 +195,47 @@ class SyncService:
                     interval = 60.0
                 with self._cond:
                     self._next_periodic = time.monotonic() + interval
+                    # The full run just matched invites itself.
+                    self._next_invite_check = time.monotonic() + INVITE_CHECK_SECONDS
+
+    # ---- accepted invites -------------------------------------------------------
+
+    def check_invites(self) -> list[str]:
+        """Link invites accepted since the last run and sync those users now. Reads Plex (one call
+        for the shared-users list) only while an invite sent in the last INVITE_CHECK_HOURS is
+        pending. Returns the Plex ids linked."""
+        gateway = self._gateway()
+        if gateway is None:
+            return []
+        since = utcnow() - timedelta(hours=INVITE_CHECK_HOURS)
+        with self._db.session() as s:
+            pending = s.scalar(select(func.count()).select_from(PlexInvite).where(
+                PlexInvite.status == "pending", PlexInvite.created_at >= since)) or 0
+        if not pending:
+            return []
+        started = time.monotonic()
+        with self._run_lock:
+            try:
+                users = (gateway.list_shared_users() if hasattr(gateway, "list_shared_users")
+                         else gateway.list_users())
+                with self._db.session() as s:
+                    added = inventory.add_users(s, users)
+                    linked = invites.match_pending(s)
+            except Exception as exc:  # noqa: BLE001 - Plex down: say so once, then quietly retry every minute
+                if not self._invite_check_failed:
+                    log.warning("invite check failed (%s: %s); retrying every %.0f s, and the full sync "
+                                "also links accepted invites", type(exc).__name__, str(exc)[:200],
+                                INVITE_CHECK_SECONDS)
+                self._invite_check_failed = True
+                return []
+        if self._invite_check_failed:
+            log.info("invite check works again")
+            self._invite_check_failed = False
+        log.debug("invite check: %s pending, %s new plex users, %s linked (%.1f s)", pending, added,
+                  len(linked), time.monotonic() - started)
+        if linked:
+            self.trigger(linked, "invite accepted", delay=0)
+        return linked
 
     # ---- a run --------------------------------------------------------------
 

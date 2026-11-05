@@ -266,6 +266,7 @@ function Linking() {
         all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.invite_role_ids ?? []}
         onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
+      <InviteWelcome value={v} set={f.set} />
       {changed ? <ImpactCard impact={impact} /> : null}
       <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
     </div>
@@ -570,6 +571,113 @@ function LinkRoles({ roles, value, set, onCreated }: {
           </button>
         </div>
       ))}
+    </fieldset>
+  );
+}
+
+interface WelcomePreview {
+  defaults: Record<string, string>;
+  placeholders: Record<string, string>;
+  needs_verified: string[];
+  unverified: string;
+  verified: string;
+}
+
+type WelcomeKey = "invite_welcome_text" | "invite_welcome_verify_text" | "invite_welcome_verify_needed_text" | "invite_welcome_find_server_text";
+
+/** Discord-ish rendering of a DM: **bold**, `code`, backslash escapes removed, line breaks kept. No HTML. */
+function DmPreview({ text, label }: { text: string; label: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  const plain = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!|~<>@])/g, "$1");
+  return (
+    <div className="discord-preview" aria-label={label}>
+      {parts.map((part, i) => {
+        if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={i}>{plain(part.slice(2, -2))}</strong>;
+        if (/^`[^`]+`$/.test(part)) return <code key={i}>{part.slice(1, -1)}</code>;
+        return <span key={i}>{plain(part)}</span>;
+      })}
+    </div>
+  );
+}
+
+/** Settings → Linking: the DM a member gets when their Plex invite is accepted, in four editable parts. */
+function InviteWelcome({ value, set }: { value: AppSettings; set: (p: Partial<AppSettings>) => void }) {
+  const [preview, setPreview] = useState<WelcomePreview | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [which, setWhich] = useState<"unverified" | "verified">("unverified");
+  const texts = {
+    invite_welcome_text: value.invite_welcome_text,
+    invite_welcome_verify_text: value.invite_welcome_verify_text,
+    invite_welcome_verify_needed_text: value.invite_welcome_verify_needed_text,
+    invite_welcome_find_server_text: value.invite_welcome_find_server_text,
+  };
+  const key = JSON.stringify(texts);
+  // Checked here with the names the last preview listed, so a typo shows at once (the server checks too).
+  const known = preview ? Object.keys(preview.placeholders) : null;
+  const unknown = known ? [...new Set(Object.values(texts).flatMap((x) => [...(x ?? "").matchAll(/\{([A-Za-z_]+)\}/g)].map((m) => m[1])))]
+    .filter((n) => !known.includes(n)) : [];
+  const typo = unknown.length ? `unknown placeholder ${unknown.map((n) => `{${n}}`).join(", ")}; use ${known!.map((n) => `{${n}}`).join(", ")}` : null;
+  useEffect(() => {
+    if (typo) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api.post<WelcomePreview>("/api/v1/settings/invite-welcome/preview", JSON.parse(key))
+        .then((r) => { if (live) { setPreview(r); setError(null); } }, (e) => live && setError(e));
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [key, typo]);
+  const on = value.invite_welcome ?? true;
+  const needs = preview?.needs_verified ?? [];
+  const parts: { key: WelcomeKey; label: string; hint: ReactNode; rows: number }[] = [
+    { key: "invite_welcome_text", label: "Message", rows: 4, hint: "Always sent." },
+    { key: "invite_welcome_verify_text", label: "When the link is unverified", rows: 3,
+      hint: <>Added when the member invited themselves, so their link isn't verified yet (an invite sent by a Discord admin is). Leave empty to leave it out.</> },
+    { key: "invite_welcome_verify_needed_text", label: "When a setting needs a verified link", rows: 2,
+      hint: needs.length
+        ? <>Added after the part above while something needs a verified link. Now: <em>{needs.join("; ")}</em> (that's <code>{"{features}"}</code>).</>
+        : <>Added after the part above only while something needs a verified link (<em>Settings → Requests → Verified links only</em> with Seerr connected, or <em>Ignore unverified links</em>). Nothing does now, so it's left out.</> },
+    { key: "invite_welcome_find_server_text", label: "Where to find the server", rows: 2,
+      hint: "Added when the member can see at least one library. Leave empty to leave it out." },
+  ];
+  return (
+    <fieldset className="plain stack">
+      <legend className="small" style={{ fontWeight: 600 }}>Invite welcome message</legend>
+      <Switch checked={on} onChange={(x) => set({ invite_welcome: x })}
+        label={<><strong>DM members when their Plex invite is accepted</strong> <span className="muted small">— members who don't accept DMs from server members won't get it</span></>} />
+      {preview ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Placeholders: {Object.entries(preview.placeholders).map(([k, d], i) => (
+            <span key={k}>{i ? " · " : ""}<code>{`{${k}}`}</code> {d}</span>
+          ))}. Discord formatting works: <code>**bold**</code>, <code>`code`</code>.
+        </p>
+      ) : null}
+      {parts.map((p) => {
+        const dflt = preview?.defaults[p.key];
+        const current = texts[p.key] ?? "";
+        return (
+          <div key={p.key} className="stack" style={{ gap: 4, opacity: on ? 1 : 0.6 }}>
+            <Field label={p.label} hint={p.hint}>
+              <textarea rows={p.rows} maxLength={1500} value={current} disabled={!on}
+                onChange={(e) => set({ [p.key]: e.target.value } as Partial<AppSettings>)} />
+            </Field>
+            <div>
+              <button type="button" className="btn sm" disabled={!on || dflt === undefined || current === dflt}
+                onClick={() => set({ [p.key]: dflt } as Partial<AppSettings>)}>Reset to default</button>
+            </div>
+          </div>
+        );
+      })}
+      {typo ? <div className="banner warn small" role="alert"><span>{typo}</span></div> : <ErrorBanner error={error} />}
+      {preview && on && !typo ? (
+        <div>
+          <div className="segmented" role="group" aria-label="Preview for">
+            <button type="button" aria-pressed={which === "unverified"} onClick={() => setWhich("unverified")}>Member invited themselves</button>
+            <button type="button" aria-pressed={which === "verified"} onClick={() => setWhich("verified")}>An admin sent the invite</button>
+          </div>
+          <DmPreview text={preview[which]} label="Welcome message preview" />
+          <p className="small muted" style={{ marginTop: 6 }}>Preview with a made-up member and your server's name and libraries.</p>
+        </div>
+      ) : null}
     </fieldset>
   );
 }

@@ -245,6 +245,32 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   await expect(page.getByLabel("Check for updates every")).toHaveValue("15");
 });
 
+test("invite welcome message: edit the parts, preview both kinds of link, reset", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings?tab=linking");
+  const box = page.getByRole("group", { name: "Invite welcome message" });
+  const preview = box.getByLabel("Welcome message preview");
+  await expect(preview).toContainText("You're on the Plex server");
+  await expect(preview).toContainText("Sign in with Plex");  // member invited themselves
+  await expect(preview).toContainText("Demo server");
+  await box.getByRole("button", { name: "An admin sent the invite" }).click();
+  await expect(preview).not.toContainText("Sign in with Plex");
+  const main = box.getByLabel("Message", { exact: true });
+  await main.fill("Hi {member}, welcome to {server}!");
+  await expect(preview).toContainText("Hi alex, welcome to Demo server!");
+  await box.getByLabel("Where to find the server").fill("");
+  await expect(preview).toHaveText("Hi alex, welcome to Demo server!");
+  await main.fill("Hi {nope}");
+  await expect(box.getByText(/unknown placeholder \{nope\}/)).toBeVisible();
+  await box.getByRole("button", { name: "Reset to default" }).first().click();
+  await expect(main).toHaveValue(/You're on the Plex server/);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  const saved = await (await page.request.get("/api/v1/settings")).json();
+  expect(saved.invite_welcome_find_server_text).toBe("");
+  expect(saved.invite_welcome_text).toMatch(/^\*\*You're on the Plex server/);
+});
+
 // While dry-run is on: once live, a full sync removes deleted roles by itself (tests/test_cleanup.py).
 test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
   await login(page);

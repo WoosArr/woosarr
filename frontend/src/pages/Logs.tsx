@@ -148,6 +148,7 @@ const ACTION_LABEL: Record<string, string> = {
   invite_sent: "Plex invite sent",
   invite_failed: "Plex invite refused",
   invite_accepted: "Plex invite accepted",
+  invite_welcome: "Invite welcome message",
   invite_cancelled: "Plex invite cancelled",
   reaction_post_created: "Reaction post created",
   reaction_post_updated: "Reaction post updated",

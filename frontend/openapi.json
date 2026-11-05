@@ -321,6 +321,36 @@
             "title": "Invite Role Ids",
             "type": "array"
           },
+          "invite_welcome": {
+            "default": true,
+            "title": "Invite Welcome",
+            "type": "boolean"
+          },
+          "invite_welcome_find_server_text": {
+            "default": "Can't find the libraries? Open Plex and pick **{server}** from the server list.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Find Server Text",
+            "type": "string"
+          },
+          "invite_welcome_text": {
+            "default": "**You're on the Plex server \ud83c\udf89**\nYour invite was accepted and your Discord account is now linked to the Plex account **{plex_username}**. You can see **{libraries}**.",
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Invite Welcome Text",
+            "type": "string"
+          },
+          "invite_welcome_verify_needed_text": {
+            "default": "You'll need this to {features}.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Verify Needed Text",
+            "type": "string"
+          },
+          "invite_welcome_verify_text": {
+            "default": "**One more step:** run `/link` here and tap **Sign in with Plex** to confirm the Plex account is really yours. Your Plex password is never shared; WooSarr only reads your username.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Verify Text",
+            "type": "string"
+          },
           "leave_policy": {
             "default": "drop_role_access",
             "enum": [
@@ -4968,6 +4998,48 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WelcomePreview": {
+        "properties": {
+          "defaults": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Defaults",
+            "type": "object"
+          },
+          "needs_verified": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs Verified",
+            "type": "array"
+          },
+          "placeholders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Placeholders",
+            "type": "object"
+          },
+          "unverified": {
+            "title": "Unverified",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "string"
+          }
+        },
+        "required": [
+          "defaults",
+          "placeholders",
+          "needs_verified",
+          "unverified",
+          "verified"
+        ],
+        "title": "WelcomePreview",
+        "type": "object"
+      },
       "WidgetFilter": {
         "description": "What one copy of a widget shows (empty / missing = everything). Only the key that fits the\nwidget is used: libraries (Library access), roles (Discord role members, Roles that grant\nlibraries), statuses (Requests), levels (Alerts).",
         "properties": {
@@ -8493,6 +8565,50 @@
           }
         },
         "summary": "Patch Settings",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/v1/settings/invite-welcome/preview": {
+      "post": {
+        "description": "The invite welcome DM with these (unsaved) texts, for a sample member, as both kinds of link.",
+        "operationId": "preview_invite_welcome_api_v1_settings_invite_welcome_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Changes",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WelcomePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Invite Welcome",
         "tags": [
           "status"
         ]

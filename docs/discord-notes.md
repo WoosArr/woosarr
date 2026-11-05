@@ -80,6 +80,23 @@ A private reply listing every command the bot has registered with its options: `
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
 - Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, WooSarr finds them by email/username and links them (`method=invite`; verified when an admin sent it; a member who invited themselves is linked unverified and can verify with `/link` → *Sign in with Plex*). While an invite sent in the last 24 hours is pending, WooSarr reads Plex's list of users with a share once a minute (one plex.tv call), so an accepted invite links, gets its link-status roles and syncs within about a minute; older invites are matched by the full sync (*Full reconcile every*, 15 minutes by default). Log lines: `plex user added id=… username=…`, `invite N accepted by …; linked to discord …`, and once per outage `invite check failed (…)` / `invite check works again`. Pending invites are listed on the Users page.
 
+### Welcome message when an invite is accepted
+
+Once an accepted invite is linked and the member's libraries are synced, the bot DMs them (**Settings → Linking → Invite welcome message**, on by default). The message has four parts, each edited in its own box; the optional ones are only added when they apply, and an empty box is left out:
+
+| Part | Added when | Default |
+|------|-----------|---------|
+| Message | always | **You're on the Plex server 🎉** Your invite was accepted and your Discord account is now linked to the Plex account **{plex_username}**. You can see **{libraries}**. |
+| When the link is unverified | the member invited themselves (an admin's invite links verified) | **One more step:** run `/link` here and tap **Sign in with Plex** to confirm the Plex account is really yours. Your Plex password is never shared; WooSarr only reads your username. |
+| When a setting needs a verified link | also unverified, and *Verified links only* (requests, with Seerr connected) or *Ignore unverified links* is on | You'll need this to {features}. |
+| Where to find the server | the member can see at least one library | Can't find the libraries? Open Plex and pick **{server}** from the server list. |
+
+Placeholders: `{member}` (Discord name), `{plex_username}`, `{libraries}` (e.g. *Disney, Movies and TV Shows*), `{server}` (the Plex server's name), `{features}` (e.g. *request movies and shows with `/request`*), `{request_command}`. An unknown placeholder is refused when saving. Names are escaped, so a Plex username can't add formatting or mentions. The settings page previews the message for a member who invited themselves and for an admin's invite. Each part is up to 1,500 characters; the whole message is cut at Discord's 2,000.
+
+- Sent once per invite. While the bot is disconnected it waits and goes out once the bot is back (for invites accepted in the last 24 hours). Members who don't accept DMs from server members don't get it; it isn't retried.
+- Audited as `invite_welcome` (`sent`, `verified`). Log lines: `invite N welcome sent to …`, `invite N welcome for … not sent: member doesn't accept DMs from the bot`, `invite N: welcome message is turned off`.
+- Invites accepted before this feature existed are never welcomed.
+
 ## Link-status roles
 
 *Settings → Linking → Discord roles for Plex link status*: pick (or **Create**) a role for **Verified**, **Unverified** and/or **Linked** members. After every sync the bot compares each member's roles with their link and only changes what differs (it never touches other roles). Bots are skipped. Needs *Link-status roles* (Manage Roles + role hierarchy).

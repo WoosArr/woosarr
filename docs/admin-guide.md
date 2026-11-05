@@ -237,6 +237,7 @@ Changes take effect when you **Save**; settings that change access show an impac
 | When a member unlinks themselves | Remove role-granted libraries | Or *Leave their access as it is*. |
 | Discord roles for Plex link status | none | Verified / Unverified / Linked roles, each picked or created ([Discord notes](discord-notes.md#link-status-roles)). |
 | Plex Invites | nobody (admins only) | Roles whose members may `/invite` themselves, or anyone in the server. |
+| Invite welcome message | on | DM sent when an invite is accepted, in four editable parts with a live preview and *Reset to default* each ([Discord notes](discord-notes.md#welcome-message-when-an-invite-is-accepted)). |
 
 **Requests**: command name, who may request, verified links only, create missing Seerr users, notify members, retry failed requests, private or public and the requests channel ([requests.md → Who may request](requests.md#who-may-request-settings--requests)).
 

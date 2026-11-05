@@ -168,6 +168,42 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
     return after
 
 
+class WelcomePreview(BaseModel):
+    defaults: dict[str, str]  # setting name -> default text
+    placeholders: dict[str, str]  # {name} -> what it's filled with
+    needs_verified: list[str]  # what currently needs a verified link ({features}); empty = that part is left out
+    unverified: str  # the message a member who invited themselves gets
+    verified: str  # the message when an admin sent the invite
+
+
+@router.post("/settings/invite-welcome/preview", response_model=WelcomePreview)
+def preview_invite_welcome(changes: dict[str, Any], request: Request, db: DbDep) -> WelcomePreview:
+    """The invite welcome DM with these (unsaved) texts, for a sample member, as both kinds of link."""
+    from woosarr.services import invite_welcome as welcome
+
+    try:
+        st = AppSettings.model_validate(app_settings.load(db).model_dump() | changes)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors(include_url=False, include_context=False)
+        ) from None
+    plex = request.app.state.plex
+    server = ((plex.server() if plex is not None else None) or {}).get("name") or "Demo server"
+    titles = list(db.scalars(select(Library.title).where(Library.removed.is_(False), Library.is_exempt.is_(False))
+                             .order_by(Library.title).limit(3))) or ["Movies", "TV Shows"]
+    values = {"member": "alex", "plex_username": "alex_plex", "server": welcome.safe(server, 100),
+              "libraries": welcome.join_words([welcome.safe(t, 100) for t in titles])}
+    client = getattr(request.app.state.discord, "_client", None)
+    needs = welcome.needs_verified(st, bool(getattr(client, "request_name", None)))
+    return WelcomePreview(
+        defaults={"invite_welcome_text": welcome.DEFAULT_TEXT, "invite_welcome_verify_text": welcome.DEFAULT_VERIFY,
+                  "invite_welcome_verify_needed_text": welcome.DEFAULT_VERIFY_NEEDED,
+                  "invite_welcome_find_server_text": welcome.DEFAULT_FIND_SERVER},
+        placeholders=welcome.PLACEHOLDERS, needs_verified=needs,
+        unverified=welcome.compose(st, values, verified=False, has_libraries=True, features=needs),
+        verified=welcome.compose(st, values, verified=True, has_libraries=True, features=needs))
+
+
 def apply_runtime_settings(app, settings: AppSettings) -> None:
     level = settings.log_level or app.state.settings.log_level
     logging.getLogger().setLevel(level)

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import Setting
+from woosarr.services import invite_welcome as welcome
 
 KEY = "app"
 # Slash commands WooSarr always registers; the request command can't reuse these names.
@@ -33,6 +34,13 @@ class AppSettings(BaseModel):
     invite_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # Every member may /invite themselves (overrides invite_role_ids).
     invite_all_members: bool = False
+    # DM the member when their invite is accepted (services/invite_welcome.py). The main text is
+    # always sent; each optional part only when it applies, and an empty one is left out.
+    invite_welcome: bool = True
+    invite_welcome_text: str = Field(welcome.DEFAULT_TEXT, min_length=1, max_length=welcome.MAX_PART)
+    invite_welcome_verify_text: str = Field(welcome.DEFAULT_VERIFY, max_length=welcome.MAX_PART)
+    invite_welcome_verify_needed_text: str = Field(welcome.DEFAULT_VERIFY_NEEDED, max_length=welcome.MAX_PART)
+    invite_welcome_find_server_text: str = Field(welcome.DEFAULT_FIND_SERVER, max_length=welcome.MAX_PART)
     # Roles the bot keeps in step with each member's Plex link (None = off).
     verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
@@ -96,6 +104,15 @@ class AppSettings(BaseModel):
     @classmethod
     def _one_line(cls, v: str) -> str:
         return " ".join(v.split())
+
+    @field_validator("invite_welcome_text", "invite_welcome_verify_text", "invite_welcome_verify_needed_text",
+                     "invite_welcome_find_server_text")
+    @classmethod
+    def _known_placeholders(cls, v: str) -> str:
+        if bad := welcome.unknown_placeholders(v):
+            raise ValueError(f"unknown placeholder {', '.join('{' + b + '}' for b in bad)}; use "
+                             + ", ".join("{" + p + "}" for p in welcome.PLACEHOLDERS))
+        return v.strip()
 
     @field_validator("request_command_name")
     @classmethod

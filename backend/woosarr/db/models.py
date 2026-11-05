@@ -248,6 +248,7 @@ class PlexInvite(Base):
     plex_user_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     resolved_at: Mapped[datetime | None]
+    welcomed_at: Mapped[datetime | None]  # welcome DM sent, or decided not to (invite_welcome.py)
 
 
 class ReactionPost(Base):

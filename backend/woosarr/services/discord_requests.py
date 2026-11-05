@@ -441,19 +441,19 @@ class RequestCommands:
                     log.warning("request notice in #%s failed (%s); sending a DM", channel.name, exc)
         return await self.send_dm(notice.discord_user_id, notice.text)
 
-    async def send_dm(self, discord_user_id: str, text: str) -> bool:
+    async def send_dm(self, discord_user_id: str, text: str, what: str = "request notice") -> bool:
         client = getattr(self, "_client", None)
         if client is None or not client.is_ready():
-            log.info("request notice for %s not sent: bot not connected", discord_user_id)
+            log.info("%s for %s not sent: bot not connected", what, discord_user_id)
             return False
         try:
             user = client.get_user(int(discord_user_id)) or await client.fetch_user(int(discord_user_id))
             await user.send(text, allowed_mentions=discord.AllowedMentions.none())
         except discord.Forbidden:
-            log.info("request notice for %s not sent: member doesn't accept DMs from the bot", discord_user_id)
+            log.info("%s for %s not sent: member doesn't accept DMs from the bot", what, discord_user_id)
             return False
         except (discord.NotFound, discord.HTTPException) as exc:
-            log.warning("request notice for %s not sent: %s", discord_user_id, exc)
+            log.warning("%s for %s not sent: %s", what, discord_user_id, exc)
             return False
-        log.info("request notice sent to %s", discord_user_id)
+        log.info("%s sent to %s", what, discord_user_id)
         return True

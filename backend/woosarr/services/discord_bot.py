@@ -29,6 +29,7 @@ from woosarr.services import (
     audit,
     discord_avatar,
     discord_requests,
+    invite_welcome,
     invites,
     link_service,
     reaction_text,
@@ -1083,6 +1084,47 @@ class _GuildFeatures:
             if not self._role_again:
                 return done
 
+    def schedule_invite_welcomes(self) -> None:
+        """Thread-safe: DM members whose invites were just accepted (coalesces bursts)."""
+        loop = self._loop
+        if loop is None or self._client is None:
+            return
+
+        def start() -> None:
+            if self._welcome_task is None or self._welcome_task.done():
+                self._welcome_task = asyncio.create_task(self.send_invite_welcomes())
+            else:
+                self._welcome_again = True
+        loop.call_soon_threadsafe(start)
+
+    async def send_invite_welcomes(self) -> int:
+        """Welcome DMs for accepted invites (invite_welcome.py). Returns how many were sent. While the
+        bot isn't connected nothing is marked, so they go out once it is (within a day)."""
+        sent = 0
+        while True:
+            self._welcome_again = False
+            client = self._client
+            if client is None or not client.is_ready():
+                return sent
+            server = (self._plex.server() or {}).get("name") if self._plex is not None else None
+            st = await self.run_db(app_settings.load)
+            for item in await self.run_db(invite_welcome.due, server):
+                if not st.invite_welcome:
+                    await self.run_db(invite_welcome.mark, item.invite_id)
+                    log.info("invite %s: welcome message is turned off", item.invite_id)
+                    continue
+                features = invite_welcome.needs_verified(st, bool(client.request_name))
+                text = invite_welcome.compose(st, item.values, verified=item.verified,
+                                              has_libraries=item.has_libraries, features=features)
+                ok = await self.send_dm(item.discord_user_id, text, what=f"invite {item.invite_id} welcome")
+                await self.run_db(invite_welcome.mark, item.invite_id)
+                await self.run_db(lambda s, i=item, ok=ok: audit.record(
+                    s, "system", "invite_welcome", "discord_user", i.discord_user_id, invite_id=i.invite_id,
+                    sent=ok, verified=i.verified))
+                sent += ok
+            if not self._welcome_again:
+                return sent
+
 
 class _UnlinkView(discord.ui.View):
     def __init__(self, service: DiscordService, discord_id: str) -> None:
@@ -1124,11 +1166,15 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         self._role_problem: str | None = None
         self._post_task: asyncio.Task | None = None
         self._post_again = False
+        self._welcome_task: asyncio.Task | None = None
+        self._welcome_again = False
         self._link_tasks: set[asyncio.Task] = set()
         if sync is not None:
             sync.after_run.append(lambda _report: self.schedule_role_sync())
             # Role mappings / library names may have changed: keep reaction post legends current.
             sync.after_run.append(lambda _report: self.schedule_post_refresh())
+            # Invites matched in that run: welcome the members (after their libraries were synced).
+            sync.after_run.append(lambda _report: self.schedule_invite_welcomes())
         self._client: WooSarrBot | None = None
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None

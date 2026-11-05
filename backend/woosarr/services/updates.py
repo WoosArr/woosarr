@@ -2,14 +2,16 @@
 
 Each build compares only with its own channel:
 - release builds: GitHub's latest release ("1.3.0 is available").
-- develop builds: the commit the newest :develop image was built from (its label in the image
-  registry), then GitHub counts how many commits that is ahead of ours ("2 commits behind").
-  The newest *image*, not the branch head: docs-only commits don't produce one.
+- develop builds: the commit of the newest successful *Docker publish* run on develop (that run
+  pushed the :develop image), then GitHub counts how many commits that is ahead of ours ("2
+  commits behind"). The newest *image*, not the branch head: docs-only commits don't produce one.
+  The image registry itself isn't read: GHCR counts every manifest read as a download, so a check
+  every few minutes showed up as hundreds of downloads of each develop build.
 - local and other builds aren't checked.
 
-All anonymous, a handful of small requests per check, at most one of them to GitHub's API (which
-allows 60 an hour per address). Settings -> General: on/off and how often (6 h by default, down to
-5 min).
+All anonymous: one request to GitHub's API per check, two when a newer build exists (GitHub allows
+60 an hour per address; the shortest interval, 5 min, uses at most 24). Settings -> General:
+on/off and how often (6 h by default, down to 5 min).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from woosarr.build import Build
 log = logging.getLogger("woosarr.updates")
 
 REPO = "WoosArr/woosarr"
-IMAGE = "woosarr/woosarr"
+WORKFLOW = "docker-publish.yml"  # publishes :develop when a run on develop succeeds
 FIRST_CHECK_SECONDS = 60
 TICK_SECONDS = 60  # how often the interval setting is looked at
 TIMEOUT = 10
@@ -74,42 +76,40 @@ class UpdateChecker:
     # ---- develop builds ---------------------------------------------------------------------
 
     def _develop(self) -> dict[str, Any]:
-        labels = self._newest_develop_labels()
-        theirs = labels.get("org.opencontainers.image.revision", "")
-        latest = labels.get("io.woosarr.version") or None
+        theirs = self._newest_develop_commit()
         if not theirs or theirs == self.build.commit:
             log.info("update check: this is the newest develop build (%s)", self.build.version)
-            return {"state": "current", "latest": latest or self.build.version}
+            return {"state": "current", "latest": self.build.version}
         r = self._http.get(f"https://api.github.com/repos/{REPO}/compare/{self.build.commit}...{theirs}",
                            timeout=TIMEOUT)
         r.raise_for_status()
         ahead = int(r.json().get("ahead_by", 0))  # commits the newest build has that this one doesn't
         if ahead <= 0:
-            return {"state": "current", "latest": latest or self.build.version}
+            return {"state": "current", "latest": self.build.version}
+        latest = _dev_version_after(self.build.version, ahead)
         log.info("update check: newest develop build is %s, %d commit%s newer than this one (%s)",
                  latest or theirs[:7], ahead, "" if ahead == 1 else "s", self.build.version)
         return {"state": "behind", "latest": latest, "behind_by": ahead,
                 "url": f"https://github.com/{REPO}/compare/{self.build.commit[:12]}...{theirs[:12]}"}
 
-    def _newest_develop_labels(self) -> dict[str, str]:
-        """Labels of the newest :develop image (anonymous pull token; GHCR is public)."""
-        token = self._get_json(f"https://ghcr.io/token?scope=repository:{IMAGE}:pull")["token"]
-        auth = {"Authorization": f"Bearer {token}"}
-        index = self._get_json(f"https://ghcr.io/v2/{IMAGE}/manifests/develop", {
-            **auth, "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"})
-        manifest = index
-        if "manifests" in index:  # multi-arch: any platform has the same labels
-            digest = next(m["digest"] for m in index["manifests"]
-                          if m.get("platform", {}).get("architecture") not in (None, "unknown"))
-            manifest = self._get_json(f"https://ghcr.io/v2/{IMAGE}/manifests/{digest}",
-                                      {**auth, "Accept": "application/vnd.oci.image.manifest.v1+json"})
-        config = self._get_json(f"https://ghcr.io/v2/{IMAGE}/blobs/{manifest['config']['digest']}", auth)
-        return dict((config.get("config") or {}).get("Labels") or {})
+    def _newest_develop_commit(self) -> str:
+        """The commit the newest :develop image was built from: its publish run's commit."""
+        runs = self._get_json(f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW}/runs"
+                              "?branch=develop&status=success&per_page=1",
+                              {"Accept": "application/vnd.github+json"})["workflow_runs"]
+        return str(runs[0]["head_sha"]) if runs else ""
 
     def _get_json(self, url: str, headers: dict[str, str] | None = None) -> Any:
         r = self._http.get(url, headers=headers, timeout=TIMEOUT)
         r.raise_for_status()
         return r.json()
+
+
+def _dev_version_after(mine: str, ahead: int) -> str | None:
+    """Develop versions count commits since the last release (1.2.0-dev.53), so the build `ahead`
+    commits newer is 1.2.0-dev.(53 + ahead). None if this version isn't one of those."""
+    m = re.fullmatch(r"(.+-dev\.)(\d+)", mine)
+    return f"{m.group(1)}{int(m.group(2)) + ahead}" if m else None
 
 
 def _describe(exc: Exception) -> str:

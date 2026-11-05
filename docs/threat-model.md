@@ -19,7 +19,7 @@ WooSarr holds a Plex server-owner token and a Discord bot token, and it can chan
 
 1. **Browser ↔ WooSarr** (port 31337, plain HTTP unless a reverse proxy adds TLS).
 2. **Discord members ↔ WooSarr** via the bot (`/link`, `/unlink`, `/invite`, `/help`, `/request`, reactions on reaction posts).
-3. **WooSarr ↔ plex.tv / the Plex server**, **WooSarr ↔ Discord** and **WooSarr ↔ Seerr** (outbound; Seerr at the admin-entered address). Also outbound, read-only: OIDC providers, the emoji sources, `www.thetvdb.com` title pages (TVDB links in `/request`) and GitHub / `ghcr.io` (the update check).
+3. **WooSarr ↔ plex.tv / the Plex server**, **WooSarr ↔ Discord** and **WooSarr ↔ Seerr** (outbound; Seerr at the admin-entered address). Also outbound, read-only: OIDC providers, the emoji sources, `www.thetvdb.com` title pages (TVDB links in `/request`) and `api.github.com` (the update check).
 4. **Host ↔ container** (`/config` volume, env vars, container logs).
 
 ## Threats and mitigations

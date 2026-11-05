@@ -93,15 +93,10 @@ class FakeHttp:
         raise requests.ConnectionError("no route")
 
 
-def develop_routes(revision, version="1.2.0-dev.30", ahead=3):
+def develop_routes(revision, ahead=3):
     return {
-        "https://ghcr.io/token": {"token": "t"},
-        "https://ghcr.io/v2/woosarr/woosarr/manifests/develop": {"manifests": [
-            {"digest": "sha256:att", "platform": {"architecture": "unknown"}},
-            {"digest": "sha256:amd", "platform": {"architecture": "amd64"}}]},
-        "https://ghcr.io/v2/woosarr/woosarr/manifests/sha256:amd": {"config": {"digest": "sha256:cfg"}},
-        "https://ghcr.io/v2/woosarr/woosarr/blobs/sha256:cfg": {"config": {"Labels": {
-            "org.opencontainers.image.revision": revision, "io.woosarr.version": version}}},
+        "https://api.github.com/repos/WoosArr/woosarr/actions/workflows/docker-publish.yml/runs":
+            {"workflow_runs": [{"head_sha": revision}]},
         "https://api.github.com/repos/WoosArr/woosarr/compare/": {"ahead_by": ahead, "status": "ahead"},
     }
 
@@ -120,7 +115,7 @@ class UpdateCheckTests(unittest.TestCase):
         self.assertEqual(self.checker("release", "1.10.0", latest).check()["state"], "current")  # not text order
         c = self.checker("release", "1.1.1", latest)
         c.check()
-        self.assertFalse(any("ghcr.io" in u or "compare" in u for u in c._http.calls))  # never looks at develop
+        self.assertFalse(any("actions" in u or "compare" in u for u in c._http.calls))  # never looks at develop
 
     def test_develop_compares_with_the_newest_develop_image(self):
         r = self.checker("develop", "1.2.0-dev.27", develop_routes(THEIRS)).check()
@@ -132,9 +127,18 @@ class UpdateCheckTests(unittest.TestCase):
         c = self.checker("develop", "1.2.0-dev.27", develop_routes(THEIRS))
         c.check()
         self.assertFalse(any("releases/latest" in u for u in c._http.calls))  # never looks at releases
+        # Never the image registry: GHCR counts each manifest read as a download of the image.
+        self.assertFalse(any("ghcr.io" in u for u in c._http.calls))
+        self.assertTrue(c._http.calls[0].endswith("?branch=develop&status=success&per_page=1"))
+
+    def test_develop_without_a_published_build_or_a_dev_version(self):
+        empty = {"https://api.github.com/repos/WoosArr/woosarr/actions/workflows/": {"workflow_runs": []}}
+        self.assertEqual(self.checker("develop", "1.2.0-dev.27", empty).check()["state"], "current")
+        r = self.checker("develop", "1.2.0", develop_routes(THEIRS)).check()
+        self.assertEqual((r["state"], r["latest"], r["behind_by"]), ("behind", None, 3))
 
     def test_failures_and_local_builds(self):
-        r = self.checker("develop", "1.2.0-dev.27", {"https://ghcr.io/token": 503}).check()
+        r = self.checker("develop", "1.2.0-dev.27", {"https://api.github.com/repos/WoosArr/woosarr/actions/": 503}).check()
         self.assertEqual((r["state"], r["detail"]), ("error", "Couldn't check GitHub: HTTP 503"))
         self.assertFalse(UpdateChecker(Build("1.1.1", "local", "", "")).checkable)
         self.assertTrue(self.checker("develop", "x", {}).checkable)

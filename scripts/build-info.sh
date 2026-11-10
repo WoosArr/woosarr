@@ -1,5 +1,5 @@
 #!/bin/sh
-# What an image is, for CI: prints version=, channel=, commit=, date= (append to $GITHUB_OUTPUT).
+# What an image is, for CI: prints version=, channel=, commit=, date=, day= (append to $GITHUB_OUTPUT).
 #
 #   v1.2.3 tag      -> version 1.2.3,            channel release
 #   develop branch  -> version 1.3.0-dev.N,      channel develop   (N = commits since v1.2.3)
@@ -33,3 +33,5 @@ echo "version=$version"
 echo "channel=$channel"
 echo "commit=$(git rev-parse HEAD)"
 echo "date=$(git log -1 --format=%cI HEAD)"
+# The commit's day: docker/Dockerfile re-runs its Debian security upgrade when it changes.
+echo "day=$(git log -1 --format=%cs HEAD)"

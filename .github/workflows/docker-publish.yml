@@ -88,6 +88,7 @@ jobs:
             WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
             WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
             WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
+            WOOSARR_OS_UPDATES=${{ steps.build.outputs.day }}
           # One cache scope per platform; publish builds the same thing from it.
           cache-from: type=gha,scope=image-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
@@ -195,6 +196,7 @@ jobs:
             WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
             WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
             WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
+            WOOSARR_OS_UPDATES=${{ steps.build.outputs.day }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ env.IMAGE }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true

@@ -21,7 +21,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WOOSARR_STATIC_DIR=/app/static \
     WOOSARR_PORT=31337
 
-RUN apt-get update \
+# Debian's security fixes, even before the python image is rebuilt with them (live 2026-11-10:
+# zlib CVEs fixed in Debian, not yet in python:3.14-slim, failed CI's scan). CI passes the
+# commit's day so the build cache can't keep this layer older than a day's commits.
+ARG WOOSARR_OS_UPDATES=""
+RUN echo "os updates: ${WOOSARR_OS_UPDATES:-local}" \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 99 woosarr \

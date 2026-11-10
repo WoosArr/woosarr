@@ -160,6 +160,7 @@ const ACTION_LABEL: Record<string, string> = {
   request_created: "Request made",
   request_denied: "Request refused",
   request_failed: "Request failed",
+  request_nothing_to_do: "Nothing left to request",
   request_status: "Request status changed",
   request_retried: "Failed request retried",
   settings_changed: "Settings changed",

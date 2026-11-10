@@ -36,6 +36,8 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Log lines from INFO up (Alerts, Logs page, log files) show who or what an id is: Discord members, roles, channels and the server, and Plex users, e.g. `User: 284362693538742273 (@rWoot715)`. The same problem for different members still counts as one alert.
 
 ### Fixed
+- **A request for a show that's already all there is no longer counted as failed.** When every season is already requested or on the server, Seerr creates nothing and says so (HTTP 202). WooSarr logged that as `request_failed`; it's now audited as `request_nothing_to_do` (*Nothing left to request*), and the member is still told every season is already requested or available.
+- When `/request` suggestions timed out, the log line gave a blank reason; it now says *timed out*.
 - **The update check no longer counts as image downloads.** `develop` builds found the newest `:develop` image by reading it from GitHub's image registry, which counts every read as a download, so a check every 15 minutes added about 100 downloads a day to each develop build. They now ask GitHub which commit the last successful publish run was for.
 - **Request search finds the title you meant.** For short titles made of common words (*The Fall*), the list showed TMDB's order: loose matches and obscure namesakes first, sometimes without the well-known title at all. Matches are now ordered by how closely the title matches, then how well known it is, the `/request` list reads 40 results instead of 20, and a year after the title (`The Fall 2006`) puts that year first.
 - The `/request` list showed backslashes in titles (`The Fall \(2013\)`).

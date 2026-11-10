@@ -344,11 +344,25 @@ class RequestService:
                              tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=exc.status, error=str(exc)[:200])
             return Outcome(False, message)
         self._ok()
-        if code == 202 or not req or not req.get("id"):
+        title = f"**{safe(item.title, 200)}**"
+        if code == 202:
+            # Seerr's "No seasons available to request": everything is already requested or on
+            # the server. Not an error; nothing was created.
+            with self._db.session() as s:
+                audit.record(s, actor, "request_nothing_to_do", "discord_user", discord_user_id,
+                             media_type=media_type, tmdb_id=tmdb_id, title=item.title, seasons=sorted(seasons or []),
+                             seerr_user_id=who.seerr_user_id)
+            log.info("request by discord %s: nothing to request, %s %s is already requested or available",
+                     discord_user_id, media_type, item.title)
+            what = "Every season you picked of" if seasons else "Every season of"
+            return Outcome(True, f"{what} {title} is already requested or available.")
+        if not req or not req.get("id"):
+            log.warning("seerr accepted the request for %s %s (HTTP %s) but returned no request id", media_type,
+                        item.title, code)
             with self._db.session() as s:
                 audit.record(s, actor, "request_failed", "discord_user", discord_user_id, media_type=media_type,
-                             tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=code, error="nothing to request")
-            return Outcome(False, f"Every season of **{safe(item.title, 200)}** is already requested or available.")
+                             tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=code, error="no request id")
+            return Outcome(False, f"Seerr didn't confirm the request for {title}; check Seerr before trying again.")
         state = request_state(req)
         with self._db.session() as s:
             row = MediaRequest(seerr_request_id=int(req["id"]), discord_user_id=discord_user_id,

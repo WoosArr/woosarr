@@ -66,7 +66,7 @@ WooSarr remembers the requests made through Discord (`media_requests` table) and
 
 ## Diagnostics (logs API)
 
-Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_status`, `request_retried`, `seerr_connected`):
+Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_nothing_to_do`, `request_status`, `request_retried`, `seerr_connected`). `request_nothing_to_do` isn't an error: Seerr answered 202 because every season is already requested or available, so nothing was created:
 
 ```bash
 curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=seerr&limit=200"

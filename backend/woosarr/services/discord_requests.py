@@ -273,7 +273,8 @@ class RequestCommands:
             hits = await asyncio.wait_for(asyncio.to_thread(self.search_for, lookup, current, budget, member, 1),
                                           budget)
         except (TimeoutError, SeerrError) as exc:
-            log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
+            # A timeout's message is empty: say what it was.
+            log.info("request suggestions for %r unavailable: %s", current[:50], str(exc) or "timed out")
             return []
         return [app_commands.Choice(name=h.label(), value=h.key) for h in hits[:25]]
 

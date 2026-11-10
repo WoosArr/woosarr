@@ -371,11 +371,16 @@ class SubmitTests(Base):
         self.assertIn("permission", self.svc.submit("501", False, "movie", 157336).message)
         self.seerr.users[self.alice_seerr]["can_request"] = True
         self.assertTrue(self.svc.submit("501", False, "tv", 1396).ok)  # all seasons
-        again = self.svc.submit("501", False, "tv", 1396)
-        self.assertFalse(again.ok)
+        again = self.svc.submit("501", False, "tv", 1396)  # Seerr: 202, no seasons left
+        self.assertTrue(again.ok)  # not an error
+        self.assertIsNone(again.row_id)  # nothing created, nothing announced
+        self.assertIn("Every season of", again.message)
         self.assertIn("already requested or available", again.message)
         with self.db.session() as s:
             self.assertEqual(len(s.scalars(select(MediaRequest)).all()), 2)
+            actions = [a.action for a in s.scalars(select(AuditLog))]
+            self.assertIn("request_nothing_to_do", actions)
+            self.assertEqual(actions.count("request_failed"), 3)  # duplicate, quota, permission only
 
     def test_tv_seasons(self):
         r = self.svc.submit("501", False, "tv", 1396, [2, 1])
@@ -715,8 +720,11 @@ class DiscordTests(Base):
             return []
 
         with mock.patch.object(discord_requests, "AUTOCOMPLETE_SECONDS", 0.05), \
-                mock.patch.object(self.svc, "search", slow):
+                mock.patch.object(self.svc, "search", slow), \
+                self.assertLogs("woosarr.discord.requests", "INFO") as logs:
             self.assertEqual(self.run_async(self.discord.request_suggestions("inter")), [])
+        # Live 2026-11-10: the reason printed blank (a timeout's message is empty).
+        self.assertIn("request suggestions for 'inter' unavailable: timed out", logs.output[-1])
 
     def test_picked_suggestion_shows_details_with_request_button(self):
         self.connect()

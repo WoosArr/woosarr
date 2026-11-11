@@ -111,8 +111,8 @@ def login(body: LoginIn, request: Request, response: Response, db: DbDep) -> Log
         # Commit the failed-login counter / lockout, then answer.
         request.app.state.login_limiter.record(ip)
         db.commit()
-        log.warning("login failed username=%s ip=%s reason=%s", body.username, ip, exc)
-        audit.record(db, f"ip:{ip}", "login_failed", "admin", body.username)
+        log.warning("login failed username=%s ip=%s reason=%s", body.username, ip, exc.reason)
+        audit.record(db, f"ip:{ip}", "login_failed", "admin", body.username, reason=exc.reason)
         db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from None
     old = request.cookies.get(auth.SESSION_COOKIE)

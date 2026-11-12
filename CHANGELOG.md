@@ -4,6 +4,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-12
+
+Admins can link members and choose admin roles from Discord, accepted invites link within a minute and get a welcome DM, `/request` takes pasted IMDb, TMDB and TVDB links and retries failed requests, a Custom Emoji page, deleted libraries and roles are cleaned up, TrueNAS and Proxmox install guides, many dashboard additions, and security fixes (no username enumeration at sign-in, no link text on the login page, secrets kept out of logs, Debian security updates in the image). Update by pulling `latest` (or `1.2.0`).
+
 ### Added
 - **Admins can link members from Discord.** `/link member plex_user` links a member (or yourself) to a Plex user, verified, the same as *Link* on the Users page. `plex_user` suggests the server's Plex users and shows who's already linked; only admins see the suggestions.
 - **Admin roles** (*Settings → Linking*, at the top): choose which Discord roles count as admins for `/link`, `/invite` and requests. With none chosen, nothing changes: the server owner and anyone with *Manage Server* or *Administrator*. The server owner always counts, and a role deleted in Discord is taken off the list. The Linking tab now starts with the role settings: admin roles, who may link by typing a username, then Plex Invites.

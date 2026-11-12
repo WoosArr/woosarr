@@ -80,7 +80,7 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 | `seerr GET /search timed out after 2.1 s (limit 2.15 s)` | Seerr was slow. A limit around 2 s is a suggestion while typing (Discord's 3 s); 15 s is everything else. Clears by itself once Seerr answers again. |
 | `no seerr user for plex <name>` | Member's Plex account isn't in Seerr and import is off, or Seerr couldn't import it (not a Plex friend with library access). |
 | `request <id> created for discord … as seerr user …` | Request made; the Seerr user id it ran as. |
-| `request suggestions … unavailable: timeout` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
+| `request suggestions … unavailable: timed out` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
 | `request notice for … not sent: member doesn't accept DMs` | The member has DMs from server members turned off. |
 | `request poll: N checked, M changed, K to notify, R retried` | Periodic status check (every 30 minutes). |
 | `request <id> posted in #channel` / `request notice for … posted in #channel` | Public request post and status reply. |

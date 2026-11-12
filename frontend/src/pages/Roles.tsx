@@ -10,6 +10,7 @@ type RoleReferences = components["schemas"]["RoleReferences"];
 type PurgeOut = components["schemas"]["PurgeOut"];
 
 const SETTING_NAMES: Record<string, string> = {
+  admin_role_ids: "Admin roles",
   verified_role_id: "Verified link role", unverified_role_id: "Unverified link role", linked_role_id: "Linked role",
   invite_role_ids: "Plex Invites (roles allowed to /invite)", request_role_ids: "Roles allowed to request",
   username_link_role_ids: "Roles allowed to link by typing a username",

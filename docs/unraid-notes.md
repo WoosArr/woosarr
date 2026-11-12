@@ -15,8 +15,8 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 | `WOOSARR_LOG_LEVEL` | `INFO` (advanced) | Raise to `DEBUG` to troubleshoot; read logs in the UI or via `GET /api/v1/logs`. |
 | Icon | `https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png` | 256×256 PNG with transparent corners, rendered from `assets/brand/woosarr.svg` (`make icons`); must be on `main` to resolve. CA wants a square PNG. |
 | TemplateURL | raw URL of `unraid/woosarr.xml` | Lets Unraid offer template updates. |
-| Category | `MediaApp:Other Tools:` | CA browse categories. |
-| ExtraParams | `--health-start-period=20s` | Matches the Dockerfile healthcheck; Unraid shows health in the Docker tab. |
+| Category | `MediaApp:Other Tools:Utilities` | CA browse categories. |
+| ExtraParams | `--health-start-period=20s --security-opt no-new-privileges:true` | The start period matches the Dockerfile healthcheck (Unraid shows health in the Docker tab); `no-new-privileges` stops anything in the container gaining privileges after the entrypoint drops to `PUID`. |
 
 ## Behaviour Unraid relies on
 
@@ -30,7 +30,7 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 ## Installing from Community Applications
 
 1. **Apps** tab → search for **WooSarr** → **Install**.
-2. Check the data folder (`/mnt/user/appdata/woosarr`), WebUI port (`31337`) and `PUID`/`PGID` → **Apply**.
+2. Check the data folder (`/mnt/user/appdata/woosarr`) and WebUI port (`31337`); `PUID`/`PGID` and the log level are under *Show more settings* → **Apply**.
 3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI**.
 
 Community Applications reads the template from this repo (`unraid/woosarr.xml` on `main`), so template changes reach new installs after CA's next catalog build. Image updates show on the Docker tab as usual.

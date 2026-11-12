@@ -37,7 +37,7 @@ from woosarr.services import audit
 log = logging.getLogger("woosarr.cleanup")
 
 LINK_ROLE_SETTINGS = ("verified_role_id", "unverified_role_id", "linked_role_id")
-LIST_ROLE_SETTINGS = ("invite_role_ids", "request_role_ids", "username_link_role_ids")
+LIST_ROLE_SETTINGS = ("admin_role_ids", "invite_role_ids", "request_role_ids", "username_link_role_ids")
 LAYOUT_PREFIX = "dashboard.layout."
 
 

@@ -393,6 +393,16 @@ class GuildFeatureTests(GuildMixin, Base):
             self.assertEqual(len(s.scalars(select(Reaction)).all()), 1)
             self.assertIn("reaction_added", s.scalars(select(AuditLog.action)).all())
 
+    def test_server_known_but_bot_member_not_yet(self):
+        # Live 2026-10-25: right after a reconnect guild.me was None and the status page crashed.
+        guild = FakeGuild(perms(**ALL))
+        guild.me = None
+        self.attach(guild)
+        status = {f["key"]: f for f in self.svc.feature_status()}  # no AttributeError
+        self.assertFalse(status["reaction_posts"]["available"])
+        with self.assertRaisesRegex(DiscordConfigError, "still connecting"):
+            self.fire(self.svc.list_channels())
+
     def test_role_above_bot_blocks_feature(self):
         guild = FakeGuild(perms(**ALL), top=1, role_positions={8001: 5})
         self.attach(guild)

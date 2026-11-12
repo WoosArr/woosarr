@@ -21,7 +21,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WOOSARR_STATIC_DIR=/app/static \
     WOOSARR_PORT=31337
 
-RUN apt-get update \
+# Debian's security fixes, even before the python image is rebuilt with them (live 2026-11-10:
+# zlib CVEs fixed in Debian, not yet in python:3.14-slim, failed CI's scan). CI passes the
+# commit's day so the build cache can't keep this layer older than a day's commits.
+ARG WOOSARR_OS_UPDATES=""
+RUN echo "os updates: ${WOOSARR_OS_UPDATES:-local}" \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 99 woosarr \
@@ -54,6 +60,19 @@ EXPOSE 31337
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('WOOSARR_PORT', '31337'), timeout=4).status == 200 else 1)"
+
+# What this image is (CI sets these from scripts/build-info.sh; a plain `docker build` is a local
+# build): shown in the UI, the logs and /api/health, and used by the update check. Last, so a new
+# commit doesn't invalidate the cached layers above.
+ARG WOOSARR_BUILD_VERSION=""
+ARG WOOSARR_BUILD_CHANNEL="local"
+ARG WOOSARR_BUILD_COMMIT=""
+ARG WOOSARR_BUILD_DATE=""
+ENV WOOSARR_BUILD_VERSION=$WOOSARR_BUILD_VERSION \
+    WOOSARR_BUILD_CHANNEL=$WOOSARR_BUILD_CHANNEL \
+    WOOSARR_BUILD_COMMIT=$WOOSARR_BUILD_COMMIT \
+    WOOSARR_BUILD_DATE=$WOOSARR_BUILD_DATE
+LABEL io.woosarr.version=$WOOSARR_BUILD_VERSION io.woosarr.channel=$WOOSARR_BUILD_CHANNEL
 
 ENTRYPOINT ["/entrypoint.sh"]
 # Host/port come from WOOSARR_HOST / WOOSARR_PORT (core/config.py).

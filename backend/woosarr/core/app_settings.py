@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import Setting
+from woosarr.services import invite_welcome as welcome
 
 KEY = "app"
 # Slash commands WooSarr always registers; the request command can't reuse these names.
@@ -29,10 +30,21 @@ class AppSettings(BaseModel):
     leave_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
     # Members who run /unlink: same choices as leave_policy.
     unlink_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
+    # Discord roles whose members count as admins in /invite, /link and /request. Empty: the
+    # server owner and members whose roles grant Manage Server or Administrator. Set: the server
+    # owner and members with one of these roles (Discord permissions no longer count).
+    admin_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # Discord roles whose members may /invite themselves (admins can always invite).
     invite_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # Every member may /invite themselves (overrides invite_role_ids).
     invite_all_members: bool = False
+    # DM the member when their invite is accepted (services/invite_welcome.py). The main text is
+    # always sent; each optional part only when it applies, and an empty one is left out.
+    invite_welcome: bool = True
+    invite_welcome_text: str = Field(welcome.DEFAULT_TEXT, min_length=1, max_length=welcome.MAX_PART)
+    invite_welcome_verify_text: str = Field(welcome.DEFAULT_VERIFY, max_length=welcome.MAX_PART)
+    invite_welcome_verify_needed_text: str = Field(welcome.DEFAULT_VERIFY_NEEDED, max_length=welcome.MAX_PART)
+    invite_welcome_find_server_text: str = Field(welcome.DEFAULT_FIND_SERVER, max_length=welcome.MAX_PART)
     # Roles the bot keeps in step with each member's Plex link (None = off).
     verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
@@ -55,6 +67,15 @@ class AppSettings(BaseModel):
     # Public address of WooSarr (e.g. https://woosarr.example.com) for SSO redirect
     # URIs; empty = the address the browser used.
     public_url: str = Field("", max_length=300, pattern=r"^(|https?://[^\s/]+(/[^\s]*)?)$")
+    # Ask GitHub now and then whether a newer build exists (services/updates.py).
+    update_check: bool = True
+    # How often, in minutes (6 h by default; one or two GitHub API requests per check, of 60 an hour).
+    update_check_minutes: Literal[360, 180, 60, 30, 15, 5] = 360
+    # The bot's custom status in Discord (under its name in the member list); empty = none.
+    bot_status: str = Field("Try /help for help", max_length=128)
+    # Leave deleted things out of the web UI's lists: libraries missing on the Plex server, roles
+    # deleted in Discord, Plex users no longer shared with, requests removed in Seerr.
+    hide_deleted: bool = True
     # Requests through Seerr (P13-01). Name of the slash command, without the "/";
     # change it if another bot in the server already has /request.
     request_command_name: str = Field("request", pattern=r"^[a-z0-9_-]{1,32}$")
@@ -67,6 +88,9 @@ class AppSettings(BaseModel):
     request_import_users: bool = True
     # DM the member when their request is approved, declined or becomes available.
     request_notify: bool = True
+    # Ask Seerr to send a failed request to Radarr/Sonarr again, 1 h, 6 h and 24 h after it failed;
+    # the member hears of the failure only once every try has failed.
+    request_auto_retry: bool = True
     # private: only the member sees the request (status by DM). public: the request is
     # posted in request_channel_id mentioning the member, and status updates are replies there.
     request_visibility: Literal["private", "public"] = "private"
@@ -79,6 +103,20 @@ class AppSettings(BaseModel):
         if self.request_visibility == "public" and not self.request_channel_id:
             raise ValueError("public requests need a channel (request_channel_id)")
         return self
+
+    @field_validator("bot_status")
+    @classmethod
+    def _one_line(cls, v: str) -> str:
+        return " ".join(v.split())
+
+    @field_validator("invite_welcome_text", "invite_welcome_verify_text", "invite_welcome_verify_needed_text",
+                     "invite_welcome_find_server_text")
+    @classmethod
+    def _known_placeholders(cls, v: str) -> str:
+        if bad := welcome.unknown_placeholders(v):
+            raise ValueError(f"unknown placeholder {', '.join('{' + b + '}' for b in bad)}; use "
+                             + ", ".join("{" + p + "}" for p in welcome.PLACEHOLDERS))
+        return v.strip()
 
     @field_validator("request_command_name")
     @classmethod

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -209,3 +210,70 @@ def unlink_self(session: Session, discord_user_id: str, policy: str) -> str | No
     audit.record(session, f"discord:{discord_user_id}", "unlink_self", "plex_user", plex_user_id, policy=policy,
                  remaining_discord_user_ids=remaining or None)
     return plex_user_id
+
+
+class AdminLinkError(Exception):
+    """An admin link that can't be made (status: the HTTP code the web API answers with)."""
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def admin_link(session: Session, plex_user_id: str, discord_user_id: str, actor: str, linked_by: str,
+               **details: Any) -> list[str]:
+    """Link a Discord member to a Plex account as an admin (verified), from the Users page or an
+    admin's `/link`. If other members are already linked, this adds one more: a family sharing the
+    account gets the union of their roles. Returns those other members. The caller queues the sync."""
+    if session.get(PlexUser, plex_user_id) is None:
+        raise AdminLinkError(404, "Plex user not found")
+    by_discord = session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == discord_user_id))
+    if by_discord and by_discord.plex_user_id != plex_user_id:
+        raise AdminLinkError(409, "that Discord account is linked to another Plex user; unlink it first")
+    others = [x.discord_user_id for x in session.scalars(select(DiscordLink).where(
+        DiscordLink.plex_user_id == plex_user_id, DiscordLink.discord_user_id != discord_user_id))]
+    if by_discord is None:
+        session.add(DiscordLink(plex_user_id=plex_user_id, discord_user_id=discord_user_id,
+                                method="admin", verified=True, linked_by=linked_by[:100]))
+    else:
+        by_discord.method, by_discord.verified, by_discord.linked_by = "admin", True, linked_by[:100]
+    session.flush()
+    audit.record(session, actor, "link_admin", "plex_user", plex_user_id, discord_user_id=discord_user_id,
+                 other_discord_user_ids=others or None, **details)
+    return others
+
+
+def find_plex_user(session: Session, value: str) -> PlexUser | None:
+    """The Plex user an admin picked in `/link`: a suggestion's id, or a typed username or email."""
+    value = value.strip()
+    if not value:
+        return None
+    plex = session.get(PlexUser, value)
+    if plex is not None and not plex.removed:
+        return plex
+    lowered = value.lower()
+    return session.scalar(select(PlexUser).where(
+        PlexUser.removed.is_(False),
+        or_(func.lower(PlexUser.username) == lowered, func.lower(PlexUser.email) == lowered)))
+
+
+def plex_user_suggestions(session: Session, text: str, limit: int = 25) -> list[tuple[str, str]]:
+    """(label, plex_user_id) for an admin's `/link`: Plex users whose username (or email) contains
+    the text, usernames starting with it first. The label shows who's already linked; never emails."""
+    needle = text.strip().lower()
+    users = session.scalars(select(PlexUser).where(PlexUser.removed.is_(False), PlexUser.is_owner.is_(False))
+                            .order_by(func.lower(PlexUser.username))).all()
+    if needle:
+        users = [u for u in users if needle in (u.username or "").lower() or needle in (u.email or "").lower()]
+        users.sort(key=lambda u: not (u.username or "").lower().startswith(needle))
+    users = users[:limit]
+    linked: dict[str, int] = {}
+    for pid in session.scalars(select(DiscordLink.plex_user_id).where(
+            DiscordLink.plex_user_id.in_([u.plex_user_id for u in users]))):
+        linked[pid] = linked.get(pid, 0) + 1
+    out = []
+    for u in users:
+        n = linked.get(u.plex_user_id, 0)
+        note = f" · linked to {n} member{'s' if n != 1 else ''}" if n else ""
+        out.append(((u.username or u.plex_user_id)[:80] + note, u.plex_user_id))
+    return out

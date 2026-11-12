@@ -15,7 +15,7 @@ PAIRS = [
     ("text", "bg"), ("text", "surface"), ("text", "surface-2"), ("text-muted", "surface"), ("text-muted", "bg"),
     ("text-muted", "surface-2"), ("accent", "surface"), ("accent-strong", "accent-soft"), ("accent-text", "accent"),
     ("ok", "ok-soft"), ("warn", "warn-soft"), ("danger", "danger-soft"), ("info", "info-soft"),
-    ("danger", "surface"), ("text", "warn-soft"), ("text", "danger-soft"), ("text", "info-soft"),
+    ("danger", "surface"), ("ok", "surface"), ("warn", "surface"), ("text", "warn-soft"), ("text", "danger-soft"), ("text", "info-soft"),
 ]
 
 

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AppSettings, type ChannelOut, type RequestOut, type RoleOut, type SeerrStatus, type SeerrTest } from "../api";
+import { HiddenNote, useHideDeleted } from "../hidden";
 import { Icon } from "../icons";
 import { Badge, Empty, ErrorBanner, Field, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast, type Tone } from "../ui";
 
@@ -13,6 +14,14 @@ const STATE: Record<string, [Tone, string]> = {
   available: ["ok", "Available"],
   deleted: ["neutral", "Removed in Seerr"],
 };
+
+// "in 3h": when an automatic retry is due (the next check after it, every 30 minutes).
+function due(iso: string): string {
+  const s = Math.round((new Date(iso).getTime() - Date.now()) / 1000);
+  if (s < 60) return "at the next check";
+  if (s < 3600) return `in ${Math.round(s / 60)}m`;
+  return `in ${Math.round(s / 3600)}h`;
+}
 
 export default function RequestsPage() {
   const seerr = useLoad(() => api.get<SeerrStatus>("/api/v1/requests/seerr"));
@@ -29,6 +38,22 @@ export default function RequestsPage() {
       toast.error(e);
     } finally {
       setBusy(false);
+    }
+  };
+  const [retrying, setRetrying] = useState<number | null>(null);
+  const hideDeleted = useHideDeleted();
+  const rows = (list.data ?? []).filter((r) => !hideDeleted || r.status !== "deleted");
+  const retry = async (r: RequestOut) => {
+    setRetrying(r.id);
+    try {
+      const next = await api.post<RequestOut>(`/api/v1/requests/${r.id}/retry`);
+      list.setData((list.data ?? []).map((x) => (x.id === r.id ? next : x)));
+      toast.ok(`Seerr is sending ${r.title} to ${r.media_type === "movie" ? "Radarr" : "Sonarr"} again.`);
+    } catch (e) {
+      toast.error(e);
+      await list.reload();
+    } finally {
+      setRetrying(null);
     }
   };
   const name = seerr.data?.command_registered;
@@ -49,17 +74,20 @@ export default function RequestsPage() {
         <p className="small muted">
           {name ? <>Members request with <code>/{name}</code>. </> : <>The request command registers when the bot is connected. </>}
           Who may request and the command's name are in <Link to="/settings?tab=requests">Settings → Requests</Link>.
-          Status is checked every 5 minutes; members are told by DM, or by a reply in the requests channel for public requests.
+          Open requests are checked every 30 minutes, however old; failed and declined ones for 30 days, in case they're retried or approved in Seerr.
+          Failed requests are retried automatically after 1, 6 and 24 hours (<Link to="/settings?tab=requests">setting</Link>), or retry one now with <strong>Retry</strong>.
+          Members are told by DM, or by a reply in the requests channel for public requests.
+          Available and removed requests are listed for 7 days.
         </p>
       ) : null}
-      {!list.data ? <Spinner /> : list.data.length === 0 ? (
-        <Empty title="No requests yet">Requests made with the Discord command show up here.</Empty>
+      {!list.data ? <Spinner /> : rows.length === 0 ? (
+        <Empty title="No requests to show">Requests made with the Discord command show up here: open ones until they're done, failed and declined ones for 30 days, the rest for 7 days.</Empty>
       ) : (
         <div className="table-wrap" tabIndex={0} role="region" aria-label="Requests">
           <table>
             <thead><tr><th>Title</th><th>Member</th><th>Status</th><th>Requested</th><th>Checked</th></tr></thead>
             <tbody>
-              {list.data.map((r) => {
+              {rows.map((r) => {
                 const [tone, label] = STATE[r.status] ?? ["neutral", r.status];
                 return (
                   <tr key={r.id}>
@@ -75,7 +103,21 @@ export default function RequestsPage() {
                       {r.discord_name ?? r.discord_user_id}
                       {r.plex_username ? <div className="small muted">Plex: {r.plex_username}</div> : null}
                     </td>
-                    <td><Badge tone={tone}>{label}</Badge>{r.public ? <div className="small muted">Posted publicly</div> : null}</td>
+                    <td>
+                      <Badge tone={tone}>{label}</Badge>
+                      {r.status === "failed" ? (
+                        <div className="small muted">
+                          {r.next_retry_at ? `Retrying ${due(r.next_retry_at)}` : r.retries ? "Not retrying again" : "Not retried automatically"}
+                          {r.retries ? ` · retried ${r.retries}×` : ""}
+                        </div>
+                      ) : null}
+                      {r.public ? <div className="small muted">Posted publicly</div> : null}
+                      {r.status === "failed" ? (
+                        <button className="btn sm" style={{ marginTop: 4 }} disabled={retrying !== null} onClick={() => void retry(r)} aria-label={`Retry ${r.title}`}>
+                          <Icon name="refresh" size={14} /> {retrying === r.id ? "Retrying…" : "Retry"}
+                        </button>
+                      ) : null}
+                    </td>
                     <td className="small">{ago(r.created_at)}</td>
                     <td className="small">{ago(r.checked_at)}</td>
                   </tr>
@@ -85,6 +127,7 @@ export default function RequestsPage() {
           </table>
         </div>
       )}
+      <HiddenNote count={(list.data?.length ?? 0) - rows.length} what={["request removed in Seerr", "requests removed in Seerr"]} />
     </>
   );
 }
@@ -101,7 +144,7 @@ export function SeerrCard() {
     <section className="card stack" aria-labelledby="seerr-setup">
       <div className="row spread">
         <h2 id="seerr-setup" className="row"><Icon name="download" /> Seerr (requests)</h2>
-        {s?.configured ? (s.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="warn">Problem</Badge>) : <Badge tone="neutral">Optional</Badge>}
+        {!s ? <Badge tone="neutral">{st.error ? "Couldn't check" : "Checking…"}</Badge> : s.configured ? (s.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="warn">Problem</Badge>) : <Badge tone="neutral">Optional</Badge>}
       </div>
       <ErrorBanner error={st.error} />
       {!s ? <Spinner /> : !s.configured || editing ? (
@@ -282,7 +325,7 @@ export function RequestSettings() {
       </fieldset>
       {isPublic ? (
         <>
-          <Field label="Requests channel" hint="The bot needs View Channels, Send Messages, Embed Links and Read Message History there. Searching and picking a title stay private to the member." error={channelError ?? undefined}>
+          <Field label="Requests channel" hint="The bot needs View Channels, Send Messages, Embed Links and Read Message History there. Searching and picking a movie or show stay private to the member." error={channelError ?? undefined}>
             <select value={v.request_channel_id ?? ""} onChange={(e) => set({ request_channel_id: e.target.value || null })} style={{ maxWidth: 420 }}>
               <option value="">Choose a channel…</option>
               {(channels.data ?? []).map((c) => (
@@ -299,6 +342,7 @@ export function RequestSettings() {
       <Switch checked={!!v.request_require_verified} onChange={(x) => set({ request_require_verified: x })} label={<><strong>Verified links only</strong> <span className="muted small">— members who linked by typing a username can't request as that Plex account</span></>} />
       <Switch checked={!!v.request_import_users} onChange={(x) => set({ request_import_users: x })} label={<><strong>Create missing Seerr users</strong> <span className="muted small">— import the member's Plex account into Seerr on their first request (Seerr's default permissions)</span></>} />
       <Switch checked={!!v.request_notify} onChange={(x) => set({ request_notify: x })} label={<><strong>Notify members</strong> <span className="muted small">— {isPublic ? "reply to the request's post, mentioning them," : "DM them"} when a request is approved, declined or available</span></>} />
+      <Switch checked={!!v.request_auto_retry} onChange={(x) => set({ request_auto_retry: x })} label={<><strong>Retry failed requests</strong> <span className="muted small">— when Seerr couldn't hand an approved request to Radarr or Sonarr, ask it again after 1, 6 and 24 hours; the member hears of the failure only if every try fails</span></>} />
       <div className="row">
         <button className="btn primary" disabled={!Object.keys(draft).length || !!nameError || !!channelError} onClick={() => void save()}>Save</button>
         <button className="btn" disabled={!Object.keys(draft).length} onClick={() => setDraft({})}>Discard</button>

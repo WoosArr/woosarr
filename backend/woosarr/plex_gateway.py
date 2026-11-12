@@ -57,6 +57,10 @@ class FakePlexGateway:
     def list_users(self) -> list[PlexUser]:
         return list(self.users)
 
+    def list_shared_users(self) -> list[PlexUser]:
+        """Users with a share (the invite check's quick read)."""
+        return [u for u in self.users if not u.is_owner and self.shares.get(u.plex_user_id)]
+
     def list_libraries(self) -> list[PlexLibrary]:
         return list(self.libraries)
 

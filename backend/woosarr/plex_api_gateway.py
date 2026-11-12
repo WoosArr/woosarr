@@ -282,6 +282,12 @@ class PlexApiGateway:
         log.info("plex users: %s merged=%s (incl. owner)", counts, len(users))
         return users
 
+    def list_shared_users(self) -> list[PlexUser]:
+        """Friends with a share, in one plex.tv call (no owner, no friends without a share): enough to
+        spot an accepted /invite, which always shares libraries. Quiet, as it runs once a minute."""
+        return [PlexUser(str(u.id), u.username or u.title or str(u.id), u.email or None,
+                         is_managed=bool(u.home and not u.email)) for u in self._users()]
+
     def _shared_user(self, plex_user_id: str) -> Any | None:
         """The /api/users entry (with share details), or None for a known user without a share."""
         users = self._users()

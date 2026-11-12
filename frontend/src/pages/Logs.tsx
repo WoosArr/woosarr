@@ -111,6 +111,11 @@ function AppLog({ initialLevel }: { initialLevel: string | null }) {
             <span className="muted" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{e.logger}</span>
             <span className="msg">
               {e.message}
+              {e.resolved_by ? (
+                <span className="small muted" style={{ display: "block" }}>
+                  ✓ Resolved by {e.resolved_by.replace(/^admin:/, "")}
+                </span>
+              ) : null}
               {e.exc ? <pre>{e.exc}</pre> : null}
             </span>
           </div>
@@ -129,6 +134,7 @@ const ACTION_LABEL: Record<string, string> = {
   access_restored_admin: "Libraries restored by admin",
   role_mapping_changed: "Role mapping changed",
   role_removed: "Deleted role removed",
+  library_forgotten: "Removed library forgotten",
   manual_grant_add: "Manual grant added",
   manual_grant_remove: "Manual grant removed",
   manual_grant_kept: "Libraries kept as manual grants",
@@ -142,6 +148,7 @@ const ACTION_LABEL: Record<string, string> = {
   invite_sent: "Plex invite sent",
   invite_failed: "Plex invite refused",
   invite_accepted: "Plex invite accepted",
+  invite_welcome: "Invite welcome message",
   invite_cancelled: "Plex invite cancelled",
   reaction_post_created: "Reaction post created",
   reaction_post_updated: "Reaction post updated",
@@ -153,7 +160,9 @@ const ACTION_LABEL: Record<string, string> = {
   request_created: "Request made",
   request_denied: "Request refused",
   request_failed: "Request failed",
+  request_nothing_to_do: "Nothing left to request",
   request_status: "Request status changed",
+  request_retried: "Failed request retried",
   settings_changed: "Settings changed",
   error_resolved: "Alert resolved",
   error_unresolved: "Alert unresolved",
@@ -166,6 +175,9 @@ const ACTION_LABEL: Record<string, string> = {
   discord_disconnected: "Discord disconnected",
   discord_role_created: "Discord role created",
   discord_roles_changed_admin: "Discord roles changed by admin",
+  discord_emoji_added: "Emoji added to Discord",
+  discord_emoji_renamed: "Discord emoji renamed",
+  discord_emoji_deleted: "Discord emoji deleted",
   discord_avatar_set: "Bot avatar changed",
   discord_avatar_failed: "Bot avatar change failed",
   seerr_connected: "Seerr connected",
@@ -245,13 +257,13 @@ function AuditTrail() {
               {entries.map((a) => (
                 <tr key={a.id}>
                   <td className="small" style={{ whiteSpace: "nowrap" }}>{fmtTime(a.ts)}</td>
-                  <td className="small">{a.actor}</td>
+                  <td className="small" title={a.actor}>{a.actor_label}</td>
                   <td>
                     {actionLabel(a.action)}
                     {a.dry_run ? <> <Badge tone="warn" icon="eye">dry run</Badge></> : null}
                   </td>
-                  <td className="small">{a.target_type ? `${a.target_type}:${a.target_id}` : "—"}</td>
-                  <td className="small"><AuditDetails d={a.details} /></td>
+                  <td className="small" title={a.target_type ? `${a.target_type}:${a.target_id ?? ""}` : undefined}>{a.target_label ?? "—"}</td>
+                  <td className="small"><AuditDetails d={a.details_named} raw={a.details} /></td>
                 </tr>
               ))}
             </tbody>
@@ -267,12 +279,13 @@ function AuditTrail() {
   );
 }
 
-function AuditDetails({ d }: { d: Record<string, unknown> }) {
+/** The details with names next to ids (d); hovering shows the raw ids (raw). */
+function AuditDetails({ d, raw }: { d: Record<string, unknown>; raw: Record<string, unknown> }) {
   const add = d.add as string[] | undefined;
   const remove = d.remove as string[] | undefined;
   if (add || remove) {
     return (
-      <span>
+      <span title={JSON.stringify(raw)}>
         {add?.length ? <span>+ {add.join(", ")} </span> : null}
         {remove?.length ? <span>− {remove.join(", ")} </span> : null}
         {d.trigger ? <span className="muted">({String(d.trigger)})</span> : null}
@@ -280,5 +293,5 @@ function AuditDetails({ d }: { d: Record<string, unknown> }) {
     );
   }
   const text = JSON.stringify(d);
-  return <code title={text}>{text.length > 160 ? `${text.slice(0, 160)}…` : text}</code>;
+  return <code title={JSON.stringify(raw)}>{text.length > 160 ? `${text.slice(0, 160)}…` : text}</code>;
 }

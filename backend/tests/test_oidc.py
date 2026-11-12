@@ -4,7 +4,6 @@ import time
 import unittest
 from typing import ClassVar
 from unittest import mock
-from urllib.parse import unquote
 
 from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import select
@@ -89,8 +88,8 @@ class SignInTests(Base):
         def drop_cookie(b, _params):
             b.cookies.clear()
         r = self.sign_in(tamper=drop_cookie)
-        self.assertIn("sso_error", r.headers["location"])
-        self.assertIn("state", r.headers["location"])
+        self.assertEqual(r.headers["location"], "/?sso_error=expired")
+        self.assertIn("state", self._last_failure()["reason"])
 
     def test_state_is_single_use(self):
         b = self.h.new_client()
@@ -101,15 +100,17 @@ class SignInTests(Base):
         self.assertEqual(first.headers["location"], "/")
         b.cookies.set("woosarr_oidc_state", state, path="/api/v1/auth/oidc")
         again = b.get("/api/v1/auth/oidc/callback", params={"code": code, "state": state}, follow_redirects=False)
-        self.assertIn("sso_error", again.headers["location"])
+        self.assertEqual(again.headers["location"], "/?sso_error=expired")
 
-    def _expect_error(self, fragment):
+    def _expect_error(self, fragment, code="failed"):
         r = self.sign_in()
-        loc = unquote(r.headers["location"])
-        self.assertIn("sso_error", loc)
-        self.assertIn(fragment, loc)
+        # Only a fixed code reaches the URL (the login page owns the text); the detail is audited.
+        self.assertEqual(r.headers["location"], f"/?sso_error={code}")
         with self.h.app.state.db.session() as s:
-            self.assertIn("login_failed", s.scalars(select(AuditLog.action)).all())
+            failed = s.scalars(select(AuditLog).where(AuditLog.action == "login_failed")).all()
+        self.assertTrue(failed)
+        self.assertIn(fragment, failed[-1].details["reason"])
+        self.assertEqual(failed[-1].details["code"], code)
 
     def test_wrong_nonce(self):
         self.idp.token_overrides = {"nonce": "attacker"}
@@ -147,7 +148,7 @@ class SignInTests(Base):
 
     def test_not_in_allowed_group(self):
         self.idp.claims["groups"] = ["Everyone"]
-        self._expect_error("isn't allowed")
+        self._expect_error("isn't allowed", "not_allowed")
 
     def test_groups_from_userinfo(self):
         self.idp.claims.pop("groups")
@@ -158,15 +159,22 @@ class SignInTests(Base):
         self.sign_in()
         with self.h.app.state.db.session() as s:
             s.scalar(select(AdminUser).where(AdminUser.auth_source == "oidc")).is_active = False
-        self._expect_error("disabled")
+        self._expect_error("disabled", "disabled")
 
-    def test_idp_error_is_shown(self):
+    def _last_failure(self):
+        with self.h.app.state.db.session() as s:
+            return s.scalars(select(AuditLog).where(AuditLog.action == "login_failed")
+                             .order_by(AuditLog.id.desc())).first().details
+
+    def test_idp_error_is_audited_not_echoed(self):
         b = self.h.new_client()
         r = b.get(f"/api/v1/auth/oidc/{self.provider['slug']}/login", follow_redirects=False)
         state = query(r.headers["location"])["state"]
         r = b.get("/api/v1/auth/oidc/callback", params={"state": state, "error": "access_denied",
                                                        "error_description": "User cancelled"}, follow_redirects=False)
-        self.assertIn("User cancelled", unquote(r.headers["location"]))
+        # The IdP's text (attacker-controllable) never reaches the login page; the audit keeps it.
+        self.assertEqual(r.headers["location"], "/?sso_error=provider_error")
+        self.assertIn("User cancelled", self._last_failure()["reason"])
 
     def test_next_path_is_local_only(self):
         b = self.h.new_client()
@@ -182,7 +190,7 @@ class SignInTests(Base):
             "name": "Test IdP", "kind": "custom", "settings": self.settings, "client_id": self.idp.client_id,
             "allowed_groups": ["WooSarr Admins"], "enabled": False})
         r = self.h.new_client().get(f"/api/v1/auth/oidc/{self.provider['slug']}/login", follow_redirects=False)
-        self.assertIn("sso_error", r.headers["location"])
+        self.assertEqual(r.headers["location"], "/?sso_error=unavailable")
         self.assertEqual(self.h.new_client().get("/api/v1/auth/oidc/providers").json(), [])
 
 
@@ -197,7 +205,11 @@ class AccessRuleTests(Base):
             "name": "Test IdP", "kind": "custom", "settings": self.settings, "client_id": self.idp.client_id,
             "allowed_emails": ["admin@example.com"], "enabled": True})
         self.idp.claims["email_verified"] = False
-        self.assertIn("verified", unquote(self.sign_in().headers["location"]))
+        self.assertEqual(self.sign_in().headers["location"], "/?sso_error=not_allowed")
+        with self.h.app.state.db.session() as s:
+            last = s.scalars(select(AuditLog).where(AuditLog.action == "login_failed")
+                             .order_by(AuditLog.id.desc())).first()
+        self.assertIn("verified", last.details["reason"])
         self.idp.claims["email_verified"] = "true"  # some IdPs send strings
         self.assertEqual(self.sign_in().headers["location"], "/")
 
@@ -207,7 +219,7 @@ class AccessRuleTests(Base):
             "allowed_domains": ["@Example.com"], "enabled": True})
         self.assertEqual(self.sign_in().headers["location"], "/")
         self.idp.claims["email"] = "x@other.com"
-        self.assertIn("sso_error", self.sign_in().headers["location"])
+        self.assertEqual(self.sign_in().headers["location"], "/?sso_error=not_allowed")
 
 
 class GoogleTests(Base):
@@ -229,7 +241,7 @@ class GoogleTests(Base):
         r = b.get(f"/api/v1/auth/oidc/{self.provider['slug']}/login", follow_redirects=False)
         q = query(r.headers["location"])
         self.assertEqual((q["hd"], q["prompt"]), ("example.com", "select_account"))
-        self.assertIn("sso_error", self.sign_in().headers["location"])  # no hd claim: personal account
+        self.assertEqual(self.sign_in().headers["location"], "/?sso_error=not_allowed")  # no hd claim: personal account
         self.idp.claims["hd"] = "example.com"
         self.assertEqual(self.sign_in().headers["location"], "/")
 
@@ -336,7 +348,7 @@ class AdminApiTests(Base):
         broken.get.side_effect = requests.ConnectionError("down")
         self.h.app.state.oidc = OidcService(http=broken)
         r = self.h.new_client().get(f"/api/v1/auth/oidc/{self.provider['slug']}/login", follow_redirects=False)
-        self.assertIn("can't reach", unquote(r.headers["location"]))
+        self.assertEqual(r.headers["location"], "/?sso_error=unavailable")
 
 
 class DocsTests(unittest.TestCase):

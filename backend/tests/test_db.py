@@ -82,6 +82,26 @@ class DbTests(unittest.TestCase):
                 self.assertEqual(sorted(x.discord_user_id for x in s.scalars(select(m.DiscordLink))), ["d1", "d2"])
             engine.dispose()
 
+    def test_invites_accepted_before_the_welcome_message_are_not_welcomed(self):
+        from alembic import command
+        from sqlalchemy import text
+
+        from woosarr.db.session import alembic_config
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = make_engine(Path(tmp) / "old.db")
+            command.upgrade(alembic_config(engine), "0014")
+            with engine.begin() as c:
+                for i, (st, resolved) in enumerate([("accepted", "'2026-11-05 18:43:25.000000'"), ("pending", "NULL")]):
+                    c.execute(text("INSERT INTO plex_invites (id, identifier, discord_user_id, invited_by, verified, "
+                                   f"library_ids, status, created_at, resolved_at) VALUES ({i + 1}, 'x{i}', 'd{i}', "
+                                   f"'discord:d{i}', 0, '[]', '{st}', '2026-11-05 18:37:43.000000', {resolved})"))
+            migrate(engine)
+            with Database(engine).session() as s:
+                welcomed = {i.status: i.welcomed_at for i in s.scalars(select(m.PlexInvite))}
+            self.assertIsNotNone(welcomed["accepted"])
+            self.assertIsNone(welcomed["pending"])  # gets one when it's accepted
+            engine.dispose()
+
     def test_foreign_keys_cascade(self):
         with self.db.session() as s:
             s.add(m.PlexUser(plex_user_id="p1", username="a"))

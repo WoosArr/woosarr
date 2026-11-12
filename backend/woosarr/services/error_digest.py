@@ -26,7 +26,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import logs as logcore
+from woosarr.core import names
 from woosarr.db.models import AuditLog, DiscordMember, ErrorResolution, PlexUser, utcnow
+from woosarr.services import self_resolve
 
 _HEX = re.compile(r"\b[0-9a-f]{8,}\b", re.IGNORECASE)
 _NUM = re.compile(r"\d+")
@@ -35,7 +37,8 @@ _SPACE = re.compile(r"\s+")
 
 
 def normalize(message: str) -> str:
-    text = _QUOTED.sub("'…'", message)
+    text = names.ADDED.sub("", message)  # "123 (@name)": the same problem for a different member
+    text = _QUOTED.sub("'…'", text)
     text = _HEX.sub("#", text)
     text = _NUM.sub("N", text)
     return _SPACE.sub(" ", text).strip()[:200]
@@ -179,7 +182,16 @@ def _account_alerts(session: Session) -> list[tuple[str, str, str]]:
 
 
 def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
-    """All alert groups, most recent first (resolved ones included, count 0)."""
+    """All alert groups, most recent first (resolved ones included, count 0). Alerts that ended by
+    themselves are resolved first (services/self_resolve.py)."""
+    found = _groups(session, min_level)
+    if self_resolve.apply(session, found):
+        session.flush()
+        found = _groups(session, min_level)
+    return found
+
+
+def _groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
     now = utcnow()
     resolutions = {r.fingerprint: r for r in session.scalars(select(ErrorResolution))}
     out: dict[str, Group] = {}
@@ -219,15 +231,16 @@ def groups(session: Session, min_level: int = logging.WARNING) -> list[Group]:
     return sorted(out.values(), key=lambda g: g.last_ts, reverse=True)
 
 
-def visible_counts(session: Session) -> tuple[int, int]:
-    """(warnings, errors) not covered by a resolution."""
-    warnings = errors = 0
+def visible_counts(session: Session) -> tuple[int, int, int, int]:
+    """Not covered by a resolution: (warning occurrences, error occurrences, warning problems,
+    error problems). A problem is one Alerts entry, however many times it happened."""
+    warnings = errors = warning_groups = error_groups = 0
     for g in groups(session):
         if g.level == "WARNING":
-            warnings += g.count
+            warnings, warning_groups = warnings + g.count, warning_groups + 1
         else:
-            errors += g.count
-    return warnings, errors
+            errors, error_groups = errors + g.count, error_groups + 1
+    return warnings, errors, warning_groups, error_groups
 
 
 def resolve(session: Session, group: Group, actor: str) -> ErrorResolution:

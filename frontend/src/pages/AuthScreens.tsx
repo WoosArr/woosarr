@@ -3,6 +3,7 @@ import { api, type PublicProvider } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { ErrorBanner, Field } from "../ui";
+import { ssoErrorMessage } from "../ssoErrors";
 
 function Brand() {
   return (
@@ -19,7 +20,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(() => {
-    const sso = new URLSearchParams(window.location.search).get("sso_error");
+    const sso = ssoErrorMessage(window.location.search);
     return sso ? new Error(sso) : null;
   });
   const [providers, setProviders] = useState<PublicProvider[]>([]);

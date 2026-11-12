@@ -167,7 +167,10 @@ class ManualGrantsOut(BaseModel):
 @router.post("/users/manual-grants", response_model=ManualGrantsOut)
 def manual_grants(body: ManualGrantsIn, request: Request, db: DbDep, principal: AdminDep) -> ManualGrantsOut:
     known_users = set(db.scalars(select(PlexUser.plex_user_id).where(PlexUser.plex_user_id.in_(body.plex_user_ids))))
-    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids))))
+    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids),
+                                                                 Library.removed.is_(False))))
+    if body.action == "remove":  # taking a removed library's grant away is fine
+        known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(body.library_ids))))
     missing = (set(body.plex_user_ids) - known_users) | (set(body.library_ids) - known_libs)
     if missing:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown ids: {sorted(missing)[:10]}")
@@ -269,7 +272,8 @@ def restore_access(body: RestoreIn, request: Request, db: DbDep, principal: Admi
     known = set(db.scalars(select(PlexUser.plex_user_id).where(
         PlexUser.plex_user_id.in_([i.plex_user_id for i in body.items]))))
     libs = {lib for i in body.items for lib in (*i.library_ids, *i.manual_library_ids)}
-    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(libs))))
+    known_libs = set(db.scalars(select(Library.library_id).where(Library.library_id.in_(libs),
+                                                                 Library.removed.is_(False))))
     if {i.plex_user_id for i in body.items} - known or libs - known_libs:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown users or libraries")
     db.commit()
@@ -285,21 +289,10 @@ class AdminLinkIn(BaseModel):
 def admin_link(plex_user_id: str, body: AdminLinkIn, request: Request, db: DbDep, principal: AdminDep) -> UserOut:
     """Link a Discord member to this Plex account (verified). If other members are already linked,
     this adds one more: a family sharing the account gets the union of their roles."""
-    if db.get(PlexUser, plex_user_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plex user not found")
-    by_discord = db.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == body.discord_user_id))
-    if by_discord and by_discord.plex_user_id != plex_user_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "that Discord account is linked to another Plex user; unlink it first")
-    others = [x.discord_user_id for x in db.scalars(select(DiscordLink).where(
-        DiscordLink.plex_user_id == plex_user_id, DiscordLink.discord_user_id != body.discord_user_id))]
-    if by_discord is None:
-        db.add(DiscordLink(plex_user_id=plex_user_id, discord_user_id=body.discord_user_id,
-                           method="admin", verified=True, linked_by=principal.actor))
-    else:
-        by_discord.method, by_discord.verified, by_discord.linked_by = "admin", True, principal.actor
-    db.flush()
-    audit.record(db, principal.actor, "link_admin", "plex_user", plex_user_id,
-                 discord_user_id=body.discord_user_id, other_discord_user_ids=others or None)
+    try:
+        link_service.admin_link(db, plex_user_id, body.discord_user_id, principal.actor, principal.actor)
+    except link_service.AdminLinkError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
     request.app.state.sync.trigger([plex_user_id], f"linked by {principal.actor}")
     return _users(db, plex_user_id)[0]
 
@@ -389,10 +382,12 @@ def discord_members(db: DbDep, q: Annotated[str | None, Query(max_length=100)] =
     stmt = (select(DiscordMember).where(DiscordMember.is_bot.is_(False))  # bots can't link a Plex account
             .order_by(func.lower(DiscordMember.username), DiscordMember.username).limit(min(max(limit, 1), 200)))
     if q:
-        like = f"%{q.lower()}%"
+        # Literal match: % and _ typed in the search are characters, not wildcards.
+        needle = q.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{needle}%"
         stmt = stmt.where(
-            DiscordMember.username.ilike(like) | DiscordMember.display_name.ilike(like)
-            | DiscordMember.discord_user_id.like(like)
+            DiscordMember.username.ilike(like, escape="\\") | DiscordMember.display_name.ilike(like, escape="\\")
+            | DiscordMember.discord_user_id.like(like, escape="\\")
         )
     return [
         MemberOut(discord_user_id=m.discord_user_id, username=m.username, display_name=m.display_name,

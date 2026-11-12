@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from woosarr.core import redaction
+from woosarr.core import names, redaction
 from woosarr.core.config import Settings
 
 # Libraries whose own loggers should flow through our (redacting) root handlers.
@@ -264,6 +264,12 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     stream.setFormatter(formatter)
 
     settings.log_dir.mkdir(parents=True, exist_ok=True)
+    # Before the files are opened: lines written before a redaction pattern existed lose their
+    # secrets too (once per redaction.VERSION). Reported once logging is up.
+    try:
+        scrubbed: dict[str, int] | str = redaction.scrub_files(settings.log_dir)
+    except OSError as exc:
+        scrubbed = f"{type(exc).__name__}: {exc}"
     file_handler = logging.handlers.RotatingFileHandler(
         settings.log_file,
         maxBytes=settings.log_file_max_bytes,
@@ -291,7 +297,10 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     records: queue.Queue[logging.LogRecord] = queue.Queue()
     enqueue = _Enqueue(records)
     handlers: list[logging.Handler] = [enqueue, ring]
-    # Redact before a record is queued (and again at each sink, which is cheap).
+    # Names next to ids (INFO and up), then redact before a record is queued (and again
+    # at each sink, which is cheap).
+    for handler in handlers:
+        handler.addFilter(names.NamesFilter())
     for handler in [*handlers, *sinks]:
         redaction.install(handler)
     for handler in handlers:
@@ -311,6 +320,12 @@ def configure_logging(settings: Settings) -> RingBufferHandler:
     _state.handlers = handlers
     _state.buffer = ring
     _state.sinks, _state.queue, _state.listener = sinks, records, listener
+    if isinstance(scrubbed, str):
+        logging.getLogger("woosarr.logs").warning("log files: redacting older lines failed: %s", scrubbed)
+    elif scrubbed:
+        logging.getLogger("woosarr.logs").info(
+            "log files: redacted %d older lines logged before redaction covered them (%s)", sum(scrubbed.values()),
+            ", ".join(f"{name}: {n}" for name, n in scrubbed.items()))
     if earlier:
         logging.getLogger("woosarr.logs").info("reloaded %d earlier warnings/errors from %s for Alerts",
                                                min(len(earlier), ring.PROBLEMS_CAPACITY),

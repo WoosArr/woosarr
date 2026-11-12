@@ -47,6 +47,136 @@ class DashboardApiTests(unittest.TestCase):
         s = self.c.get("/api/v1/status").json()
         return s["recent_warnings"], s["recent_errors"]
 
+    def test_open_requests_and_roles_that_grant_libraries(self):
+        from woosarr.db.models import DiscordRole, Library, MediaRequest, RoleLibrary
+        with self.h.app.state.db.session() as s:
+            s.add_all([MediaRequest(seerr_request_id=i, discord_user_id="5", seerr_user_id=1, media_type="movie",
+                                    tmdb_id=i, title=f"Film {i}", status=st)
+                       for i, st in enumerate(["pending", "approved", "available", "declined"] + ["pending"] * 10)])
+            s.add_all([DiscordRole(role_id="801", name="Movie Night"), DiscordRole(role_id="802", name="Nothing"),
+                       Library(library_id="1", title="Movies", type="movie"),
+                       Library(library_id="2", title="4K", type="movie")])
+            s.flush()
+            s.add_all([RoleLibrary(role_id="801", library_id="1"), RoleLibrary(role_id="801", library_id="2")])
+        ins = self.c.get("/api/v1/dashboard/insights").json()
+        self.assertEqual((ins["requests"]["open_count"], len(ins["requests"]["open"])), (12, 10))
+        self.assertTrue(all(r["status"] in ("pending", "approved") for r in ins["requests"]["open"]))
+        self.assertEqual([(r["name"], r["libraries"]) for r in ins["role_libraries"]], [("Movie Night", ["4K", "Movies"])])
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("open_requests", ids)
+        self.assertIn("role_libraries", ids)
+
+    def test_widgets_can_be_copied_and_renamed(self):
+        base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
+        mine = [{"id": "libraries", "size": "m", "title": "  All   libraries "},
+                {"id": "libraries-2", "size": "xs", "view": "donut", "title": "Libraries (chart)"},
+                {"id": "libraries-3", "size": "m", "hidden": True},  # a hidden copy is removed
+                {"id": "roles-2", "size": "s", "title": ""}]
+        mine += [w for w in base if w["id"] != "libraries"]
+        r = self.c.put("/api/v1/dashboard/layout", json={"widgets": mine})
+        self.assertEqual(r.status_code, 200, r.text)
+        got = {w["id"]: w for w in r.json()["widgets"]}
+        self.assertEqual(got["libraries"]["title"], "All libraries")  # one line, trimmed
+        self.assertEqual((got["libraries-2"]["view"], got["libraries-2"]["title"]), ("donut", "Libraries (chart)"))
+        self.assertIsNone(got["roles-2"]["title"])  # empty = the usual name
+        self.assertNotIn("libraries-3", got)
+        for bad in ("libraries-1", "nope-2", "libraries-x", "libraries-2-2"):
+            self.assertEqual(self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": bad}]}).status_code,
+                             422, bad)
+        self.assertEqual(self.c.put("/api/v1/dashboard/layout", json={"widgets": [
+            {"id": "roles", "title": "x" * 61}]}).status_code, 422)
+
+    def test_copies_can_be_filtered(self):
+        base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
+        mine = [{"id": "libraries-2", "filter": {"libraries": ["1", "4"]}},
+                {"id": "requests", "filter": {"statuses": ["pending", "approved"]}},
+                {"id": "errors", "filter": {"levels": ["account"]}},
+                {"id": "roles-2", "filter": {"roles": []}}]  # nothing chosen = no filter
+        mine += [w for w in base if w["id"] not in ("requests", "errors")]
+        got = {w["id"]: w for w in self.c.put("/api/v1/dashboard/layout", json={"widgets": mine}).json()["widgets"]}
+        self.assertEqual(got["libraries-2"]["filter"]["libraries"], ["1", "4"])
+        self.assertEqual(got["requests"]["filter"]["statuses"], ["pending", "approved"])
+        self.assertEqual(got["errors"]["filter"]["levels"], ["account"])
+        self.assertIsNone(got["roles-2"]["filter"])
+        for bad in ({"statuses": ["lost"]}, {"levels": ["debug"]}, {"roles": ["abc"]}):
+            r = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "requests", "filter": bad}]})
+            self.assertEqual(r.status_code, 422, bad)
+
+    def test_blank_widgets_repeat_and_vanish_when_hidden(self):
+        base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
+        spacers = [{"id": "spacer-1", "size": "s"}, {"id": "spacer-2", "size": "xs"},
+                   {"id": "spacer-3", "size": "m", "hidden": True}]
+        r = self.c.put("/api/v1/dashboard/layout", json={"widgets": spacers + base})
+        self.assertEqual(r.status_code, 200, r.text)
+        ids = [w["id"] for w in r.json()["widgets"]]
+        self.assertEqual(ids[:2], ["spacer-1", "spacer-2"])
+        self.assertNotIn("spacer-3", ids)  # hidden = removed
+        for bad in ("spacer-x", "spacer", "nope"):
+            self.assertEqual(self.c.put("/api/v1/dashboard/layout",
+                                        json={"widgets": [{"id": bad}]}).status_code, 422, bad)
+        dup = self.c.put("/api/v1/dashboard/layout", json={"widgets": [{"id": "spacer-1"}, {"id": "spacer-1"}]})
+        self.assertEqual(dup.status_code, 422)
+
+    def test_new_install_starts_with_the_setup_checklist(self):
+        layout = self.c.get("/api/v1/dashboard/layout").json()
+        self.assertFalse(layout["custom"])
+        first = layout["widgets"][0]
+        self.assertEqual((first["id"], first["size"], first["hidden"], first["title"]), ("setup", "l", False, None))
+
+    def test_discord_member_link_counts(self):
+        from woosarr.db.models import DiscordLink, DiscordMember, PlexUser
+        with self.h.app.state.db.session() as s:
+            s.add_all([PlexUser(plex_user_id="p1", username="a"), PlexUser(plex_user_id="p2", username="b"),
+                       DiscordMember(discord_user_id="1", username="v"), DiscordMember(discord_user_id="2", username="u"),
+                       DiscordMember(discord_user_id="3", username="none"),
+                       DiscordMember(discord_user_id="4", username="bot", is_bot=True),
+                       DiscordMember(discord_user_id="5", username="left", in_guild=False)])
+            s.flush()
+            s.add_all([DiscordLink(plex_user_id="p1", discord_user_id="1", method="oauth", verified=True, linked_by="self"),
+                       DiscordLink(plex_user_id="p2", discord_user_id="2", method="username", verified=False,
+                                   linked_by="self"),
+                       DiscordLink(plex_user_id="p2", discord_user_id="5", method="oauth", verified=True,
+                                   linked_by="self")])
+        links = self.c.get("/api/v1/dashboard/insights").json()["links"]
+        self.assertEqual((links["members"], links["members_verified"], links["members_unverified"],
+                          links["members_unlinked"]), (3, 1, 1, 1))  # bots and leavers don't count
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("stat_discord_users", ids)
+        self.assertIn("stat_discord_linked", ids)
+
+    def test_time_drift_from_discords_clock(self):
+        from types import SimpleNamespace
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])  # no bot, no measurement
+        self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=False, offset=0.0))
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["clock"])  # Discord not set up
+        self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True}
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["clock"], {"offset_seconds": None})
+        self.h.app.state.discord = SimpleNamespace(timing=SimpleNamespace(measured=True, offset=38.24))
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["clock"], {"offset_seconds": 38.2})
+        self.assertIn("stat_clock", [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]])
+
+    def test_emoji_slots_only_while_the_bot_is_connected(self):
+        self.assertIsNone(self.c.get("/api/v1/dashboard/insights").json()["emoji"])  # bot not connected
+        self.h.app.state.emoji_guild = type("G", (), {"emoji_slots": lambda self: {"limit": 50, "static": 12,
+                                                                                    "animated": 3}})()
+        self.assertEqual(self.c.get("/api/v1/dashboard/insights").json()["emoji"],
+                         {"limit": 50, "static": 12, "animated": 3})
+        ids = [w["id"] for w in self.c.get("/api/v1/dashboard/layout").json()["widgets"]]
+        self.assertIn("stat_emoji", ids)
+        self.assertIn("stat_emoji_animated", ids)
+
+    def test_connections_say_connecting_while_the_bot_starts(self):
+        self.h.app.state.discord_status = lambda: {"configured": True, "connected": False, "connecting": True,
+                                                   "detail": "Connecting…"}
+        d = self.c.get("/api/v1/status").json()["discord"]
+        self.assertEqual((d["connected"], d["connecting"]), (False, True))
+
+    def test_banner_counts_problems_and_occurrences(self):
+        for _ in range(5):
+            self.log.error("Ignoring exception in autocomplete (User: %s)", 100000000000000000 + _)
+        s = self.c.get("/api/v1/status").json()
+        self.assertEqual((s["recent_errors"], s["open_errors"]), (5, 1))  # one problem, five times
+
     def errors(self, level="WARNING"):
         return {g["message"].split(" ", 1)[0]: g for g in self.c.get(f"/api/v1/errors?level={level}").json()}
 
@@ -135,7 +265,8 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         d = r.json()
         self.assertEqual(d["links"], {"plex_users": 4, "linked": 2, "verified": 1, "unverified": 1, "unlinked": 2,
-                                      "members": 2, "members_unlinked": 1})  # the owner counts as a Plex user
+                                      "members": 2, "members_unlinked": 1, "members_verified": 1,
+                                      "members_unverified": 0})  # the owner counts as a Plex user
         users = {lib["title"]: lib["users"] for lib in d["libraries"]}
         self.assertEqual(users, {"Movies": 2, "Kids": 1})  # alice's share + the owner, who sees every library
         today = d["access_by_day"][-1]
@@ -189,7 +320,7 @@ class DashboardApiTests(unittest.TestCase):
         r = self.c.get("/api/v1/dashboard/layout").json()
         self.assertFalse(r["custom"])
         ids = [w["id"] for w in r["widgets"]]
-        self.assertEqual(ids[0], "integrations")
+        self.assertEqual(ids[:2], ["setup", "integrations"])
         self.assertEqual(len(ids), len(set(ids)))
         mine = [{"id": "errors", "size": "l"}, {"id": "stat_linked", "size": "xs", "view": "donut"},
                 {"id": "integrations", "size": "m", "hidden": True}]

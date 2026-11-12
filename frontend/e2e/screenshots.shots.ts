@@ -78,7 +78,7 @@ test("documentation screenshots", async ({ page }) => {
   await seed(api);
   await page.waitForTimeout(2500); // the queued sync runs
 
-  await page.setViewportSize({ width: 1440, height: 1720 }); // the whole default dashboard
+  await page.setViewportSize({ width: 1440, height: 1960 }); // the whole default dashboard
   for (const mode of ["dark", "light"] as const) {
     await theme(page, mode);
     await page.goto("/");
@@ -117,6 +117,15 @@ test("documentation screenshots", async ({ page }) => {
   await page.waitForTimeout(500);
   await page.getByRole("dialog").screenshot({ path: `${OUT}/reaction-post-editor.png` });
   await page.keyboard.press("Escape");
+
+  for (const [source, name] of [["openmoji", "popcorn"], ["emojigg", "blob_wave"], ["emojigg", "cat_vibe"]]) {
+    const found = (await api("GET", `/api/v1/emoji/search?source=${source}&q=${name}&hide_animated=false`)) as { items: { id: string }[] };
+    await api("POST", "/api/v1/emoji/add", { source, id: found.items[0].id, name });
+  }
+  await page.goto("/emoji");
+  await page.getByRole("switch", { name: "Hide animated" }).uncheck();
+  await expect(page.getByRole("button", { name: /party_parrot/ })).toBeVisible();
+  await shot(page, "custom-emoji");
 
   await page.goto("/settings?tab=linking");
   await shot(page, "settings-linking");

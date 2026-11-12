@@ -13,12 +13,13 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from woosarr import __version__
+from woosarr import __version__, build
 from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
 from woosarr.api import audit_api, requests_api
 from woosarr.api import auth as auth_api
 from woosarr.api import dashboard as dashboard_api
+from woosarr.api import emoji as emoji_api
 from woosarr.api import integrations as integrations_api
 from woosarr.api import libraries as libraries_api
 from woosarr.api import logs as logs_api
@@ -37,7 +38,14 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
-from woosarr.services import media_requests
+from woosarr.services import (
+    audit_names,
+    emoji_library,
+    friendly_names,
+    media_requests,
+    stall_watch,
+    updates,
+)
 from woosarr.services.discord_bot import DiscordService
 from woosarr.services.oidc import OidcService
 from woosarr.services.plex import PlexService
@@ -52,8 +60,9 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 API_VERSION = "v1"
 
 
-def _health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__, "api": API_VERSION}
+def _health(request: Request) -> dict[str, str]:
+    b = request.app.state.build
+    return {"status": "ok", "version": b.version, "channel": b.channel, "commit": b.short_commit, "api": API_VERSION}
 
 
 def _announce_setup_code(code: auth.SetupCode) -> None:
@@ -66,8 +75,19 @@ def _announce_setup_code(code: auth.SetupCode) -> None:
     sys.stdout.flush()
 
 
+def _preload_lazy_imports() -> None:
+    """anyio imports its file helpers on first use, which is the first static file Starlette serves,
+    inside the event loop. On a cold disk that read once took over 10 s, blocked the loop and
+    stalled the Discord heartbeat (live log 2026-10-23). Import them now, before anything runs."""
+    import anyio
+
+    for name in ("open_file", "Path", "to_thread", "wrap_file"):
+        getattr(anyio, name)
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    _preload_lazy_imports()
     settings.config_dir.mkdir(parents=True, exist_ok=True)
     configure_logging(settings)
 
@@ -83,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     plex_service: PlexService | None = None
     discord_service: DiscordService | None = None
+    emoji_lib = emoji_library.EmojiLibrary(settings.config_dir / "cache" / "emoji", demo=settings.demo)
     if settings.demo:
         from woosarr.dev import demo
 
@@ -96,26 +117,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plex_service = PlexService(db, secret_store)
         gateway = plex_service.gateway
     sync = SyncService(db, gateway)
+    this_build = build.current()
+    update_checker = updates.UpdateChecker(this_build)
+
+    def update_check_settings() -> tuple[bool, int]:
+        with db.session() as s:
+            st = app_settings.load(s)
+            return st.update_check, st.update_check_minutes
+
     request_service = media_requests.RequestService(db, secret_store)
     if not settings.demo:
         discord_service = DiscordService(db, secret_store, sync.trigger, plex_service, sync, request_service)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        stall_watch.WATCH.start(asyncio.get_running_loop())
         sync.start()
         if gateway() is not None:
             sync.trigger(None, "startup", delay=1)
         poller = None
+        emoji_refresh = None
+        if not settings.demo:
+            emoji_refresh = asyncio.create_task(emoji_library.run_refresher(emoji_lib), name="woosarr-emoji-refresh")
+        names_refresh = asyncio.create_task(friendly_names.run_refresher(db, discord_service),
+                                            name="woosarr-friendly-names")
+        audit_backfill = asyncio.create_task(audit_names.run_backfill(db), name="woosarr-audit-names")
+        update_task = None
+        if update_checker.checkable and not settings.demo:
+            update_task = asyncio.create_task(updates.run_checker(update_checker, update_check_settings),
+                                              name="woosarr-update-check")
         if discord_service is not None:
             await discord_service.start()
             poller = asyncio.create_task(media_requests.run_poller(request_service, discord_service.send_notice),
                                          name="woosarr-request-poll")
         yield
-        if poller is not None:
-            poller.cancel()
+        for task in (poller, emoji_refresh, names_refresh, update_task, audit_backfill):
+            if task is not None:
+                task.cancel()
         if discord_service is not None:
             await discord_service.stop()
         sync.stop()
+        stall_watch.WATCH.stop()
         log.info("shutdown complete")
 
     app = FastAPI(
@@ -129,6 +171,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.plex_gateway = gateway
     app.state.plex = plex_service
     app.state.discord = discord_service
+    app.state.emoji_library = emoji_lib
+    app.state.build = this_build
+    app.state.updates = update_checker
+    app.state.emoji_guild = discord_service if discord_service is not None else demo.DemoEmojiGuild()
     app.state.requests = request_service
     app.state.plex_status = (
         plex_service.status if plex_service else lambda: {"configured": True, "connected": True, "detail": "demo data"}
@@ -176,7 +222,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1 = APIRouter(prefix=f"/api/{API_VERSION}")
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
-                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api, dashboard_api):
+                   roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api, dashboard_api,
+                   emoji_api):
         v1.include_router(module.router)
     v1.include_router(oidc_api.public)
     v1.include_router(oidc_api.admin)
@@ -185,11 +232,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _mount_spa(app, settings)
     log.info(
         "WooSarr %s starting config_dir=%s port=%s log_level=%s",
-        __version__,
+        this_build.label(),
         settings.config_dir,
         settings.port,
         settings.log_level,
     )
+    log.info("CPU access: WooSarr %s", stall_watch.cpu_access())
     return app
 
 

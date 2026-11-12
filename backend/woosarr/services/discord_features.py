@@ -17,8 +17,11 @@ PERMISSION_BITS: dict[str, int] = {
     "view_channel": 1 << 10,
     "embed_links": 1 << 14,
     "send_messages": 1 << 11,
+    "manage_messages": 1 << 13,  # remove other people's reactions
     "read_message_history": 1 << 16,
     "manage_roles": 1 << 28,
+    "manage_expressions": 1 << 30,  # edit/delete any emoji (was "Manage Emojis and Stickers")
+    "create_expressions": 1 << 43,  # upload emoji (and edit/delete the bot's own)
     "pin_messages": 1 << 51,
 }
 
@@ -28,8 +31,11 @@ PERMISSION_LABELS: dict[str, str] = {
     "view_channel": "View Channels",
     "embed_links": "Embed Links",
     "send_messages": "Send Messages",
+    "manage_messages": "Manage Messages",
     "read_message_history": "Read Message History",
     "manage_roles": "Manage Roles",
+    "manage_expressions": "Manage Expressions",
+    "create_expressions": "Create Expressions",
     "pin_messages": "Pin Messages",
 }
 
@@ -66,6 +72,12 @@ FEATURES: tuple[Feature, ...] = (
             "Post requests in the requests channel mentioning the member, reply there and update the post "
             "when the status changes (Settings → Requests → Public).",
             ("view_channel", "send_messages", "embed_links", "read_message_history")),
+    Feature("custom_emoji", "Add and update emoji",
+            "Add emoji to the server from the Custom Emoji page (emoji.gg, OpenMoji, slackmojis), "
+            "rename and delete server emoji.", ("create_expressions", "manage_expressions")),
+    Feature("clear_reactions", "Clear old reactions",
+            "When a reaction post's emoji change and you choose not to keep the old reactions, remove them "
+            "from the message.", ("manage_messages",)),
     Feature("pin_posts", "Pin reaction posts", "Pin the reaction post in its channel.", ("pin_messages",)),
     Feature("create_channel", "Create the reaction channel",
             "Create the channel for a reaction post if it doesn't exist.", ("manage_channels",)),

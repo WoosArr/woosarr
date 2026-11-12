@@ -4,8 +4,14 @@ name: Docker publish
 # image to GHCR only if CI passes. Uses the built-in GITHUB_TOKEN; no stored registry
 # credentials. Pull requests run CI only (see ci.yml).
 #
-# Image tags: main → latest; develop → develop; v1.2.3 → 1.2.3 and 1.2; every build
-# also gets sha-<commit>. `latest` never comes from develop.
+# Image tags: develop → develop; v1.2.3 → 1.2.3, 1.2 and (if it's the newest release)
+# latest; every build also gets sha-<commit>. A release is one image carrying all its
+# tags. Pushes to main (the release merge) are tested and built but not published:
+# the version tag on the merge commit publishes that same commit.
+#
+# Each platform builds natively on its own runner (amd64 on ubuntu-latest, arm64 on
+# ubuntu-24.04-arm; no QEMU) and is smoke-tested and scanned there. Publishing pushes each
+# platform by digest, then one job joins them into the multi-platform image with its tags.
 
 on:
   push:
@@ -33,27 +39,38 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # Tests, image build + smoke tests run side by side; publish waits for both, so
-  # nothing is pushed unless everything passed.
+  # Tests and the per-platform image builds + smoke tests run side by side; publish waits
+  # for all of them, so nothing is pushed unless everything passed.
   ci:
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
 
   image:
-    name: Image (build, smoke tests, scan)
-    runs-on: ubuntu-latest
+    name: Image ${{ matrix.arch }} (build, smoke tests, scan)
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
       contents: read
+    strategy:
+      fail-fast: false  # see both platforms' results
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
 
-      - name: Set up QEMU (arm64)
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      - name: Build info
+        id: build
+        run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -63,13 +80,18 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
           tags: woosarr:smoke
-          # Separate cache scopes: one shared scope was overwritten by this amd64-only build,
-          # so the multi-arch build never found its arm64 layers (rebuilt under QEMU).
-          cache-from: type=gha,scope=smoke-amd64
-          cache-to: type=gha,mode=max,scope=smoke-amd64
+          build-args: |
+            WOOSARR_BUILD_VERSION=${{ steps.build.outputs.version }}
+            WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
+            WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
+            WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
+            WOOSARR_OS_UPDATES=${{ steps.build.outputs.day }}
+          # One cache scope per platform; publish builds the same thing from it.
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
 
       - name: Smoke test (health, healthy status, /config persistence, graceful stop)
         run: scripts/smoke-test.sh woosarr:smoke 31337
@@ -89,6 +111,19 @@ jobs:
           curl -fsS http://127.0.0.1:31339/api/health; echo
           docker compose -p woosarr-ci down
 
+      - name: TrueNAS compose smoke test (truenas/compose.yaml, runs as 568 with no capabilities)
+        run: |
+          conf="$RUNNER_TEMP/woosarr-truenas-config"
+          mkdir -p "$conf"
+          sudo chown 568:568 "$conf"  # a TrueNAS dataset owned by the apps user
+          export WOOSARR_IMAGE=woosarr:smoke WOOSARR_CONFIG="$conf" WOOSARR_HOST_PORT=31340
+          docker compose -f truenas/compose.yaml -p woosarr-truenas config -q
+          docker compose -f truenas/compose.yaml -p woosarr-truenas up -d --wait --wait-timeout 120 \
+            || { docker compose -f truenas/compose.yaml -p woosarr-truenas logs; exit 1; }
+          curl -fsS http://127.0.0.1:31340/api/health; echo
+          sudo test -f "$conf/app.db"
+          docker compose -f truenas/compose.yaml -p woosarr-truenas down
+
       - name: Scan image for secrets and fixable HIGH/CRITICAL vulnerabilities (both fail)
         run: |
           trivy() { docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c "$@"; }
@@ -97,38 +132,43 @@ jobs:
           trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --no-progress woosarr:smoke
           trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 --no-progress woosarr:smoke
 
-      # The slow part (arm64 under QEMU) happens here, while the tests run; nothing is pushed.
-      - name: Build all platforms (fills the cache for publish)
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: |
-            type=gha,scope=release-multiarch
-            type=gha,scope=smoke-amd64
-          cache-to: type=gha,mode=max,scope=release-multiarch
-
+  # Each platform pushed by digest (no tags yet) from its own runner and cache.
   publish:
-    name: Publish to GHCR
+    name: Publish ${{ matrix.arch }} to GHCR
     needs: [ci, image]
-    runs-on: ubuntu-latest
+    # main is published by its version tag (same commit), so latest and X.Y.Z are one image.
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write  # push the image to ghcr.io with the job's GITHUB_TOKEN
+    strategy:
+      fail-fast: false  # see both platforms' results
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
 
-      - name: Set up QEMU (arm64)
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      - name: Build info
+        id: build
+        run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Registries need lowercase names; the repository is WoosArr/woosarr.
+      - name: Image name
+        run: echo "IMAGE=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -137,31 +177,117 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Image labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+      # Same build as in the image job, so every layer comes from its cache.
+      - name: Build and push by digest
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            WOOSARR_BUILD_VERSION=${{ steps.build.outputs.version }}
+            WOOSARR_BUILD_CHANNEL=${{ steps.build.outputs.channel }}
+            WOOSARR_BUILD_COMMIT=${{ steps.build.outputs.commit }}
+            WOOSARR_BUILD_DATE=${{ steps.build.outputs.date }}
+            WOOSARR_OS_UPDATES=${{ steps.build.outputs.day }}
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ env.IMAGE }}
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+
+      - name: Keep the digest for the merge job
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One multi-platform image from the pushed digests, with all its tags.
+  merge:
+    name: Publish multi-platform image
+    needs: [publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Registries need lowercase names; the repository is WoosArr/woosarr.
+      - name: Image name
+        run: echo "IMAGE=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # latest only for the highest X.Y.Z tag: an older hotfix tag (or a pre-release like
+      # v1.2.0-rc1) must not move latest backwards.
+      - name: Is this the newest release?
+        id: newest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          newest=$(git ls-remote --tags --refs "https://github.com/${GITHUB_REPOSITORY}.git" 'v*.*.*' \
+            | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          echo "newest release tag: ${newest:-none}; this tag: $TAG"
+          if [ "$newest" = "$TAG" ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # latest=auto would also tag every v* release as latest (an older hotfix tag would
-          # move latest backwards); latest comes only from main, via the raw rule below.
+          # latest=auto would tag every v* release as latest (an older hotfix tag would move it
+          # backwards); latest comes only from the newest release tag, via the raw rule below.
           flavor: |
             latest=false
           tags: |
-            # Explicit refs, not {{is_default_branch}}: latest must follow main whichever branch is default.
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ steps.newest.outputs.latest == 'true' }}
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=short
 
-      # Same build as in the image job, so every layer comes from its cache.
-      - name: Build and push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=release-multiarch
+      - name: Create the multi-platform image and push its tags
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          [ "$(ls -1 | wc -l)" -eq 2 ] || { echo "expected amd64 + arm64 digests, got: $(ls -1)"; exit 1; }
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Check both platforms are in it
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION" | tee manifest.txt
+          grep -q 'linux/amd64' manifest.txt && grep -q 'linux/arm64' manifest.txt

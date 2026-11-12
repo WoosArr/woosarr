@@ -35,6 +35,13 @@ class PlexApiGatewayTests(unittest.TestCase):
         self.assertTrue(users["13"].is_managed)
         self.assertFalse(users["11"].is_managed)
 
+    def test_shared_users_lists_only_users_with_a_share(self):
+        fake, gw = make()
+        self.assertEqual(gw.list_shared_users(), [])  # /api/users leaves out users without a share
+        fake.shares["11"] = {"id": 9, "sections": {101}}
+        shared = gw.list_shared_users()
+        self.assertEqual([(u.plex_user_id, u.is_owner) for u in shared], [("11", False)])
+
     def test_only_shared_sections_count(self):
         fake, gw = make()
         fake.shares["11"] = {"id": 9, "sections": {101, 103}}

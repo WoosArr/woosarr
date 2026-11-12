@@ -13,12 +13,13 @@ Members request movies and TV shows from Discord with a slash command (default *
 
 ## What members see
 
-- `/request title:` suggests matching movies and shows as they type (up to 25, with year and "available" / "requested" notes; plain text, as Discord allows no links there). Picking a suggestion opens it directly; typing something and sending it shows a numbered list of matches linking to TMDB, with a menu (numbered the same) to choose from. Clicking a link only opens the page; it never selects the title.
+- `/request title:` suggests matching movies and shows as they type (up to 25, with year and "available" / "requested" notes; plain text, as Discord allows no links there). Picking a suggestion opens it directly; typing something and sending it shows a numbered list of matches linking to TMDB, with a menu (numbered the same) to choose from. Clicking a link only opens the page; it never selects the title. Matches are ordered by how closely the title matches what was typed, then by how well known the title is on TMDB, so the famous *The Fall* comes before a dozen namesakes nobody has rated; the numbered list reads two pages of TMDB results (40), suggestions one (Discord allows 3 s). Add the year to narrow it down: `The Fall 2006` or `The Fall (2006)` puts that year's titles first (a title that ends in a number, like *Blade Runner 2049*, still matches as a title).
+- **Paste a link instead of typing** (easiest on a phone): open the title in the IMDb or TMDB app or website (or TVDB), tap **Share → Copy link**, and paste it after `/request`. The title's card opens straight away. Links to other sites (Letterboxd, YouTube, Netflix, …), and IMDb or TMDB pages that aren't a title (actors, lists) are refused with a note on what works. TVDB links usually name the show (`thetvdb.com/series/the-killing-2011`) instead of giving its number, so WooSarr reads TVDB's public page for that name (`https://www.thetvdb.com/series/<name>`, built from the name, never the pasted link; no redirects followed) and opens the title it links on TMDB (or IMDb, or by its TVDB id); each page is read about once a day. If TVDB is slow or unreachable, it searches for the name and year among shows (or movies, for `/movies/` links) instead: the card opens when exactly one title fits, otherwise the member picks from the list. Other links are only read, never opened. Log lines `woosarr.tvdb` say what each page resolved to. Also accepted: `tt1375666`, `imdb:tt1375666`, `tmdb:27205`, `tvdb:81189`.
 - A private card with poster, overview, type and status. The title links to TMDB, and link buttons open TMDB, TVDB (shows) and IMDb; link buttons open the browser and never send a request. Shows get a season menu: leave it empty for every season that isn't on Plex yet, or pick seasons. Specials (season 0) aren't offered.
 - **Request** sends it to Seerr; the reply says whether it's waiting for approval or already approved. Titles that are available or already requested have the button disabled.
 - When the request is approved, declined, fails, or becomes (partly) available, the member gets a DM from the bot. Members who don't accept DMs from server members just don't get it; the Requests page still shows the status.
 
-All replies are ephemeral (only the member sees them).
+All replies are ephemeral (only the member sees them); with *Public* visibility the request itself is also posted in a channel (below).
 
 ## Private or public (Settings → Requests → Visibility)
 
@@ -37,10 +38,11 @@ Public needs a channel. The bot needs **View Channels, Send Messages, Embed Link
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | **Command name** | `request` | 1–32 characters: lowercase letters, numbers, `-`, `_`. Can't be `link`, `unlink`, `invite` or `help` (WooSarr's other commands). See *Another bot already has /request*. |
-| **All linked members** | on | Off = only members with one of the ticked roles. Discord admins (Manage Server) can always request. |
+| **All linked members** | on | Off = only members with one of the ticked roles. Admins (*Settings → Linking → Admin roles*; by default Manage Server or Administrator) can always request. |
 | **Verified links only** | on | Only members whose link is verified (Sign in with Plex) may request. A username-only `/link` is a claim anyone could make, and requests are made as that Plex account's Seerr user. |
 | **Create missing Seerr users** | on | If the member's Plex account has no Seerr user yet, WooSarr imports it (`POST /api/v1/user/import-from-plex` with that Plex id). Seerr gives it its **default permissions** (Seerr → Settings → Users). Off = the member is told to ask an admin. |
 | **Notify members** | on | DM status changes. |
+| **Retry failed requests** | on | Ask Seerr to send a failed request to Radarr/Sonarr again, 1, 6 and 24 hours after it failed. The member hears of the failure only if every try fails. |
 
 A member always needs a link: requests are made as their Seerr user, which is found from their Plex account. Members who share one Plex account (a family) request as that account's Seerr user, so Seerr counts their requests together. Matching order: Seerr user with the same **Plex id**, then the same **email**, then the same **Plex username**.
 
@@ -56,11 +58,15 @@ Discord doesn't let one bot see another bot's commands, so WooSarr can't detect 
 
 ## Status tracking
 
-WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 5 minutes for 60 days: pending → approved → (partly) available, or declined / failed. Requests deleted in Seerr show as *Removed in Seerr*. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
+WooSarr remembers the requests made through Discord (`media_requests` table) and re-reads the open ones from Seerr (`GET /api/v1/request/{id}`) every 30 minutes, however old they are: pending → approved → (partly) available, or declined / failed. Failed and declined requests are re-read too, for 30 days after they got that status, so a request an admin retries or approves in Seerr afterwards is picked up and the member told. Requests deleted in Seerr show as *Removed in Seerr*. The Requests page lists every request still being re-read, and available or removed ones for 7 days. **Requests → Check status now** runs the check immediately. Requests made on Seerr's website aren't listed. Seerr is the source of truth for those.
+
+### Failed requests
+
+*Failed* means Seerr approved the request but couldn't hand it to Radarr or Sonarr (one of them was down, a quality profile or root folder is missing...). With **Retry failed requests** on, WooSarr asks Seerr to try again (`POST /api/v1/request/{id}/retry`, the same as Seerr's *Retry* button) 1 hour after the request failed, then 6 and 24 hours after each try that failed again. The Requests page shows when the next try is due; **Retry** on a failed request tries now (it doesn't use up an automatic try). The member is told only when every automatic try has failed (or straight away with retrying off), and again when it's approved or available after all. Retries are audited as `request_retried` (`automatic`, `attempt`, `before`, `after`, `error`). Seerr's API key user needs *Manage Requests* to retry, which the admin key has.
 
 ## Diagnostics (logs API)
 
-Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_status`, `seerr_connected`):
+Every step logs under `woosarr.seerr`, `woosarr.requests` and `woosarr.discord.requests`, and requests are audited (`request_created`, `request_denied`, `request_failed`, `request_nothing_to_do`, `request_status`, `request_retried`, `seerr_connected`). `request_nothing_to_do` isn't an error: Seerr answered 202 because every season is already requested or available, so nothing was created:
 
 ```bash
 curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=seerr&limit=200"
@@ -71,14 +77,19 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 |----------|---------|
 | `discord commands registered in guild … /request` | The command is live (also shows a rename: `request command was /old`). |
 | `seerr GET /search -> 403` | API key wrong or regenerated in Seerr; enter it again on the Integrations page. |
+| `seerr GET /search timed out after 2.1 s (limit 2.15 s)` | Seerr was slow. A limit around 2 s is a suggestion while typing (Discord's 3 s); 15 s is everything else. Clears by itself once Seerr answers again. |
 | `no seerr user for plex <name>` | Member's Plex account isn't in Seerr and import is off, or Seerr couldn't import it (not a Plex friend with library access). |
 | `request <id> created for discord … as seerr user …` | Request made; the Seerr user id it ran as. |
-| `request suggestions … unavailable: timeout` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
+| `request suggestions … unavailable: timed out` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
 | `request notice for … not sent: member doesn't accept DMs` | The member has DMs from server members turned off. |
-| `request poll: N open, M changed, K to notify` | Periodic status check. |
+| `request poll: N checked, M changed, K to notify, R retried` | Periodic status check (every 30 minutes). |
 | `request <id> posted in #channel` / `request notice for … posted in #channel` | Public request post and status reply. |
 | `bot can't post requests in #… missing …` | Give the bot those permissions in the requests channel. |
 | `request by … refused: used in channel …` | *Only in this channel* is on and the member used another channel. |
+| `request by …: IMDb link, looking up imdb:tt…` / `TMDB link to movie …` | A pasted link, and what it was looked up as. |
+| `request by …: link to <host> refused` | A link to a site other than IMDb, TMDB or TVDB (or not a title's page); the member was told what works. |
+| `tvdb page series/<name> is tmdb tv <id>` | A TVDB link resolved to that exact title. Warnings `tvdb page … unavailable` / `has no TMDB, IMDb or TVDB id` mean it fell back to searching by name. |
+| `request <id> (<title>) retried in Seerr by …` (audit `request_retried`) | A failed request was sent to Seerr again (automatically or with **Retry**). |
 
 ## API details used (Seerr develop, 2026-10)
 

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
+from woosarr.api.audit_api import audit_out
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import kv
 from woosarr.db.models import (
@@ -27,7 +29,8 @@ from woosarr.db.models import (
     Session,
     utcnow,
 )
-from woosarr.services import audit, error_digest
+from woosarr.services import audit, error_digest, media_requests
+from woosarr.services.discord_bot import DiscordConfigError
 
 router = APIRouter(tags=["dashboard"], dependencies=[Depends(require_admin)])
 log = logging.getLogger("woosarr.dashboard")
@@ -85,6 +88,8 @@ def unresolve_error(fingerprint: Annotated[str, Path(pattern=r"^[0-9a-f]{16}$")]
 # ---- widget data ----------------------------------------------------------------------
 
 DAYS = 14
+OPEN_REQUESTS_SHOWN = 10
+RECENT_REQUESTS = 50
 ACTIVITY_SKIP = ("access_planned", "access_changed", "access_skipped", "login", "logout", "request_status")
 
 
@@ -94,6 +99,12 @@ class InsightsOut(BaseModel):
     access_by_day: list[dict[str, Any]]
     libraries: list[dict[str, Any]]
     roles: list[dict[str, Any]]  # Discord roles by member count, with linked members and mapped libraries
+    role_libraries: list[dict[str, Any]]  # roles that grant libraries, with the libraries' names
+    # The Discord server's custom emoji slots ({limit, static, animated}); None while the bot isn't connected.
+    emoji: dict[str, int] | None = None
+    # Server clock vs Discord's ({offset_seconds}: positive = server behind; null while measuring);
+    # None when there's no Discord bot to measure with.
+    clock: dict[str, float | None] | None = None
     invites: dict[str, Any]
     requests: dict[str, Any]
     setup: dict[str, Any]
@@ -119,6 +130,7 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
         if link.plex_user_id in ids:
             linked_accounts[link.plex_user_id] = linked_accounts.get(link.plex_user_id, False) or link.verified
     linked_discord = {link.discord_user_id for link in links}
+    verified_discord = {link.discord_user_id for link in links if link.verified}
     member_roles = db.execute(select(DiscordMember.discord_user_id, DiscordMember.role_ids)
                               .where(DiscordMember.in_guild.is_(True), DiscordMember.is_bot.is_(False))).all()
     members = [m.discord_user_id for m in member_roles]
@@ -137,10 +149,12 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     access_by_day = [{"date": d["date"], "changed": d["changed"], "planned": d["planned"], "users": len(d["users"])}
                      for d in days.values()]
 
-    activity = [{"ts": a.ts, "actor": a.actor, "action": a.action, "target_type": a.target_type,
-                 "target_id": a.target_id, "dry_run": a.dry_run}
-                for a in db.scalars(select(AuditLog).where(AuditLog.action.not_in(ACTIVITY_SKIP))
-                                    .order_by(AuditLog.ts.desc()).limit(12))]
+    activity = []
+    for a in db.scalars(select(AuditLog).where(AuditLog.action.not_in(ACTIVITY_SKIP)).order_by(AuditLog.ts.desc()).limit(12)):
+        out = audit_out(db, a)
+        activity.append({"ts": a.ts, "actor": a.actor, "action": a.action, "target_type": a.target_type,
+                         "target_id": a.target_id, "dry_run": a.dry_run, "actor_label": out.actor_label,
+                         "target_label": out.target_label})
 
     libs = db.scalars(select(Library).where(Library.removed.is_(False))).all()
     # Shares cover friends only; the owner sees every library of their own server.
@@ -161,22 +175,31 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "recent": [{"identifier": i.identifier, "created_at": i.created_at} for i in pending[:5]]}
 
     by_status = dict(db.execute(select(MediaRequest.status, func.count()).group_by(MediaRequest.status)).all())
-    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(5)))
+    # More than the widget shows (5), so a copy filtered by status still has enough to list.
+    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(RECENT_REQUESTS)))
+    open_rows = list(db.scalars(select(MediaRequest).where(MediaRequest.status.in_(media_requests.OPEN_STATES))
+                                .order_by(MediaRequest.created_at.desc())))
+    shown_open = open_rows[:OPEN_REQUESTS_SHOWN]
     plex_names = dict(db.execute(select(PlexUser.plex_user_id, PlexUser.username).where(
-        PlexUser.plex_user_id.in_({r.plex_user_id for r in recent_rows if r.plex_user_id}))).all())
+        PlexUser.plex_user_id.in_({r.plex_user_id for r in [*recent_rows, *shown_open] if r.plex_user_id}))).all())
     discord_names = {m.discord_user_id: m.display_name or m.username for m in db.scalars(select(DiscordMember).where(
-        DiscordMember.discord_user_id.in_({r.discord_user_id for r in recent_rows})))}
-    recent_requests = [{"title": r.title, "year": r.year, "media_type": r.media_type, "status": r.status,
-                        "created_at": r.created_at,
-                        # Who asked: their Plex account (what Seerr requested as), else their Discord name.
-                        "plex_username": plex_names.get(r.plex_user_id) if r.plex_user_id else None,
-                        "discord_name": discord_names.get(r.discord_user_id)}
-                       for r in recent_rows]
+        DiscordMember.discord_user_id.in_({r.discord_user_id for r in [*recent_rows, *shown_open]})))}
+
+    def request_row(r: MediaRequest) -> dict[str, Any]:
+        return {"title": r.title, "year": r.year, "media_type": r.media_type, "status": r.status,
+                "created_at": r.created_at,
+                # Who asked: their Plex account (what Seerr requested as), else their Discord name.
+                "plex_username": plex_names.get(r.plex_user_id) if r.plex_user_id else None,
+                "discord_name": discord_names.get(r.discord_user_id)}
+
+    recent_requests = [request_row(r) for r in recent_rows]
     req_svc = getattr(request.app.state, "requests", None)
     requests = {"configured": bool(req_svc and req_svc.configured()), "by_status": by_status,
                 "last_7d": db.scalar(select(func.count()).select_from(MediaRequest).where(
                     MediaRequest.created_at >= now - timedelta(days=7))) or 0,
-                "recent": recent_requests}
+                "recent": recent_requests,
+                # Open widget: waiting, approved or partly available, however old.
+                "open": [request_row(r) for r in shown_open], "open_count": len(open_rows)}
 
     roles = db.scalars(select(DiscordRole).where(DiscordRole.deleted.is_(False), DiscordRole.managed.is_(False))).all()
     mapped_roles = set(db.scalars(select(RoleLibrary.role_id)))
@@ -194,10 +217,35 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                          "linked": linked_in_role.get(r.role_id, 0), "libraries": libs_per_role.get(r.role_id, 0)}
                         for r in roles), key=lambda x: (-x["members"], x["name"].lower()))
 
+    # Roles that grant libraries, with the libraries' names (most members first).
+    titles = {lib.library_id: lib.title for lib in libs}
+    role_libs: dict[str, list[str]] = {}
+    for role_id, lib_id in db.execute(select(RoleLibrary.role_id, RoleLibrary.library_id)):
+        if lib_id in titles:
+            role_libs.setdefault(role_id, []).append(titles[lib_id])
+    role_libraries = sorted(({"role_id": r.role_id, "name": r.name, "color": r.color,
+                              "members": in_role.get(r.role_id, 0), "linked": linked_in_role.get(r.role_id, 0),
+                              "libraries": sorted(role_libs[r.role_id], key=str.lower)}
+                             for r in roles if r.role_id in role_libs),
+                            key=lambda x: (-x["members"], x["name"].lower()))  # like Discord role members
+
     setup = {"unmanaged_libraries": sum(1 for lib in libs if not lib.is_exempt and lib.library_id not in mapped_libs),
              "exempt_libraries": sum(1 for lib in libs if lib.is_exempt),
              "roles_mapped": sum(1 for r in roles if r.role_id in mapped_roles),
              "roles_unmapped": sum(1 for r in roles if r.role_id not in mapped_roles)}
+
+    emoji = None
+    guild = getattr(request.app.state, "emoji_guild", None)
+    if guild is not None:
+        try:
+            emoji = guild.emoji_slots()
+        except DiscordConfigError:
+            pass  # bot not connected (yet): the tiles say so
+
+    clock = None
+    timing = getattr(getattr(request.app.state, "discord", None), "timing", None)
+    if timing is not None and (timing.measured or request.app.state.discord_status().get("configured")):
+        clock = {"offset_seconds": round(timing.offset, 1) if timing.measured else None}
 
     security = {
         "failed_logins_24h": db.scalar(select(func.count()).select_from(AuditLog).where(
@@ -211,8 +259,12 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                "verified": sum(1 for v in linked_accounts.values() if v),
                "unverified": sum(1 for v in linked_accounts.values() if not v),
                "unlinked": len(plex) - len(linked_accounts),
-               "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord)},
-        activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out, invites=invites, requests=requests,
+               "members": len(members), "members_unlinked": sum(1 for m in members if m not in linked_discord),
+               # Discord side: members in the server (no bots) with a verified / unverified link.
+               "members_verified": sum(1 for m in members if m in verified_discord),
+               "members_unverified": sum(1 for m in members if m in linked_discord and m not in verified_discord)},
+        activity=activity, access_by_day=access_by_day, libraries=libraries, roles=roles_out,
+        role_libraries=role_libraries, emoji=emoji, clock=clock, invites=invites, requests=requests,
         setup=setup, security=security)
 
 
@@ -221,9 +273,12 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
 WIDGETS = (
     "integrations", "stat_plex_users", "stat_linked", "stat_libraries", "stat_roles", "stat_requests",
     "stat_invites", "stat_invites_accepted", "errors", "last_sync", "pending", "links", "access_chart", "activity", "libraries",
-    "requests", "invites", "setup", "security", "roles",
+    "requests", "invites", "setup", "security", "roles", "open_requests", "role_libraries",
+    "stat_emoji", "stat_emoji_animated", "stat_discord_users", "stat_discord_linked", "stat_clock",
 )
 DEFAULT_LAYOUT: list[dict[str, Any]] = [
+    # First on a new install: what's left to set up (connections, role mappings, dry-run).
+    {"id": "setup", "size": "l"},
     {"id": "integrations", "size": "l"},
     {"id": "stat_plex_users", "size": "s"}, {"id": "stat_linked", "size": "s"},
     {"id": "stat_libraries", "size": "s"}, {"id": "stat_roles", "size": "s"},
@@ -232,23 +287,83 @@ DEFAULT_LAYOUT: list[dict[str, Any]] = [
     {"id": "links", "size": "m"}, {"id": "access_chart", "size": "m"},
     {"id": "activity", "size": "m"}, {"id": "libraries", "size": "m"},
     {"id": "requests", "size": "m", "hidden": True}, {"id": "invites", "size": "m", "hidden": True},
-    {"id": "setup", "size": "m", "hidden": True}, {"id": "security", "size": "m", "hidden": True},
+    {"id": "security", "size": "m", "hidden": True},
     {"id": "stat_requests", "size": "s", "hidden": True}, {"id": "stat_invites", "size": "s", "hidden": True},
     {"id": "stat_invites_accepted", "size": "s", "hidden": True},
     {"id": "roles", "size": "m", "hidden": True},
+    {"id": "open_requests", "size": "m", "hidden": True}, {"id": "role_libraries", "size": "m", "hidden": True},
+    {"id": "stat_emoji", "size": "s", "hidden": True}, {"id": "stat_emoji_animated", "size": "s", "hidden": True},
+    {"id": "stat_discord_users", "size": "s", "hidden": True}, {"id": "stat_discord_linked", "size": "s", "hidden": True},
+    {"id": "stat_clock", "size": "s", "hidden": True},
 ]
 
 
+# Blank widgets for spacing: as many as wanted, each with its own id (spacer-1, spacer-2, …).
+SPACER = re.compile(r"^spacer-\d{1,3}$")
+MAX_SPACERS = 24
+# More copies of a widget: "<widget>-2", "<widget>-3", … (each with its own size, chart and title).
+COPY = re.compile(r"^([a-z_]{1,40})-(\d{1,3})$")
+MAX_COPIES = 30
+
+
+def _known(widget_id: str) -> bool:
+    if widget_id in WIDGETS or SPACER.fullmatch(widget_id):
+        return True
+    m = COPY.fullmatch(widget_id)
+    return bool(m and m[1] in WIDGETS and int(m[2]) >= 2)
+
+
+def _extra(widget_id: str) -> bool:
+    """A blank space or a copy: removed when hidden (there's always a fresh one to add)."""
+    return bool(SPACER.fullmatch(widget_id) or COPY.fullmatch(widget_id))
+
+
+RequestStatus = Literal["pending", "approved", "declined", "failed", "partially_available", "available", "deleted"]
+
+
+class WidgetFilter(BaseModel):
+    """What one copy of a widget shows (empty / missing = everything). Only the key that fits the
+    widget is used: libraries (Library access), roles (Discord role members, Roles that grant
+    libraries), statuses (Requests), levels (Alerts)."""
+
+    libraries: Annotated[list[Annotated[str, Field(max_length=64)]], Field(max_length=200)] = []
+    roles: Annotated[list[Annotated[str, Field(pattern=r"^\d{1,25}$")]], Field(max_length=200)] = []
+    statuses: Annotated[list[RequestStatus], Field(max_length=7)] = []
+    levels: Annotated[list[Literal["error", "warning", "account"]], Field(max_length=3)] = []
+
+
 class WidgetIn(BaseModel):
-    id: Literal[WIDGETS]  # type: ignore[valid-type]
+    id: Annotated[str, Field(pattern=r"^[a-z_]{1,40}(-\d{1,3})?$")]
+    # The admin's own name for it; None = the widget's usual name.
+    title: Annotated[str | None, Field(max_length=60)] = None
     size: Literal["xs", "s", "m", "l"] = "m"  # eighth, quarter, half, full width
     # How a widget with chartable data is drawn: its usual form, a circle (donut) or bars.
     view: Literal["default", "donut", "bar"] = "default"
     hidden: bool = False
+    filter: WidgetFilter | None = None
+
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        if not _known(v):
+            raise ValueError(f"unknown widget {v!r}")
+        return v
+
+    @field_validator("filter")
+    @classmethod
+    def _filter(cls, v: WidgetFilter | None) -> WidgetFilter | None:
+        return v if v is not None and any(v.model_dump().values()) else None  # nothing chosen = no filter
+
+    @field_validator("title")
+    @classmethod
+    def _title(cls, v: str | None) -> str | None:
+        v = " ".join(v.split()) if v else ""
+        return v or None
 
 
 class LayoutIn(BaseModel):
-    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS))]
+    widgets: Annotated[list[WidgetIn], Field(max_length=len(WIDGETS) + MAX_SPACERS + MAX_COPIES)]
 
 
 class LayoutOut(BaseModel):
@@ -261,12 +376,27 @@ def _key(principal) -> str:
 
 
 def _complete(widgets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Known widgets only, each once; widgets added in a newer version appear hidden at the end."""
+    """Known widgets only, each once; widgets added in a newer version appear hidden at the end.
+    Blank spaces and copies that are hidden are simply gone (there's always a fresh one to add)."""
     seen, out = set(), []
+    spacers = copies = 0
     for w in widgets:
-        if w.get("id") in WIDGETS and w["id"] not in seen:
-            seen.add(w["id"])
-            out.append(w)
+        wid = w.get("id")
+        if not isinstance(wid, str) or not _known(wid) or wid in seen:
+            continue
+        if _extra(wid):
+            if w.get("hidden"):
+                continue
+            if SPACER.fullmatch(wid):
+                spacers += 1
+                if spacers > MAX_SPACERS:
+                    continue
+            else:
+                copies += 1
+                if copies > MAX_COPIES:
+                    continue
+        seen.add(wid)
+        out.append(w)
     out += [dict(w, hidden=True) for w in DEFAULT_LAYOUT if w["id"] not in seen]
     return out
 

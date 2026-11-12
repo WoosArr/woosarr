@@ -15,8 +15,8 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 | `WOOSARR_LOG_LEVEL` | `INFO` (advanced) | Raise to `DEBUG` to troubleshoot; read logs in the UI or via `GET /api/v1/logs`. |
 | Icon | `https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png` | 256×256 PNG with transparent corners, rendered from `assets/brand/woosarr.svg` (`make icons`); must be on `main` to resolve. CA wants a square PNG. |
 | TemplateURL | raw URL of `unraid/woosarr.xml` | Lets Unraid offer template updates. |
-| Category | `MediaApp:Other Tools:` | CA browse categories. |
-| ExtraParams | `--health-start-period=20s` | Matches the Dockerfile healthcheck; Unraid shows health in the Docker tab. |
+| Category | `MediaApp:Other Tools:Utilities` | CA browse categories. |
+| ExtraParams | `--health-start-period=20s --security-opt no-new-privileges:true` | The start period matches the Dockerfile healthcheck (Unraid shows health in the Docker tab); `no-new-privileges` stops anything in the container gaining privileges after the entrypoint drops to `PUID`. |
 
 ## Behaviour Unraid relies on
 
@@ -27,7 +27,15 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 - **Disk speed:** keep `appdata` on a cache pool (share setting *Primary storage: Cache*). On a spun-down array disk a write can take seconds; since 1.1.x WooSarr writes its logs from a background thread so that can't freeze it, but the database still waits for the disk.
 - **Logs:** `/config/logs/woosarr.log` (everything) and `/config/logs/alerts.log` (warnings and errors only, kept longer); the Docker tab's log view shows the container's stdout.
 
-## Installing before CA listing
+## Installing from Community Applications
+
+1. **Apps** tab → search for **WooSarr** → **Install**.
+2. Check the data folder (`/mnt/user/appdata/woosarr`) and WebUI port (`31337`); `PUID`/`PGID` and the log level are under *Show more settings* → **Apply**.
+3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI**.
+
+Community Applications reads the template from this repo (`unraid/woosarr.xml` on `main`), so template changes reach new installs after CA's next catalog build. Image updates show on the Docker tab as usual.
+
+## Installing without Community Applications
 
 1. Copy `unraid/woosarr.xml` to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml` on the Unraid box.
 2. Docker tab → Add Container → choose the *woosarr* template → Apply.
@@ -52,7 +60,7 @@ Unraid 8 was announced in August 2026 (Fedora/uCore base, native Docker Compose,
 
 ## Community Applications (P12-06)
 
-Submissions go through https://ca.unraid.net/submit (docs and a video walkthrough there). Requirements and where WooSarr stands:
+**Listed** (2026-10-23): WooSarr installs from the Apps tab. Submissions go through https://ca.unraid.net/submit (docs and a video walkthrough there). The requirements it meets:
 
 | Requirement | WooSarr |
 |-------------|---------|
@@ -63,9 +71,10 @@ Submissions go through https://ca.unraid.net/submit (docs and a video walkthroug
 | `<TemplateURL>` = raw URL of that exact file | yes |
 | Optional: icon, screenshots, `Requires`, `ReadMe`, `License`, search terms | all set; screenshots are `docs/images/*.png` (demo data, `make screenshots`) |
 
-To submit: open https://ca.unraid.net/submit/new, enter the repository, run **Validate** and **Scan** (they parse the XML, read `ca_profile.xml` and check for duplicates), fix anything flagged (the category string is the likeliest; valid strings come from the *Application Categorizer* plugin in Apps), then submit. Approved apps appear after the next catalog build. An Unraid forum support thread is optional; if you open one, point `<Support>` in the template and `<Forum>` in `ca_profile.xml` at it.
+How it was submitted (for reference, e.g. a second app): open https://ca.unraid.net/submit/new, enter the repository, run **Validate** and **Scan** (they parse the XML, read `ca_profile.xml` and check for duplicates), fix anything flagged (the category string is the likeliest; valid strings come from the *Application Categorizer* plugin in Apps), then submit. Approved apps appear after the next catalog build. An Unraid forum support thread is optional; if you open one, point `<Support>` in the template and `<Forum>` in `ca_profile.xml` at it.
 
 ## Verified on a real box
 
 - Install from the template; the WebUI link opens the app (2026-10-19).
+- Install and run from Community Applications (2026-10-23).
 - Update (pull new image) and restart keep settings and secrets.

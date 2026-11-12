@@ -102,7 +102,9 @@ DEMO_PLEX = {"configured": True, "connected": True, "signed_in": True, "account"
              "server": {"name": "Demo server", "machine_id": "demo"}, "detail": "Demo mode: fake Plex data"}
 DEMO_DISCORD = {"configured": True, "connected": True, "bot": {"username": "demo-bot"},
                 "guild": {"id": "1", "name": "Demo server"}, "invite_url": None, "detail": "Demo mode: fake Discord data",
-                "features": [dict(f, available=False, notes=["demo mode"]) for f in features.feature_report({})]}
+                # The Custom Emoji page works against the demo's in-memory emoji (dev/demo.py).
+                "features": [dict(f, available=True, missing=[], notes=[]) if f["key"] == "custom_emoji"
+                             else dict(f, available=False, notes=["demo mode"]) for f in features.feature_report({})]}
 
 
 @router.get("/plex/status", response_model=PlexStatus)
@@ -330,9 +332,7 @@ class EmojiOut(BaseModel):
 
 @router.get("/discord/emojis", response_model=list[EmojiOut])
 async def discord_emojis(request: Request) -> list[EmojiOut]:
-    svc = request.app.state.discord
-    if svc is None:
-        return []  # demo mode
+    svc = request.app.state.emoji_guild  # the bot, or the demo's in-memory emoji
     try:
         return [EmojiOut(**e) for e in await svc.list_emojis()]
     except DiscordConfigError as exc:

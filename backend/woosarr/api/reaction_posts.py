@@ -13,9 +13,16 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
-from woosarr.db.models import DiscordRole, Reaction, ReactionPost
-from woosarr.services import audit, reaction_text
-from woosarr.services.discord_bot import DiscordConfigError, normalize_emoji, option_role_ids
+from woosarr.api.users import RoleImpactOut
+from woosarr.db.models import DiscordMember, DiscordRole, Reaction, ReactionPost
+from woosarr.services import audit, impact, reaction_text
+from woosarr.services.discord_bot import (
+    DiscordConfigError,
+    DiscordService,
+    normalize_emoji,
+    option_emojis,
+    option_role_ids,
+)
 
 router = APIRouter(prefix="/reaction-posts", tags=["reaction-posts"], dependencies=[Depends(require_admin)])
 
@@ -28,6 +35,9 @@ class ReactionOption(BaseModel):
     label: Annotated[str, Field(max_length=100)] = ""
     # Optional legend line for this reaction instead of the post's template (same placeholders).
     text: Annotated[str, Field(max_length=300)] = ""
+    # Emoji this reaction used before; members' reactions with them still count. Set by WooSarr
+    # (anything sent is ignored).
+    former: list[str] = []
 
     @field_validator("emoji")
     @classmethod
@@ -58,6 +68,35 @@ class ReactionPostOut(ReactionPostIn):
     preview_length: int
     # The posted message differs from the current text (an update is pending).
     outdated: bool
+    # The next publish removes reactions for emoji the post no longer uses.
+    clear_old_reactions: bool
+
+
+class ReactionPostUpdate(ReactionPostIn):
+    # When a published post's emoji change: True = reactions with the old emoji keep giving the
+    # role (the bot only takes its own old reaction off); False = they stop counting and the next
+    # publish removes them from the message (needs Manage Messages).
+    keep_old_reactions: bool = True
+
+
+class ReactionChange(BaseModel):
+    emoji: str  # the old emoji
+    new_emoji: str | None  # what the same role uses now (None: the role's reaction was removed)
+    role_id: str
+    role_name: str
+    members: int  # members who reacted with the old emoji
+    names: list[str]  # the first few of them
+
+
+class ReactionChangesOut(BaseModel):
+    published: bool
+    moved: bool  # another channel: a new message; nobody's reactions carry over
+    changes: list[ReactionChange]
+    # Members who'd lose a role, and the Plex impact, for each choice.
+    keep_losing: int
+    keep_impact: list[RoleImpactOut]
+    clear_losing: int
+    clear_impact: list[RoleImpactOut]
 
 
 class PreviewOut(BaseModel):
@@ -77,6 +116,7 @@ class PublishOut(BaseModel):
     message_id: str
     pinned: bool
     jump_url: str
+    notes: list[str] = []  # things that didn't work but didn't stop the publish
 
 
 def _out(db, post: ReactionPost) -> ReactionPostOut:
@@ -89,7 +129,8 @@ def _out(db, post: ReactionPost) -> ReactionPostOut:
                            options=[_option_out(db, o) for o in post.options],
                            message_id=post.message_id, published_at=post.published_at, reactions=counts,
                            preview=text, preview_length=len(text),
-                           outdated=bool(post.message_id) and post.rendered_content != text)
+                           outdated=bool(post.message_id) and post.rendered_content != text,
+                           clear_old_reactions=post.clear_old_reactions)
 
 
 def _option_out(db, o: dict) -> ReactionOption:
@@ -97,7 +138,27 @@ def _option_out(db, o: dict) -> ReactionOption:
     role_id = role_ids[0] if role_ids else ""
     role = db.get(DiscordRole, role_id) if role_id else None
     return ReactionOption.model_construct(emoji=o.get("emoji", ""), role_id=role_id,
-                                          label=role.name if role else o.get("label", ""), text=o.get("text", ""))
+                                          label=role.name if role else o.get("label", ""), text=o.get("text", ""),
+                                          former=list(o.get("former") or []))
+
+
+def _carry_former(old: list[dict], new: list[dict]) -> list[dict]:
+    """Keep old reactions working: each new option remembers the emoji its role used before (and
+    their own former ones) unless another option uses them now."""
+    in_use = {normalize_emoji(n["emoji"]) for n in new}
+    taken: set[str] = set()
+    out = []
+    for n in new:
+        former = []
+        for o in old:
+            if option_role_ids(o) != {n["role_id"]}:
+                continue
+            for e in option_emojis(o):
+                if e not in in_use and e not in taken:
+                    former.append(e)
+                    taken.add(e)
+        out.append(dict(n, former=former) if former else n)
+    return out
 
 
 def _validate(db, body: ReactionPostIn) -> list[dict]:
@@ -163,17 +224,89 @@ def create_post(body: ReactionPostIn, request: Request, db: DbDep, principal: Ad
 
 
 @router.put("/{post_id}", response_model=ReactionPostOut)
-def update_post(post_id: int, body: ReactionPostIn, request: Request, db: DbDep, principal: AdminDep) -> ReactionPostOut:
+def update_post(post_id: int, body: ReactionPostUpdate, request: Request, db: DbDep,
+                principal: AdminDep) -> ReactionPostOut:
     post = _get(db, post_id)
+    options = _validate(db, body)
+    # Old reactions only matter on the same message; a new channel means a new message.
+    had_message = bool(post.message_id)
+    same_message = had_message and body.channel_id == post.channel_id
     post.title, post.content, post.pin, post.enabled = body.title, body.content, body.pin, body.enabled
     post.legend, post.legend_template, post.legend_header = body.legend, body.legend_template, body.legend_header
     if body.channel_id != post.channel_id:
         post.channel_id, post.message_id = body.channel_id, None  # moves to a new message on publish
-    post.options = _validate(db, body)
+    old = post.options or []
+    post.options = _carry_former(old, options) if same_message and body.keep_old_reactions else options
+    # Emoji that stop counting: the next publish removes the roles members got from them.
+    counted = {e for o in post.options for e in option_emojis(o)}
+    retired = {normalize_emoji(r["emoji"]): r for r in post.retired_options or []}
+    for o in old:
+        for e in option_emojis(o):
+            if e not in counted:
+                retired.setdefault(e, {"emoji": e, "role_id": next(iter(sorted(option_role_ids(o))), "")})
+    post.retired_options = [r for e, r in retired.items() if e not in counted] if had_message else []
+    post.clear_old_reactions = same_message and not body.keep_old_reactions
     db.flush()
     audit.record(db, principal.actor, "reaction_post_updated", "reaction_post", str(post_id),
-                 options=post.options, enabled=post.enabled)
+                 options=post.options, enabled=post.enabled,
+                 **({"retired_emoji": [r["emoji"] for r in post.retired_options],
+                     "old_reactions": "keep" if body.keep_old_reactions else "clear"} if post.retired_options else {}))
     return _out(db, post)
+
+
+@router.post("/{post_id}/reaction-changes", response_model=ReactionChangesOut)
+def reaction_changes(post_id: int, body: ReactionPostIn, db: DbDep) -> ReactionChangesOut:
+    """What saving these options would do to members who already reacted (no Discord calls)."""
+    post = _get(db, post_id)
+    empty = ReactionChangesOut(published=bool(post.message_id), moved=False, changes=[], keep_losing=0,
+                               keep_impact=[], clear_losing=0, clear_impact=[])
+    if not post.message_id:
+        return empty
+    moved = body.channel_id != post.channel_id
+    new = [{"emoji": normalize_emoji(o.emoji), "role_id": o.role_id} for o in body.options]
+    in_use = {o["emoji"] for o in new}
+    reacted: dict[str, list[str]] = {}
+    for r in db.scalars(select(Reaction).where(Reaction.post_id == post.id)):
+        reacted.setdefault(r.emoji, []).append(r.discord_user_id)
+    names = {m.discord_user_id: m.display_name or m.username for m in db.scalars(
+        select(DiscordMember).where(DiscordMember.discord_user_id.in_({u for us in reacted.values() for u in us})))}
+    changes = []
+    for o in [*(post.options or []), *(post.retired_options or [])]:
+        role_id = next(iter(sorted(option_role_ids(o))), "")
+        role = db.get(DiscordRole, role_id)
+        for e in option_emojis(o):
+            if (moved or e not in in_use) and reacted.get(e):
+                users = sorted(reacted[e], key=lambda u: names.get(u, u).lower())
+                changes.append(ReactionChange(
+                    emoji=e, new_emoji=None if moved else next((n["emoji"] for n in new if n["role_id"] == role_id), None),
+                    role_id=role_id, role_name=role.name if role else role_id, members=len(users),
+                    names=[names.get(u, u) for u in users[:8]]))
+    if not changes:
+        return empty.model_copy(update={"moved": moved})
+    before = DiscordService._reaction_roles(db, with_retired=True)[1]
+
+    def outcome(options: list[dict]) -> tuple[int, list[RoleImpactOut]]:
+        after = DiscordService._reaction_roles(db, {post.id: options})[1]
+        losing: dict[frozenset[str], list[str]] = {}
+        for uid, roles in before.items():
+            lost = frozenset(roles - after.get(uid, set()))
+            if lost:
+                losing.setdefault(lost, []).append(uid)
+        merged: dict[str, dict] = {}
+        for lost, uids in losing.items():
+            for row in impact.role_change_impact(db, uids, [], lost):
+                m = merged.setdefault(row["plex_user_id"], {**row, "gain": set(), "lose": set()})
+                m["gain"].update(row["gain"])
+                m["lose"].update(row["lose"])
+        return sum(len(u) for u in losing.values()), [
+            RoleImpactOut(**{**m, "gain": sorted(m["gain"]), "lose": sorted(m["lose"])})
+            for m in sorted(merged.values(), key=lambda m: m["username"].lower())]
+
+    # Moved: the new message starts without reactions, whichever choice.
+    clear = outcome([] if moved else new)
+    keep = clear if moved else outcome(_carry_former(post.options or [], new))
+    return ReactionChangesOut(published=True, moved=moved, changes=changes, keep_losing=keep[0],
+                              keep_impact=keep[1], clear_losing=clear[0], clear_impact=clear[1])
 
 
 @router.delete("/{post_id}", status_code=204)

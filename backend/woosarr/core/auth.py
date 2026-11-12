@@ -39,8 +39,21 @@ _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash(secrets.token_urlsafe(16))
 
 
+# The one answer to every failed login: unknown user, wrong password, disabled and
+# locked accounts all look the same, so the response never reveals which usernames
+# exist. The lockout rule is in the text so a locked-out admin still knows to wait.
+LOGIN_FAILED = (
+    f"invalid username or password (an account locks for {int(LOCKOUT.total_seconds() // 60)} minutes "
+    f"after {MAX_FAILED_LOGINS} failed sign-ins)"
+)
+
+
 class AuthError(Exception):
-    """Login failed. The message is safe to show (never says which part was wrong)."""
+    """Login failed. str() is LOGIN_FAILED, safe to show; `reason` is for logs and audit only."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(LOGIN_FAILED)
+        self.reason = reason
 
 
 def sha256(value: str) -> str:
@@ -81,16 +94,18 @@ def authenticate(session: Session, username: str, password: str) -> AdminUser:
     now = utcnow()
     if user is None:
         _verify(None, password)
-        raise AuthError("invalid username or password")
+        raise AuthError("unknown_user")
     if user.locked_until and user.locked_until > now:
         _verify(None, password)
-        raise AuthError("account temporarily locked after too many failed logins")
+        raise AuthError("locked")
     if not user.is_active or user.auth_source != "local" or not _verify(user.password_hash, password):
+        reason = "inactive" if not user.is_active else "not_local" if user.auth_source != "local" else "bad_password"
         user.failed_logins += 1
         if user.failed_logins >= MAX_FAILED_LOGINS:
             user.locked_until = now + LOCKOUT
             user.failed_logins = 0
-        raise AuthError("invalid username or password")
+            reason += "+now_locked"
+        raise AuthError(reason)
     if _hasher.check_needs_rehash(user.password_hash or ""):
         user.password_hash = _hasher.hash(password)
     user.failed_logins = 0

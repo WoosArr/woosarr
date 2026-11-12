@@ -29,12 +29,17 @@ from woosarr.services import (
     audit,
     discord_avatar,
     discord_requests,
+    invite_welcome,
     invites,
     link_service,
     reaction_text,
+    self_resolve,
 )
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
+from woosarr.services.discord_text import safe
+from woosarr.services.discord_timing import DiscordTiming, acknowledge
+from woosarr.services.tvdb_pages import TvdbPages
 
 log = logging.getLogger("woosarr.discord")
 
@@ -49,6 +54,7 @@ K_BOT = "discord.bot"  # {"id", "username", "application_id"}
 FLAG_GATEWAY_GUILD_MEMBERS = 1 << 14
 FLAG_GATEWAY_GUILD_MEMBERS_LIMITED = 1 << 15
 LINK_POLL_SECONDS = 2
+KEEP_WARM_SECONDS = 60  # keep a connection to Discord's API open (answers must arrive within 3 s)
 LINK_TIMEOUT_SECONDS = 300
 DISCONNECT_GRACE_SECONDS = 60
 
@@ -104,15 +110,17 @@ def help_text(request_name: str | None) -> str:
     lines = [
         "**WooSarr commands**",
         ("`/link`: link your Discord account to your Plex account. Sign in with Plex (verified) or type your "
-         "Plex username. Once linked, your Discord roles decide which Plex libraries you can see."),
+         "Plex username. Once linked, your Discord roles decide which Plex libraries you can see. Admins can set "
+         "`member` and `plex_user` to link someone else."),
         "`/unlink`: remove that link. You're asked to confirm first.",
-        ("`/invite email [member]`: send a Plex invite to an email address or Plex username. The libraries come "
-         "from your Discord roles. Needs a role the server admins allow; Discord admins can set `member` to "
+        ("`/invite email [member]`: send a Plex invite to an email address or Plex username. Library access is "
+         "determined by possessed roles. Needs a role the server admins allow; admins can set `member` to "
          "invite for someone else."),
     ]
     if request_name:
         lines.append(f"`/{request_name} title`: request a movie or TV show. Start typing and pick one of the "
-                     "suggestions. Needs a linked Plex account.")
+                     "suggestions, or paste a link to the title on IMDb, TMDB or TVDB (Share → Copy link in "
+                     "their app). Needs a linked Plex account.")
     lines.append("`/help`: show this message.")
     return "\n".join(lines)
 
@@ -126,16 +134,72 @@ def _member(m: discord.Member) -> cache.MemberData:
     return cache.MemberData(str(m.id), m.name, m.display_name, roles, is_bot=bool(m.bot))
 
 
+class _StaleSuggestionFilter(logging.Filter):
+    """discord.py logs "Ignoring exception in autocomplete" itself (not through on_error) when a
+    suggestion answer arrives after the member typed on and Discord dropped that ask (10062):
+    routine, not an alert. Kept as DEBUG when the log level is DEBUG, dropped otherwise."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.ERROR and str(record.msg).startswith("Ignoring exception in autocomplete"):
+            exc = record.exc_info[1] if record.exc_info else None
+            if isinstance(exc, discord.NotFound) and exc.code == 10062:
+                record.levelno, record.levelname, record.exc_info, record.exc_text = logging.DEBUG, "DEBUG", None, None
+                return logging.getLogger().isEnabledFor(logging.DEBUG)
+        return True
+
+
+_STALE_SUGGESTIONS = _StaleSuggestionFilter()
+logging.getLogger("discord.app_commands.tree").addFilter(_STALE_SUGGESTIONS)
+
+
+class _Tree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Every slash command answers "thinking…" before any of its code runs (Discord's 3 s), so
+        commands reply with followup messages. Suggestions (autocomplete) can't be deferred."""
+        if interaction.type == discord.InteractionType.application_command:
+            name = f"/{interaction.command.name}" if interaction.command else "a command"
+            service = getattr(self.client, "service", None)
+            return await acknowledge(interaction, name, getattr(service, "timing", None))
+        return True
+
+    async def on_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError | Exception) -> None:
+        """Discord drops interactions not answered within 3 s (10062 Unknown interaction). For
+        suggestions that's routine (each keystroke replaces the last ask); for a command it's
+        worth a warning, but not a traceback."""
+        original = getattr(error, "original", error)
+        if isinstance(original, discord.NotFound) and original.code == 10062:
+            created = getattr(interaction, "created_at", None)
+            age = (discord.utils.utcnow() - created).total_seconds() if created else -1
+            name = interaction.command.name if interaction.command else "?"
+            if interaction.type == discord.InteractionType.autocomplete:
+                log.debug("discord: suggestions for /%s dropped by Discord (%.1f s old; the member typed on)",
+                          name, age)
+            else:
+                log.warning("discord: /%s from member %s answered too late (%.1f s after they used it; Discord "
+                            "allows 3 s)", name, interaction.user.id, age)
+            return
+        await super().on_error(interaction, error)
+
+
 class WooSarrBot(discord.Client):
     def __init__(self, service: DiscordService, guild_id: int) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
         intents.guild_reactions = True  # reaction posts (not privileged)
-        super().__init__(intents=intents)
+        # Emoji added, renamed or deleted (in Discord or from the Custom Emoji page) reach the
+        # cache right away; without this, guild.emojis stayed as it was at connect time.
+        intents.emojis_and_stickers = True  # not privileged
+        # Default for every message the bot sends: never @everyone/@here or role pings. Messages that
+        # mean to ping a member say so explicitly (requests); user text is also escaped (safe()).
+        timing = getattr(service, "timing", None)
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions(everyone=False, roles=False,
+                                                                                   users=True, replied_user=False),
+                         http_trace=timing.trace if timing else None)
+        self._warm_task: asyncio.Task | None = None
         self.service = service
         self.guild_id = guild_id
-        self.tree = app_commands.CommandTree(self)
+        self.tree = _Tree(self)
         self.request_name: str | None = None  # registered name of the request command
         self._disconnect_watch: asyncio.Task | None = None
         self._gateway_up = False
@@ -146,8 +210,15 @@ class WooSarrBot(discord.Client):
         guild = discord.Object(id=self.guild_id)
 
         @self.tree.command(name="link", description="Link your Discord account to your Plex account", guild=guild)
-        async def link(interaction: discord.Interaction) -> None:
-            await self.service.handle_link_command(interaction)
+        @app_commands.describe(member="Admins only: the Discord member to link (default: you)",
+                               plex_user="Admins only: the Plex user to link them to (verified)")
+        async def link(interaction: discord.Interaction, member: discord.Member | None = None,
+                       plex_user: str | None = None) -> None:
+            await self.service.handle_link_command(interaction, member, plex_user)
+
+        @link.autocomplete("plex_user")
+        async def link_plex_user(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            return await self.service.plex_user_suggestions(interaction, current)
 
         @self.tree.command(name="unlink", description="Unlink your Discord account from your Plex account",
                            guild=guild)
@@ -162,7 +233,7 @@ class WooSarrBot(discord.Client):
 
         @self.tree.command(name="help", description="Show WooSarr's commands and how to use them", guild=guild)
         async def help_(interaction: discord.Interaction) -> None:
-            await interaction.response.send_message(help_text(self.request_name), ephemeral=True)
+            await interaction.followup.send(help_text(self.request_name), ephemeral=True)
 
     async def setup_hook(self) -> None:
         await self.sync_commands(force=True)
@@ -188,6 +259,30 @@ class WooSarrBot(discord.Client):
     def _ours(self, guild: discord.Guild | None) -> bool:
         return guild is not None and guild.id == self.guild_id
 
+    async def login(self, token: str) -> None:
+        # Answers to interactions must reach Discord within 3 s. Keep connections (and DNS answers)
+        # around so an answer doesn't wait for a new TLS connection after a quiet spell. Made here,
+        # inside the running loop, before discord.py opens its HTTP session.
+        self.http.connector = aiohttp.TCPConnector(ttl_dns_cache=600, keepalive_timeout=120, limit=0)
+        await super().login(token)
+
+    async def _keep_warm(self) -> None:
+        """A tiny request every minute keeps a connection to Discord open (and the clock estimate fresh)."""
+        while not self.is_closed():
+            await asyncio.sleep(KEEP_WARM_SECONDS)
+            try:
+                await self.http.request(discord.http.Route("GET", "/gateway"))
+                self_resolve.recovered("discord")  # a minute of healthy connection
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - next minute tries again
+                log.debug("discord keep-warm request failed: %s", exc)
+
+    async def close(self) -> None:
+        if self._warm_task is not None:
+            self._warm_task.cancel()
+        await super().close()
+
     async def on_ready(self) -> None:
         guild = self.get_guild(self.guild_id)
         if guild is None:
@@ -198,6 +293,9 @@ class WooSarrBot(discord.Client):
         members = [_member(m) async for m in guild.fetch_members(limit=None)]
         await self.service.run_db(cache.full_sync, roles, members)
         self.service.connected(guild.name)
+        if self._warm_task is None or self._warm_task.done():
+            self._warm_task = asyncio.create_task(self._keep_warm(), name="woosarr-discord-warm")
+        await self.service.apply_presence()
         await self.service.reconcile_reactions()
         self.service.trigger(None, "discord connected")
         self.service.schedule_role_sync()
@@ -208,6 +306,7 @@ class WooSarrBot(discord.Client):
     async def on_resumed(self) -> None:
         self._gateway_up = True
         log.info("discord session resumed")
+        self_resolve.recovered("discord")
 
     async def on_disconnect(self) -> None:
         self._gateway_up = False
@@ -280,10 +379,12 @@ class _UsernameModal(discord.ui.Modal, title="Link with your Plex username"):
         self.service = service
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "the Plex username form", self.service.timing):
+            return
         result = await self.service.run_db(link_service.link_by_username, str(interaction.user.id), str(self.name.value))
         if result.ok and result.plex_user_id:
             self.service.trigger([result.plex_user_id], f"self-link by {interaction.user.display_name}")
-        await interaction.response.send_message(result.message, ephemeral=True)
+        await interaction.followup.send(result.message, ephemeral=True)
 
 
 class _LinkView(discord.ui.View):
@@ -321,6 +422,16 @@ def option_role_ids(option: dict) -> set[str]:
     return {str(r) for r in option.get("role_ids") or []}
 
 
+def option_emojis(option: dict) -> list[str]:
+    """The option's emoji, then its former ones (old reactions kept working after an emoji change)."""
+    return [normalize_emoji(e) for e in [option.get("emoji", ""), *(option.get("former") or [])] if e]
+
+
+def _emoji_dict(e: discord.Emoji) -> dict[str, object]:
+    return {"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
+            "url": str(e.url), "available": bool(getattr(e, "available", True))}
+
+
 def normalize_emoji(text: str) -> str:
     """Canonical form used for storage and comparison (unicode or <:name:id>)."""
     return str(discord.PartialEmoji.from_str(text.strip()))
@@ -336,6 +447,11 @@ class _GuildFeatures:
         guild = self._client.get_guild(self._client.guild_id)
         if guild is None:
             raise DiscordConfigError("The bot isn't in the selected Discord server.")
+        if getattr(guild, "me", True) is None:
+            # Right after (re)connecting Discord can deliver the server before the bot's own member;
+            # everything here needs it (permissions, role positions). Live 2026-10-25: a status page
+            # open at that moment crashed with "'NoneType' object has no attribute 'guild_permissions'".
+            raise DiscordConfigError("The bot is still connecting to the Discord server; try again in a moment.")
         return guild
 
     def _permissions(self) -> tuple[dict[str, bool], dict[str, bool | None]]:
@@ -471,8 +587,63 @@ class _GuildFeatures:
     async def list_emojis(self) -> list[dict[str, object]]:
         """The server's custom emoji, for the reaction post picker."""
         guild = self._guild()
-        return [{"id": str(e.id), "name": e.name, "animated": bool(e.animated), "text": str(e),
-                 "url": str(e.url), "available": bool(getattr(e, "available", True))} for e in guild.emojis]
+        return [_emoji_dict(e) for e in guild.emojis]
+
+    def emoji_slots(self) -> dict[str, int]:
+        guild = self._guild()
+        return {"limit": int(guild.emoji_limit), "static": sum(1 for e in guild.emojis if not e.animated),
+                "animated": sum(1 for e in guild.emojis if e.animated)}
+
+    async def add_emoji(self, name: str, image: bytes, animated: bool, reason: str) -> dict[str, object]:
+        """Upload a custom emoji (Custom Emoji page). Static and animated emoji have separate slots."""
+        self.require("custom_emoji")
+        guild = self._guild()
+        slots = self.emoji_slots()
+        kind = "animated" if animated else "static"
+        if slots[kind] >= slots["limit"]:
+            raise DiscordConfigError(f"The server has no free {kind} emoji slots ({slots[kind]} of {slots['limit']}).")
+        if any(e.name == name for e in guild.emojis):
+            raise DiscordConfigError(f"The server already has an emoji called :{name}:.")
+        try:
+            emoji = await guild.create_custom_emoji(name=name, image=image, reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji upload refused name=%s bytes=%d animated=%s status=%s code=%s",
+                        name, len(image), animated, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused the emoji: {exc.text or exc.status}") from None
+        log.info("discord: emoji added id=%s name=%s animated=%s bytes=%d", emoji.id, emoji.name, emoji.animated,
+                 len(image))
+        return _emoji_dict(emoji)
+
+    def _server_emoji(self, emoji_id: str) -> discord.Emoji:
+        emoji = next((e for e in self._guild().emojis if str(e.id) == emoji_id), None)
+        if emoji is None:
+            raise DiscordConfigError("That emoji isn't on the server any more.")
+        return emoji
+
+    async def rename_emoji(self, emoji_id: str, name: str, reason: str) -> tuple[dict[str, object], str]:
+        """(the renamed emoji, its old text)."""
+        self.require("custom_emoji")
+        emoji = self._server_emoji(emoji_id)
+        old = str(emoji)
+        try:
+            emoji = await emoji.edit(name=name, reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji rename refused id=%s status=%s code=%s", emoji_id, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused the rename: {exc.text or exc.status}") from None
+        log.info("discord: emoji renamed id=%s %s -> %s", emoji_id, old, emoji.name)
+        return _emoji_dict(emoji), old
+
+    async def delete_emoji(self, emoji_id: str, reason: str) -> dict[str, object]:
+        self.require("custom_emoji")
+        emoji = self._server_emoji(emoji_id)
+        gone = _emoji_dict(emoji)
+        try:
+            await emoji.delete(reason=reason[:500])
+        except discord.HTTPException as exc:
+            log.warning("discord: emoji delete refused id=%s status=%s code=%s", emoji_id, exc.status, exc.code)
+            raise DiscordConfigError(f"Discord refused to delete the emoji: {exc.text or exc.status}") from None
+        log.info("discord: emoji deleted id=%s name=%s", emoji_id, gone["name"])
+        return gone
 
     async def list_channels(self) -> list[dict[str, str]]:
         guild = self._guild()
@@ -497,7 +668,8 @@ class _GuildFeatures:
                 raise DiscordConfigError("reaction post not found")
             return {"channel_id": post.channel_id, "message_id": post.message_id,
                     "content": reaction_text.render_post(s, post),
-                    "pin": post.pin, "options": list(post.options or []), "title": post.title}
+                    "pin": post.pin, "options": list(post.options or []), "title": post.title,
+                    "clear": post.clear_old_reactions}
 
         post = await self.run_db(load)
         if not post["options"]:
@@ -524,6 +696,7 @@ class _GuildFeatures:
                                      "again.")
         message = None
         pinned = False
+        notes: list[str] = []
         try:
             if post["message_id"] and str(channel.id) == post["channel_id"]:
                 try:
@@ -543,6 +716,8 @@ class _GuildFeatures:
                             raise DiscordConfigError(f"Discord can't use the emoji {emoji} (deleted, or from a "
                                                      "server the bot isn't in). Pick another one.") from None
                         raise
+            notes += await self._retire_reactions(message, guild, post_id, set(emojis),
+                                                  {e for o in post["options"] for e in option_emojis(o)}, post["clear"])
             if post["pin"]:
                 ok, why = features.available(self.feature_status(), "pin_posts")
                 if ok:
@@ -569,9 +744,57 @@ class _GuildFeatures:
                          channel=channel.name, message_id=str(message.id), pinned=pinned)
 
         await self.run_db(save)
-        await self.reconcile_reactions()
+
+        # Roles members had through emoji this publish retires are removed by the reconcile below.
+        def retire(s):
+            before = self._reaction_roles(s, with_retired=True)[1]
+            row = s.get(ReactionPost, post_id)
+            if row.retired_options:
+                log.info("reaction post %s: emoji retired: %s", post_id,
+                         " ".join(str(r.get("emoji")) for r in row.retired_options))
+            row.retired_options, row.clear_old_reactions = [], False
+            return before
+
+        await self.reconcile_reactions(before=await self.run_db(retire))
+        self_resolve.recovered(f"reaction_post:{post_id}")
         return {"channel_id": str(channel.id), "channel": channel.name, "message_id": str(message.id),
-                "pinned": pinned, "jump_url": message.jump_url}
+                "pinned": pinned, "jump_url": message.jump_url, "notes": notes}
+
+    async def _retire_reactions(self, message: discord.Message, guild: discord.Guild, post_id: int,
+                                current: set[str], counted: set[str], clear: bool) -> list[str]:
+        """Emoji the post no longer shows: the bot takes its own reaction off (so nobody picks a dead
+        one); with clear, everyone's reactions for emoji that no longer count are removed too."""
+        notes: list[str] = []
+        clear_ok, why = features.available(self.feature_status(), "clear_reactions")
+        removed_own, cleared = [], []
+        for reaction in message.reactions:
+            emoji = normalize_emoji(str(reaction.emoji))
+            if emoji in current:
+                continue
+            if clear and emoji not in counted and clear_ok:
+                try:
+                    await message.clear_reaction(reaction.emoji)
+                    cleared.append(emoji)
+                    continue
+                except discord.HTTPException as exc:
+                    log.warning("reaction post %s: couldn't clear %s reactions: %s %s", post_id, emoji, exc.status,
+                                exc.text)
+                    clear_ok, why = False, f"Discord refused ({exc.status})"
+            if reaction.me:
+                try:
+                    await message.remove_reaction(reaction.emoji, guild.me)
+                    removed_own.append(emoji)
+                except discord.HTTPException as exc:
+                    log.warning("reaction post %s: couldn't take the bot's %s reaction off: %s %s", post_id, emoji,
+                                exc.status, exc.text)
+        if clear and not clear_ok and any(normalize_emoji(str(r.emoji)) not in counted for r in message.reactions):
+            log.warning("reaction post %s: old reactions not cleared: %s", post_id, why)
+            notes.append(f"Old reactions weren't removed ({why}); they stay on the message but no longer give "
+                         "roles.")
+        if removed_own or cleared:
+            log.info("reaction post %s: bot reactions removed=%s, all reactions cleared=%s", post_id,
+                     " ".join(removed_own) or "-", " ".join(cleared) or "-")
+        return notes
 
     async def unpublish_post(self, channel_id: str | None, message_id: str | None) -> None:
         if not channel_id or not message_id:
@@ -586,15 +809,20 @@ class _GuildFeatures:
             log.warning("could not delete reaction post message %s: %s", message_id, exc)
 
     @staticmethod
-    def _reaction_roles(session) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[str]]]:
-        """(message_id, emoji) -> role ids for enabled posts, and member -> roles wanted by reactions."""
+    def _reaction_roles(session, override: dict[int, list[dict]] | None = None, with_retired: bool = False
+                        ) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[str]]]:
+        """(message_id, emoji) -> role ids for enabled posts, and member -> roles wanted by reactions.
+        override: post id -> options to use instead of the saved ones (previews). with_retired: also
+        count emoji taken out since the last publish (what members have now, before that publish)."""
         options: dict[tuple[str, str], set[str]] = {}
         by_post: dict[int, str] = {}
         for post in session.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True),
                                                                ReactionPost.message_id.is_not(None))):
             by_post[post.id] = post.message_id
-            for o in post.options or []:
-                options.setdefault((post.message_id, normalize_emoji(o["emoji"])), set()).update(option_role_ids(o))
+            opts = list((override or {}).get(post.id, post.options) or [])
+            for o in opts + (list(post.retired_options or []) if with_retired else []):
+                for emoji in option_emojis(o):
+                    options.setdefault((post.message_id, emoji), set()).update(option_role_ids(o))
         wanted: dict[str, set[str]] = {}
         for r in session.scalars(select(Reaction)):
             roles = options.get((by_post.get(r.post_id, ""), r.emoji))
@@ -628,7 +856,7 @@ class _GuildFeatures:
 
         def work(s):
             post = s.scalar(select(ReactionPost).where(ReactionPost.message_id == message_id))
-            if post is None or not any(normalize_emoji(o["emoji"]) == emoji for o in post.options or []):
+            if post is None or not any(emoji in option_emojis(o) for o in post.options or []):
                 return None
             row = s.get(Reaction, (post.id, discord_user_id, emoji))
             if added and row is None:
@@ -659,17 +887,22 @@ class _GuildFeatures:
             await self._apply_member_roles(guild, discord_user_id, set(), roles - still_wanted,
                                            "WooSarr reaction role removed")
 
-    async def reconcile_reactions(self) -> None:
+    async def reconcile_reactions(self, before: dict[str, set[str]] | None = None) -> None:
         """Re-read every published post's reactions (catches changes made while offline)
-        and give/remove the reaction roles to match."""
+        and give/remove the reaction roles to match. before: the roles members had from reactions,
+        when the caller knows better than the saved options (a publish retiring emoji)."""
         try:
             guild = self._guild()
         except DiscordConfigError:
             return
-        posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id, [o["emoji"] for o in p.options or []])
+        posts = await self.run_db(lambda s: [(p.id, p.channel_id, p.message_id,
+                                              # Retired emoji are still read: the next publish needs them.
+                                              [e for o in [*(p.options or []), *(p.retired_options or [])]
+                                               for e in option_emojis(o)])
                                              for p in s.scalars(select(ReactionPost).where(
                                                  ReactionPost.message_id.is_not(None)))])
-        before = await self.run_db(lambda s: self._reaction_roles(s)[1])
+        if before is None:
+            before = await self.run_db(lambda s: self._reaction_roles(s)[1])
         for post_id, channel_id, message_id, emojis in posts:
             channel = guild.get_channel(int(channel_id)) if channel_id else None
             if not isinstance(channel, discord.TextChannel):
@@ -680,7 +913,7 @@ class _GuildFeatures:
             except (discord.NotFound, discord.Forbidden) as exc:
                 log.warning("reaction post %s: message %s unavailable (%s)", post_id, message_id, exc)
                 continue
-            wanted = {normalize_emoji(e) for e in emojis}
+            wanted = set(emojis)
             rows: set[tuple[str, str]] = set()
             for reaction in msg.reactions:
                 emoji = normalize_emoji(str(reaction.emoji))
@@ -694,6 +927,16 @@ class _GuildFeatures:
                 s.execute(delete(Reaction).where(Reaction.post_id == post_id))
                 for uid, emoji in rows:
                     s.add(Reaction(post_id=post_id, discord_user_id=uid, emoji=emoji))
+                # A former emoji nobody reacts with any more has done its job.
+                used = {emoji for _, emoji in rows}
+                post = s.get(ReactionPost, post_id)
+                options = [dict(o, former=[e for e in o.get("former") or [] if normalize_emoji(e) in used])
+                           if o.get("former") else o for o in post.options or []]
+                if options != post.options:
+                    dropped = [e for o in post.options or [] for e in o.get("former") or []
+                               if normalize_emoji(e) not in used]
+                    post.options = [{k: v for k, v in o.items() if k != "former" or v} for o in options]
+                    log.info("reaction post %s: old emoji no longer used, dropped: %s", post_id, " ".join(dropped))
 
             await self.run_db(replace)
             log.info("reaction post %s: %s reactions read", post_id, len(rows))
@@ -775,6 +1018,27 @@ class _GuildFeatures:
 
         loop.call_soon_threadsafe(start)
 
+    def schedule_presence(self) -> None:
+        """Thread-safe: show the bot status from settings now (it's also set on every connect)."""
+        loop, client = self._loop, self._client
+        if loop is None or client is None:
+            return
+
+        def start() -> None:
+            if client.is_ready():
+                task = asyncio.create_task(self.apply_presence())
+                task.add_done_callback(lambda t: not t.cancelled() and t.exception() and log.warning(
+                    "discord status not updated: %s", t.exception()))
+
+        loop.call_soon_threadsafe(start)
+
+    async def apply_presence(self) -> None:
+        if self._client is None:
+            return
+        text = (await self.run_db(app_settings.load)).bot_status
+        await self._client.change_presence(activity=discord.CustomActivity(name=text) if text else None)
+        log.info("discord bot status set to %r", text or "(none)")
+
     def schedule_role_sync(self) -> None:
         """Thread-safe: refresh link-status roles soon (coalesces bursts)."""
         loop = self._loop
@@ -829,6 +1093,47 @@ class _GuildFeatures:
             if not self._role_again:
                 return done
 
+    def schedule_invite_welcomes(self) -> None:
+        """Thread-safe: DM members whose invites were just accepted (coalesces bursts)."""
+        loop = self._loop
+        if loop is None or self._client is None:
+            return
+
+        def start() -> None:
+            if self._welcome_task is None or self._welcome_task.done():
+                self._welcome_task = asyncio.create_task(self.send_invite_welcomes())
+            else:
+                self._welcome_again = True
+        loop.call_soon_threadsafe(start)
+
+    async def send_invite_welcomes(self) -> int:
+        """Welcome DMs for accepted invites (invite_welcome.py). Returns how many were sent. While the
+        bot isn't connected nothing is marked, so they go out once it is (within a day)."""
+        sent = 0
+        while True:
+            self._welcome_again = False
+            client = self._client
+            if client is None or not client.is_ready():
+                return sent
+            server = (self._plex.server() or {}).get("name") if self._plex is not None else None
+            st = await self.run_db(app_settings.load)
+            for item in await self.run_db(invite_welcome.due, server):
+                if not st.invite_welcome:
+                    await self.run_db(invite_welcome.mark, item.invite_id)
+                    log.info("invite %s: welcome message is turned off", item.invite_id)
+                    continue
+                features = invite_welcome.needs_verified(st, bool(client.request_name))
+                text = invite_welcome.compose(st, item.values, verified=item.verified,
+                                              has_libraries=item.has_libraries, features=features)
+                ok = await self.send_dm(item.discord_user_id, text, what=f"invite {item.invite_id} welcome")
+                await self.run_db(invite_welcome.mark, item.invite_id)
+                await self.run_db(lambda s, i=item, ok=ok: audit.record(
+                    s, "system", "invite_welcome", "discord_user", i.discord_user_id, invite_id=i.invite_id,
+                    sent=ok, verified=i.verified))
+                sent += ok
+            if not self._welcome_again:
+                return sent
+
 
 class _UnlinkView(discord.ui.View):
     def __init__(self, service: DiscordService, discord_id: str) -> None:
@@ -841,7 +1146,8 @@ class _UnlinkView(discord.ui.View):
         if str(interaction.user.id) != self.discord_id:
             await interaction.response.send_message("This isn't your /unlink.", ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "the Unlink button", self.service.timing):
+            return
         message = await asyncio.to_thread(self.service.unlink_member, self.discord_id)
         await interaction.followup.send(message, ephemeral=True)
         self.stop()
@@ -856,6 +1162,9 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def __init__(self, db: Database, secrets: Any, trigger: Callable[..., None], plex: Any,
                  sync: Any = None, requests: Any = None) -> None:
         self.requests = requests
+        self.tvdb_pages = TvdbPages()  # exact titles for TVDB name links in /request
+        self.timing = DiscordTiming()  # how long interactions take (and the server clock's offset)
+        self._latest_suggestion: dict[str, int] = {}  # member -> newest suggestion ask (request command)
         self._db = db
         self._secrets = secrets
         self.trigger = trigger
@@ -866,11 +1175,15 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         self._role_problem: str | None = None
         self._post_task: asyncio.Task | None = None
         self._post_again = False
+        self._welcome_task: asyncio.Task | None = None
+        self._welcome_again = False
         self._link_tasks: set[asyncio.Task] = set()
         if sync is not None:
             sync.after_run.append(lambda _report: self.schedule_role_sync())
             # Role mappings / library names may have changed: keep reaction post legends current.
             sync.after_run.append(lambda _report: self.schedule_post_refresh())
+            # Invites matched in that run: welcome the members (after their libraries were synced).
+            sync.after_run.append(lambda _report: self.schedule_invite_welcomes())
         self._client: WooSarrBot | None = None
         self._task: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -890,10 +1203,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     def set_error(self, message: str) -> None:
         self._error = message
         self._ready_at = None
-        log.error("discord: %s", message)
+        log.error("discord connection problem: %s", message)
 
     def connected(self, guild_name: str) -> None:
         self._error, self._guild_name, self._ready_at = None, guild_name, time.time()
+        self_resolve.recovered("discord")
 
     def _token(self) -> str | None:
         with self._db.session() as s:
@@ -1039,10 +1353,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     # ---- /unlink ---------------------------------------------------------------
 
     async def handle_unlink_command(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "/unlink", self.timing):
+            return
         found = await self.run_db(link_service.current_link, str(interaction.user.id))
         if found is None:
-            await interaction.response.send_message("Your Discord account isn't linked to a Plex account.",
-                                                    ephemeral=True)
+            await interaction.followup.send("Your Discord account isn't linked to a Plex account.", ephemeral=True)
             return
         link, plex = found
         policy = (await self.run_db(app_settings.load)).unlink_policy
@@ -1054,7 +1369,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         else:
             effect = ("Libraries your Discord roles gave you will be removed; manual grants and exempt libraries stay."
                       if policy == "drop_role_access" else "Your Plex access stays as it is, but roles stop updating it.")
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Unlink from Plex account **{plex.username if plex else '?'}**? {effect}",
             view=_UnlinkView(self, str(interaction.user.id)), ephemeral=True)
 
@@ -1103,10 +1418,10 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     async def handle_invite_command(self, interaction: discord.Interaction, email: str,
                                     member: discord.Member | None) -> None:
         actor = interaction.user
-        perms = getattr(actor, "guild_permissions", None)
-        is_admin = bool(perms and (perms.manage_guild or perms.administrator))
         target = member or actor
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "/invite", self.timing):
+            return
+        is_admin = await self.member_is_admin(actor)
         gateway = self._sync._gateway() if self._sync is not None else None
 
         def work() -> invites.InviteResult:
@@ -1121,10 +1436,16 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
 
     # ---- /link (P4-04) -----------------------------------------------------------
 
-    async def handle_link_command(self, interaction: discord.Interaction) -> None:
+    async def handle_link_command(self, interaction: discord.Interaction, member: discord.Member | None = None,
+                                  plex_user: str | None = None) -> None:
+        if not await acknowledge(interaction, "/link", self.timing):
+            return
+        if member is not None or plex_user:
+            await self._admin_link(interaction, member, plex_user)
+            return
         wait = await self.run_db(link_service.cooldown_remaining, str(interaction.user.id))
         if wait:
-            await interaction.response.send_message(f"Please wait {wait} s before trying to link again.", ephemeral=True)
+            await interaction.followup.send(f"Please wait {wait} s before trying to link again.", ephemeral=True)
             return
         member = interaction.user
 
@@ -1139,13 +1460,67 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
                 "• **Sign in with Plex**: verified. WooSarr only reads your Plex username, then signs that sign-in out.")
         if by_username:
             text += "\n• **Enter Plex username**: quicker, but unverified."
-        await interaction.response.send_message(text, view=_LinkView(self, by_username), ephemeral=True)
+        await interaction.followup.send(text, view=_LinkView(self, by_username), ephemeral=True)
+
+    async def _admin_link(self, interaction: discord.Interaction, member: discord.Member | None,
+                          plex_user: str | None) -> None:
+        """`/link member plex_user`: an admin links a member (or themselves) to a Plex user, verified,
+        the same as Users → Link in the web UI."""
+        actor = interaction.user
+        if not await self.member_is_admin(actor):
+            log.info("/link by discord %s with admin options refused: not an admin", actor.id)
+            await interaction.followup.send("Only admins can link other members. Run `/link` without options to "
+                                            "link your own account.", ephemeral=True)
+            return
+        target = member or actor
+        if not plex_user:
+            await interaction.followup.send(f"Pick the Plex user to link <@{target.id}> to (`plex_user`).",
+                                            ephemeral=True)
+            return
+        if getattr(target, "bot", False):
+            await interaction.followup.send("Bots can't be linked to a Plex account.", ephemeral=True)
+            return
+
+        def work() -> tuple[str | None, str]:
+            with self._db.session() as s:
+                if isinstance(target, discord.Member):  # the member list may not know them yet
+                    cache.member_changed(s, _member(target))
+                plex = link_service.find_plex_user(s, plex_user)
+                if plex is None:
+                    return None, "No Plex user with that name has access to this server. Pick one of the suggestions."
+                try:
+                    others = link_service.admin_link(s, plex.plex_user_id, str(target.id), f"discord:{actor.id}",
+                                                     f"discord-admin:{actor.id}", via="discord")
+                except link_service.AdminLinkError as exc:
+                    if exc.status == 409:
+                        return None, (f"<@{target.id}> is already linked to another Plex account. Unlink it first "
+                                      "(Users page in WooSarr, or they run `/unlink`).")
+                    return None, "That Plex user is no longer on the server."
+                shared = (f" They share it with {len(others)} other member{'s' if len(others) != 1 else ''}."
+                          if others else "")
+                return plex.plex_user_id, (f"Linked <@{target.id}> to Plex account **{safe(plex.username, 100)}** "
+                                           f"(verified).{shared} Their library access updates shortly.")
+
+        plex_id, message = await asyncio.to_thread(work)
+        if plex_id is not None:
+            log.info("discord %s linked by admin discord %s to plex user %s", target.id, actor.id, plex_id)
+            self.trigger([plex_id], f"linked by discord admin {actor.id}")
+        await interaction.followup.send(message, ephemeral=True)
+
+    async def plex_user_suggestions(self, interaction: discord.Interaction, current: str
+                                    ) -> list[app_commands.Choice[str]]:
+        """Plex users for an admin's `/link plex_user`; nobody else gets the list."""
+        if not await self.member_is_admin(interaction.user):
+            return []
+        found = await self.run_db(link_service.plex_user_suggestions, current[:100])
+        return [app_commands.Choice(name=label, value=pid) for label, pid in found]
 
     async def start_oauth_link(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)
         # Answer Discord first: it drops interactions not answered within 3 s, and
         # starting the Plex sign-in is a plex.tv round trip.
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        if not await acknowledge(interaction, "Sign in with Plex", self.timing):
+            return
         try:
             pin_id, url = await asyncio.to_thread(
                 self._plex.start_login, None, "link", f"woosarr-link-{uuid.uuid4()}")

@@ -23,10 +23,11 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox
 from woosarr.db.models import AuditLog, DiscordLink, DiscordMember, MediaRequest, PlexUser, Secret
 from woosarr.db.session import Database, make_engine, migrate
-from woosarr.services import discord_requests
+from woosarr.services import discord_requests, media_links
 from woosarr.services.discord_bot import DiscordService, WooSarrBot
 from woosarr.services.media_requests import RequestDenied, RequestService
 from woosarr.services.seerr import SeerrClient, SeerrError, normalize_url, request_state
+from woosarr.services.tvdb_pages import TvdbPages
 
 GUILD = 709961910967206019
 URL = "http://seerr.local:5055"
@@ -85,6 +86,54 @@ class ClientTests(unittest.TestCase):
                                                                                        "2008")])
         self.assertIn("query=Breaking%20Bad", fake.calls[-1][2]["raw_query"])
 
+    def test_search_ranks_close_and_well_known_titles_first(self):
+        # Live: "The Fall" listed TMDB's order: The Fall Guy (1981) first, the famous films not at all.
+        fake = FakeSeerr()
+
+        def movie(i, title, year, votes, poster="/p.jpg", popularity=1.0, **extra):
+            return {"id": i, "mediaType": "movie", "title": title, "releaseDate": f"{year}-01-01" if year else "",
+                    "posterPath": poster, "voteCount": votes, "popularity": popularity, **extra}
+
+        fake.search_results = (
+            [{"id": 1, "mediaType": "tv", "name": "The Fall Guy", "firstAirDate": "1981-11-04", "posterPath": "/p.jpg",
+              "voteCount": 150, "popularity": 30}, movie(2, "Legends of the Fall", 1994, 3500),
+             movie(3, "The Fall", 2019, 2), movie(4, "The Fall", None, 0, poster=None),
+             movie(5, "The Fall Guy", 2024, 2600, popularity=80)]
+            + [movie(100 + i, f"Filler {i}", 2000, 5) for i in range(16)]
+            + [movie(6, "The Fall", 2006, 1100, popularity=20), {"id": 287, "mediaType": "person", "name": "x"}])
+        client = SeerrClient(URL, KEY, session=fake)
+        self.assertNotIn(6, [h.tmdb_id for h in client.search("the fall")])  # one page: not among the 20
+        hits = client.search("The Fall", pages=2)
+        # Well-known exact and near titles first; a namesake nobody has rated falls below them.
+        self.assertEqual([h.tmdb_id for h in hits[:5]], [6, 5, 1, 2, 3])
+        self.assertEqual([h.tmdb_id for h in hits if "Fall" in h.title][-1], 4)  # no year, poster or votes
+        self.assertTrue(hits[-1].title.startswith("Filler"))  # unrelated titles last
+        self.assertIn("page=2", fake.calls[-1][2]["raw_query"])
+        # A year after the title: that year first, and it isn't sent to TMDB as a word.
+        self.assertEqual(client.search("the fall (2019)", pages=2)[0].tmdb_id, 3)
+        self.assertIn("query=the%20fall&", fake.calls[-1][2]["raw_query"])
+        # Unfinished last word while typing; original-language titles count too.
+        self.assertEqual(client.search("legends of the fa", pages=2)[0].tmdb_id, 2)
+        fake.search_results = [movie(7, "Amélie", 2001, 10), movie(8, "Le Fabuleux", 2001, 50, originalTitle="Amélie")]
+        self.assertEqual([h.tmdb_id for h in client.search("amelie")], [8, 7])
+
+    def test_split_year(self):
+        from woosarr.services.seerr import split_year
+
+        self.assertEqual(split_year("The Fall 2006"), ("The Fall", "2006"))
+        self.assertEqual(split_year(" the fall (2006) "), ("the fall", "2006"))
+        self.assertEqual(split_year("1917"), ("1917", None))  # a title alone stays a title
+
+    def test_a_title_ending_in_a_number_is_not_mistaken_for_a_year(self):
+        from woosarr.services.seerr import Hit, rank
+
+        def hit(i, title, year, votes):
+            return Hit("movie", i, title, year, "", "p", "unknown", votes=votes)
+
+        hits = [hit(1, "Blade Runner", "1982", 14000), hit(2, "Blade Runner 2049", "2017", 13000)]
+        self.assertEqual([h.tmdb_id for h in rank(hits, "blade runner 2049")], [2, 1])
+        self.assertEqual([h.tmdb_id for h in rank(hits, "blade runner")], [1, 2])
+
     def test_bad_key_and_unreachable(self):
         fake = FakeSeerr()
         with self.assertRaisesRegex(SeerrError, "API key"):
@@ -139,7 +188,15 @@ class UntrustedTextTests(unittest.TestCase):
                    "unknown")
         line = discord_requests.pick_list([evil]).description
         self.assertTrue(line.endswith("](https://www.themoviedb.org/movie/1)"))
-        self.assertIn("\\]\\(https://evil.example\\)", line)  # inert text, not a second link
+        self.assertEqual(line.count("]("), 1)  # inert text, not a second link
+        self.assertIn("Fine⁆(https://evil.example) ⁅x", line)
+
+    def test_pick_list_shows_titles_without_backslashes(self):
+        # Live: Discord showed "The Fall \\(2013\\)": escapes stay visible inside a link's text.
+        from woosarr.services.seerr import Hit
+
+        line = discord_requests.pick_list([Hit("tv", 2, "M*A*S*H_", "1972", "", None, "available")]).description
+        self.assertEqual(line, "1. [\N{TELEVISION} M∗A∗S∗Hˍ (1972) · available](https://www.themoviedb.org/tv/2)")
 
     def test_urls_from_seerr_validated(self):
         from woosarr.services.seerr import _hit
@@ -149,6 +206,42 @@ class UntrustedTextTests(unittest.TestCase):
         for bad in ("@evil.example/x.jpg", "/../../x.jpg", "//evil.example/x.jpg", "/x.jpg?y", "/x.svg"):
             self.assertIsNone(_hit({"mediaType": "movie", "id": 1, "title": "x", "posterPath": bad}).poster, bad)
         self.assertEqual(_hit({"mediaType": "movie", "id": 1, "title": "x", "releaseDate": "](x"}).year, "")
+
+
+class LinkParsingTests(unittest.TestCase):
+    def test_links_and_ids(self):
+        from woosarr.services.media_links import Lookup, parse
+
+        self.assertIsNone(parse("The Fall"))
+        self.assertIsNone(parse("Face/Off"))  # a slash isn't a link
+        self.assertIsNone(parse("Mr. Robot"))
+        cases = {
+            "https://www.imdb.com/title/tt1375666/": Lookup("IMDb", query="imdb:tt1375666"),
+            "https://m.imdb.com/de/title/tt1375666/?ref_=x": Lookup("IMDb", query="imdb:tt1375666"),
+            "IMDB:TT1375666": Lookup("IMDb", query="imdb:tt1375666"),
+            "https://www.themoviedb.org/en-US/tv/1396-breaking-bad/seasons": Lookup("TMDB", media_type="tv", tmdb_id=1396),
+            "themoviedb.org/movie/27205": Lookup("TMDB", media_type="movie", tmdb_id=27205),
+            "tmdb:27205": Lookup("TMDB", query="tmdb:27205"),
+            "https://thetvdb.com/dereferrer/series/81189": Lookup("TVDB", query="tvdb:81189"),
+            "tvdb:81189": Lookup("TVDB", query="tvdb:81189"),
+            "https://www.thetvdb.com/series/the-killing-2011": Lookup("TVDB", media_type="tv", title="the killing 2011"),
+            "https://thetvdb.com/series/breaking-bad/seasons/official/1": Lookup("TVDB", media_type="tv",
+                                                                                title="breaking bad"),
+            "thetvdb.com/movies/inception": Lookup("TVDB", media_type="movie", title="inception"),
+        }
+        for text, want in cases.items():
+            self.assertEqual(parse(text), want, text)
+
+    def test_lookalike_and_other_sites_are_refused(self):
+        from woosarr.services.media_links import LinkRejected, parse
+
+        for text, host in (("https://imdb.com.evil.example/title/tt1375666", "imdb.com.evil.example"),
+                           ("https://evilimdb.com/title/tt1375666", "evilimdb.com"),
+                           ("https://www.imdb.com@evil.example/title/tt1375666", "evil.example"),
+                           ("www.netflix.com/title/70131314", "www.netflix.com")):
+            with self.assertRaises(LinkRejected, msg=text) as cm:
+                parse(text)
+            self.assertEqual(cm.exception.host, host)
 
 
 class SettingsTests(unittest.TestCase):
@@ -278,11 +371,16 @@ class SubmitTests(Base):
         self.assertIn("permission", self.svc.submit("501", False, "movie", 157336).message)
         self.seerr.users[self.alice_seerr]["can_request"] = True
         self.assertTrue(self.svc.submit("501", False, "tv", 1396).ok)  # all seasons
-        again = self.svc.submit("501", False, "tv", 1396)
-        self.assertFalse(again.ok)
+        again = self.svc.submit("501", False, "tv", 1396)  # Seerr: 202, no seasons left
+        self.assertTrue(again.ok)  # not an error
+        self.assertIsNone(again.row_id)  # nothing created, nothing announced
+        self.assertIn("Every season of", again.message)
         self.assertIn("already requested or available", again.message)
         with self.db.session() as s:
             self.assertEqual(len(s.scalars(select(MediaRequest)).all()), 2)
+            actions = [a.action for a in s.scalars(select(AuditLog))]
+            self.assertIn("request_nothing_to_do", actions)
+            self.assertEqual(actions.count("request_failed"), 3)  # duplicate, quota, permission only
 
     def test_tv_seasons(self):
         r = self.svc.submit("501", False, "tv", 1396, [2, 1])
@@ -321,6 +419,117 @@ class PollTests(Base):
         with self.db.session() as s:
             self.assertEqual(s.scalars(select(MediaRequest)).one().status, "available")
 
+    def test_old_open_requests_are_still_checked_and_listed(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        from woosarr.services import media_requests
+        with self.db.session() as s:
+            s.scalars(select(MediaRequest)).one().created_at = utcnow() - timedelta(days=400)
+        self.seerr.set_request_status(self.rid, status=2, media_status=3)
+        self.assertEqual([n.state for n in self.svc.poll()], ["approved"])  # was skipped after 60 days
+        with self.db.session() as s:
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], ["approved"])
+        self.assertEqual(media_requests.POLL_SECONDS, 1800)
+
+    def test_finished_requests_leave_the_list_after_a_week(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        from woosarr.services import media_requests
+        self.svc.submit("501", False, "movie", 157336)  # a second, still open
+        self.seerr.set_request_status(self.rid, status=2, media_status=5)
+        self.svc.poll()  # the first one becomes available
+        with self.db.session() as s:
+            self.assertEqual(sorted(r["status"] for r in media_requests.recent(s)), ["available", "pending"])
+            for r in s.scalars(select(MediaRequest)):
+                r.created_at = utcnow() - timedelta(days=30)
+                if r.status == "available":
+                    r.status_at = utcnow() - timedelta(days=8)
+        with self.db.session() as s:
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], ["pending"])
+
+    def row(self):
+        with self.db.session() as s:
+            return s.scalars(select(MediaRequest).where(MediaRequest.seerr_request_id == self.rid)).one()
+
+    def backdate(self, **ago):
+        from datetime import timedelta
+
+        from woosarr.db.models import utcnow
+        with self.db.session() as s:
+            row = s.scalars(select(MediaRequest).where(MediaRequest.seerr_request_id == self.rid)).one()
+            for field, hours in ago.items():
+                setattr(row, field, utcnow() - timedelta(hours=hours))
+
+    def test_failed_and_declined_are_rechecked_for_a_month(self):
+        self.settings(request_auto_retry=False)
+        self.seerr.set_request_status(self.rid, status=4)
+        self.assertEqual([n.state for n in self.svc.poll()], ["failed"])
+        self.seerr.set_request_status(self.rid, status=2, media_status=3)  # an admin retried it in Seerr
+        self.assertEqual([n.text for n in self.svc.poll()],
+                         ["Your request for **Inception** (2010) is approved, on its way."])
+        self.seerr.set_request_status(self.rid, status=3)
+        self.assertEqual([n.state for n in self.svc.poll()], ["declined"])
+        self.seerr.set_request_status(self.rid, status=2)  # approved after all
+        self.assertEqual([n.state for n in self.svc.poll()], ["approved"])
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.backdate(status_at=31 * 24)
+        self.seerr.set_request_status(self.rid, status=2)
+        self.assertEqual(self.svc.poll(), [])  # failed over 30 days ago: no longer checked
+        with self.db.session() as s:
+            from woosarr.services import media_requests
+            self.assertEqual([r["status"] for r in media_requests.recent(s)], [])
+
+    def test_failed_requests_are_retried_automatically(self):
+        from woosarr.services import media_requests
+        self.seerr.set_request_status(self.rid, status=4)
+        self.assertEqual(self.svc.poll(), [])  # WooSarr will retry: the member isn't told yet
+        row = self.row()
+        self.assertEqual((row.status, row.retries, row.notified_status), ("failed", 0, "pending"))
+        with self.db.session() as s:
+            listed = media_requests.recent(s)[0]
+        self.assertEqual(listed["next_retry_at"], row.status_at + media_requests.RETRY_AFTER[0])
+        self.svc.poll()  # not due before an hour
+        self.assertFalse(any(c[0] == "POST" and c[1].endswith("/retry") for c in self.seerr.calls))
+        self.backdate(status_at=2)
+        self.assertEqual(self.svc.poll(), [])
+        row = self.row()
+        self.assertEqual((row.status, row.retries, self.seerr.requests[self.rid]["status"]), ("approved", 1, 2))
+        with self.db.session() as s:
+            entry = s.scalars(select(AuditLog).where(AuditLog.action == "request_retried")).one()
+        self.assertEqual((entry.actor, entry.details["automatic"], entry.details["attempt"]), ("system", True, 1))
+        self.seerr.set_request_status(self.rid, status=4)  # failed again: next try after 6 h
+        self.assertEqual(self.svc.poll(), [])
+        self.backdate(status_at=2)
+        self.svc.poll()
+        self.assertEqual(self.row().retries, 1)
+        with self.db.session() as s:
+            s.scalars(select(MediaRequest)).one().retries = 3  # every try used
+        notes = self.svc.poll()
+        self.assertEqual([n.text for n in notes], [
+            "Your request for **Inception** (2010) is approved, but downloading failed (an admin can retry it)."])
+        self.assertEqual(self.svc.poll(), [])  # once
+
+    def test_admin_retry(self):
+        with self.assertRaises(RequestDenied):  # pending, not failed
+            self.svc.retry(self.row().id, "admin:dave")
+        self.seerr.set_request_status(self.rid, status=4)
+        self.settings(request_auto_retry=False)
+        self.svc.poll()
+        self.seerr.set_request_status(self.rid, status=2)  # already retried in Seerr: 409, read it instead
+        self.assertEqual(self.svc.retry(self.row().id, "admin:dave"), "approved")
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.assertEqual(self.svc.retry(self.row().id, "admin:dave"), "approved")
+        self.assertEqual((self.row().retries, self.seerr.requests[self.rid]["status"]), (0, 2))
+        self.seerr.set_request_status(self.rid, status=4)
+        self.svc.poll()
+        self.seerr.down = True
+        with self.assertRaises(SeerrError):
+            self.svc.retry(self.row().id, "admin:dave")
+
     def test_notify_off_and_deleted(self):
         self.settings(request_notify=False)
         self.seerr.set_request_status(self.rid, status=3)
@@ -338,6 +547,9 @@ class PollTests(Base):
 class FakeResponse:
     def __init__(self, log):
         self.log = log
+
+    def is_done(self):
+        return any(e[0] in ("defer", "send_message", "edit_message", "send_modal") for e in self.log)
 
     async def defer(self, **kw):
         self.log.append(("defer", kw))
@@ -358,7 +570,10 @@ class FakeFollowup:
 
 
 class FakeInteraction:
+    _ids = iter(range(1, 10**6))
+
     def __init__(self, user_id=501, admin=False, component=False):
+        self.id = next(FakeInteraction._ids)
         self.log = []
         perms = SimpleNamespace(manage_guild=admin, administrator=False)
         self.user = SimpleNamespace(id=user_id, guild_permissions=perms)
@@ -372,10 +587,37 @@ class FakeInteraction:
         self.log.append(("edit_original", kw))
 
 
+class FakeTvdb:
+    """thetvdb.com for TvdbPages: pages[url] = html (or an exception to raise); others are 404."""
+
+    def __init__(self, pages=None):
+        self.pages = pages or {}
+        self.gets: list[tuple[str, dict]] = []
+
+    def get(self, url, **kw):
+        self.gets.append((url, kw))
+        page = self.pages.get(url)
+        if isinstance(page, Exception):
+            raise page
+        if isinstance(page, int):
+            return SimpleNamespace(status_code=page, close=lambda: None)
+        body = (page or "").encode()
+        return SimpleNamespace(status_code=200 if page is not None else 404, close=lambda: None,
+                               raw=SimpleNamespace(read=lambda n, decode_content=True: body[:n]))
+
+
+def tvdb_page(series_id="210171", tmdb=None, imdb=None):
+    links = "".join(f'<a href="{u}">x</a>' for u in (tmdb, imdb) if u)
+    return (f'<li><strong>TheTVDB.com Series ID</strong>\n   <span>{series_id}</span></li>{links}'
+            '<a href="https://www.themoviedb.org/movie/603">a movie elsewhere on the page</a>')
+
+
 class DiscordTests(Base):
     def setUp(self):
         super().setUp()
         self.discord = DiscordService(self.db, self.secrets, lambda *a, **k: None, plex=None, requests=self.svc)
+        self.tvdb = FakeTvdb()
+        self.discord.tvdb_pages = TvdbPages(session=self.tvdb)
 
     def run_async(self, coro):
         return asyncio.run(coro)
@@ -422,6 +664,39 @@ class DiscordTests(Base):
         self.assertEqual(self.run_async(self.discord.request_suggestions("inter", unverified)), [])
         self.assertEqual(sum(1 for c in self.seerr.calls if c[1] == "/search"), searches)  # no Seerr call
 
+    def test_typing_quickly_searches_once(self):
+        # Live: "suicide squad" typed letter by letter cost six Seerr searches; Discord had already
+        # dropped all but the last ask, and the five stale answers were logged as errors.
+        self.connect()
+
+        async def typing():
+            asks = []
+            for text in ("in", "int", "inte", "inter"):
+                asks.append(asyncio.create_task(self.discord.request_suggestions(text, FakeInteraction(501))))
+                await asyncio.sleep(0.05)
+            return await asyncio.gather(*asks)
+
+        before = sum(1 for c in self.seerr.calls if c[1] == "/search")
+        results = self.run_async(typing())
+        self.assertEqual([bool(r) for r in results], [False, False, False, True])
+        self.assertEqual(sum(1 for c in self.seerr.calls if c[1] == "/search") - before, 1)
+
+    def test_answers_discord_already_dropped_are_not_errors(self):
+        from woosarr.services.discord_bot import _Tree
+
+        tree = _Tree(discord.Client(intents=discord.Intents.none()))
+        stale = discord.NotFound(SimpleNamespace(status=404, reason="Not Found"),
+                                 {"code": 10062, "message": "Unknown interaction"})
+        ask = SimpleNamespace(type=discord.InteractionType.autocomplete, command=SimpleNamespace(name="request"),
+                              user=SimpleNamespace(id=501), created_at=discord.utils.utcnow())
+        with self.assertNoLogs("woosarr.discord", "INFO"):
+            self.run_async(tree.on_error(ask, stale))
+        cmd = SimpleNamespace(ask.__dict__ | {"type": discord.InteractionType.application_command})
+        with self.assertLogs("woosarr.discord", "WARNING") as logs:
+            self.run_async(tree.on_error(cmd, discord.app_commands.CommandInvokeError(
+                SimpleNamespace(name="request", qualified_name="request"), stale)))
+        self.assertIn("/request from member 501 answered too late", logs.output[0])
+
     def test_search_rate_limit_per_member(self):
         self.connect()
         from woosarr.services import media_requests
@@ -445,8 +720,11 @@ class DiscordTests(Base):
             return []
 
         with mock.patch.object(discord_requests, "AUTOCOMPLETE_SECONDS", 0.05), \
-                mock.patch.object(self.svc, "search", slow):
+                mock.patch.object(self.svc, "search", slow), \
+                self.assertLogs("woosarr.discord.requests", "INFO") as logs:
             self.assertEqual(self.run_async(self.discord.request_suggestions("inter")), [])
+        # Live 2026-11-10: the reason printed blank (a timeout's message is empty).
+        self.assertIn("request suggestions for 'inter' unavailable: timed out", logs.output[-1])
 
     def test_picked_suggestion_shows_details_with_request_button(self):
         self.connect()
@@ -472,8 +750,8 @@ class DiscordTests(Base):
         self.assertIsInstance(kw["view"], discord_requests.PickView)
         # Numbered TMDB links above the menu; menu options are numbered to match and carry no links.
         listing = kw["embed"].description.splitlines()
-        # Brackets are escaped inside the link text (Discord shows "\(" as "(").
-        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception \\(2010\\)](https://www.themoviedb.org/movie/27205)")
+        # No backslashes in the link text: Discord shows them there (test_pick_list_shows_titles_...).
+        self.assertEqual(listing[0], "1. [\N{POPCORN} Inception (2010)](https://www.themoviedb.org/movie/27205)")
         self.assertTrue(any("(https://www.themoviedb.org/tv/1396)" in line for line in listing))
         labels = [o.label for o in kw["view"].select.options]
         self.assertTrue(labels[0].startswith("1. "))
@@ -481,6 +759,112 @@ class DiscordTests(Base):
         nobody = FakeInteraction(user_id=999)
         self.run_async(self.discord.handle_request_command(nobody, "inception"))
         self.assertIn("/link", nobody.log[-1][1])
+
+    def test_pasted_links_open_the_title_and_other_sites_are_refused(self):
+        self.connect()
+
+        def ask(text):
+            it = FakeInteraction()
+            self.run_async(self.discord.handle_request_command(it, text))
+            return it.log[-1]
+
+        for link in ("https://m.imdb.com/title/tt0027205/?ref_=ext_shr_lnk", "Inception on IMDb: imdb.com/title/tt0027205",
+                     "https://www.themoviedb.org/movie/27205-inception?language=en-US", "tt0027205"):
+            _kind, _content, kw = ask(link)
+            self.assertEqual(kw["embed"].title, "Inception (2010)", link)
+        self.assertEqual(ask("https://thetvdb.com/?tab=series&id=81189")[2]["embed"].title, "Breaking Bad (2008)")
+        self.assertIn("imdb:tt0027205", next(c[2]["raw_query"] for c in self.seerr.calls if c[1] == "/search")
+                      .replace("%3A", ":"))
+        _kind, content, kw = ask("https://www.youtube.com/watch?v=YoHD9XEInc0")
+        self.assertEqual(content, "Links to www.youtube.com don't work here. " + media_links.HOW)
+        self.assertNotIn("embed", kw)
+        # TVDB name links (the usual kind): searched by name among shows (or movies).
+        self.assertEqual(ask("https://www.thetvdb.com/series/breaking-bad/seasons")[2]["embed"].title,
+                         "Breaking Bad (2008)")
+        self.assertIn("Nothing found for that TVDB link", ask("https://thetvdb.com/movies/breaking-bad")[1])
+        self.assertIn("isn't a movie or TV show's page", ask("https://www.imdb.com/name/nm0000138/")[1])
+        self.assertIn("Nothing found for that IMDb link", ask("https://www.imdb.com/title/tt9999999/")[1])
+        self.assertEqual(ask(discord_requests.LINK_HELP)[1], media_links.HOW)
+
+    def test_tvdb_name_link_opens_the_title_with_that_name_and_year(self):
+        # Live: thetvdb.com/series/the-killing-2011 was refused; most TVDB links look like that.
+        self.connect()
+
+        def show(i, name, year, original=None):
+            return {"id": i, "mediaType": "tv", "name": name, "firstAirDate": f"{year}-04-03", "posterPath": "/p.jpg",
+                    "voteCount": 500, "originalName": original or name}
+
+        self.seerr.search_results = [show(1, "The Killing", 2007, "Forbrydelsen"), show(2, "The Killing", 2011),
+                                     {"id": 3, "mediaType": "movie", "title": "The Killing", "releaseDate": "2011-01-01"},
+                                     show(4, "The Killing Fields", 2011)]
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "https://www.thetvdb.com/series/the-killing-2011"))
+        self.assertIn("query=the%20killing&", next(c[2]["raw_query"] for c in reversed(self.seerr.calls)
+                                                  if c[1] == "/search"))
+        self.assertEqual(self.seerr.calls[-1][1], "/tv/2")  # straight to the 2011 show's card
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "https://thetvdb.com/series/the-killing"))
+        _kind, content, kw = it.log[-1]
+        self.assertEqual(content, "Which one? Titles link to TMDB; choose in the menu.")  # two shows of that name
+        values = [o.value for o in kw["view"].select.options]
+        self.assertEqual(sorted(values[:2]), ["tv:1", "tv:2"])
+        self.assertNotIn("movie:3", values)  # a series link: shows only
+        choices = self.run_async(self.discord.request_suggestions("https://thetvdb.com/series/the-killing-2011"))
+        self.assertEqual(choices[0].value, "tv:2")
+
+    def test_tvdb_name_link_uses_the_title_its_page_names(self):
+        # Live: thetvdb.com/series/the-killing-2011 suggested ten titles; TVDB's page links the one.
+        self.connect()
+        self.tvdb.pages["https://www.thetvdb.com/series/the-killing-2011"] = tvdb_page(
+            tmdb="https://www.themoviedb.org/tv/1396", imdb="https://www.imdb.com/title/tt0903747/")
+        choices = self.run_async(self.discord.request_suggestions("https://www.thetvdb.com/series/the-killing-2011"))
+        self.assertEqual([c.value for c in choices], ["tv:1396"])  # one suggestion: that title
+        it = FakeInteraction()
+        self.run_async(self.discord.handle_request_command(it, "thetvdb.com/series/the-killing-2011/seasons"))
+        self.assertEqual(it.log[-1][2]["embed"].title, "Breaking Bad (2008)")
+        self.assertEqual(len(self.tvdb.gets), 1)  # the page is read once, then remembered
+        url, kw = self.tvdb.gets[0]
+        self.assertEqual((url, kw["allow_redirects"]), ("https://www.thetvdb.com/series/the-killing-2011", False))
+        self.assertFalse(any(c[1] == "/search" for c in self.seerr.calls))  # no name search needed
+
+    def test_tvdb_page_without_tmdb_link_uses_imdb_then_tvdb_id(self):
+        from woosarr.services.tvdb_pages import read_page
+
+        self.assertEqual(read_page(tvdb_page(imdb="https://www.imdb.com/title/tt0903747/"), "tv").query,
+                         "imdb:tt0903747")
+        self.assertEqual(read_page(tvdb_page("81189"), "tv").query, "tvdb:81189")
+        movie_page = "<strong>TheTVDB.com Movie ID</strong> <span>113</span>"
+        self.assertIsNone(read_page(movie_page, "movie"))  # TMDB doesn't know TVDB movie ids
+        self.assertEqual(read_page(movie_page + "https://www.themoviedb.org/movie/27205", "movie").tmdb_id, 27205)
+        two = tvdb_page(tmdb="https://www.themoviedb.org/tv/1") + '<a href="https://www.themoviedb.org/tv/2">'
+        self.assertEqual(read_page(two, "tv").query, "tvdb:210171")  # two TMDB links: not trusted
+        self.assertIsNone(read_page("<html>changed</html>", "tv"))
+
+    def test_tvdb_page_unavailable_falls_back_to_the_name(self):
+        self.connect()
+        url = "https://www.thetvdb.com/series/breaking-bad"
+        for page in (__import__("requests").ConnectionError("down"), 301, "<html>no ids</html>"):
+            self.tvdb.pages = {url: page}
+            self.discord.tvdb_pages = TvdbPages(session=self.tvdb)
+            it = FakeInteraction()
+            with self.assertLogs("woosarr.tvdb", "INFO"):
+                self.run_async(self.discord.handle_request_command(it, url))
+            self.assertEqual(it.log[-1][2]["embed"].title, "Breaking Bad (2008)", page)  # found by name
+
+    def test_link_suggestions(self):
+        self.connect()
+
+        def suggest(text):
+            return [(c.name, c.value) for c in self.run_async(self.discord.request_suggestions(text))]
+
+        self.assertEqual(suggest("https://www.themoviedb.org/tv/1396"), [("\N{TELEVISION} Breaking Bad (2008)", "tv:1396")])
+        self.assertEqual(suggest("imdb.com/title/tt0157336"), [("\N{POPCORN} Interstellar (2014)", "movie:157336")])
+        self.assertEqual(suggest("https://letterboxd.com/film/inception/"),
+                         [(media_links.HOW_SHORT, discord_requests.LINK_HELP)])
+        self.assertLessEqual(len(media_links.HOW_SHORT), 100)
+        (choice,) = self.run_async(self.discord.request_suggestions("https://www.imdb.com/name/nm0000138/"))
+        self.assertEqual(choice.name, "That IMDb link isn't a movie or show: open the title's own page and share that")
+        self.assertLessEqual(len(choice.name), 100)
 
     def test_show_season_menu_and_unavailable_titles(self):
         self.connect()
@@ -658,6 +1042,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.c.get("/api/v1/requests").json(), [])
         self.assertEqual(self.c.post("/api/v1/requests/poll").json(), {"notified": 0})
         self.assertFalse(self.c.delete("/api/v1/requests/seerr").json()["configured"])
+
+    def test_retry_failed_request(self):
+        self.c.put("/api/v1/requests/seerr", json={"url": URL, "api_key": KEY})
+        self.seerr.requests[300] = {"id": 300, "status": 4, "media": {"tmdbId": 27205, "mediaType": "movie",
+                                                                      "status": 3}}
+        with self.h.app.state.db.session() as s:
+            s.add(MediaRequest(seerr_request_id=300, discord_user_id="501", seerr_user_id=2, media_type="movie",
+                               tmdb_id=27205, title="Inception", status="failed"))
+        row = self.c.get("/api/v1/requests").json()[0]
+        self.assertEqual(row["status"], "failed")
+        self.assertIsNotNone(row["next_retry_at"])
+        r = self.c.post(f"/api/v1/requests/{row['id']}/retry")
+        self.assertEqual((r.status_code, r.json()["status"]), (200, "approved"), r.text)
+        self.assertEqual(self.c.post(f"/api/v1/requests/{row['id']}/retry").status_code, 409)
+        self.assertEqual(self.c.post("/api/v1/requests/999/retry").status_code, 409)
+        audit = self.c.get("/api/v1/audit", params={"action": "request_retried"}).json()["entries"][0]
+        self.assertEqual((audit["actor"], audit["details"]["automatic"]), ("admin:admin", False))
 
     def test_public_without_channel_rejected(self):
         self.assertEqual(self.c.patch("/api/v1/settings", json={"request_visibility": "public"}).status_code, 422)

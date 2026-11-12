@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, qs, type DiscordMemberRow, type LibraryOut, type MemberRolesResult, type RoleImpactOut, type RoleOut } from "../api";
 import { useDiscordFeatures } from "../features";
 import { Icon } from "../icons";
@@ -8,7 +9,12 @@ import { LinkFilter, TriStateBox, type Filter } from "./UserFilters";
 
 /** Users → Discord: members of the server, their roles and Plex links, with bulk role changes. */
 export default function DiscordUsers() {
-  const [filter, setFilter] = useState<Filter>("");
+  // ?link=linked etc. (dashboard tiles open the list already filtered)
+  const [params] = useSearchParams();
+  const [filter, setFilter] = useState<Filter>(() => {
+    const v = params.get("link");
+    return v === "verified" || v === "unverified" || v === "linked" || v === "unlinked" ? v : "";
+  });
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<null | "add" | "remove">(null);

@@ -73,3 +73,52 @@ def seed_discord(db: Database) -> None:
         # A role that was deleted in Discord, so the Roles page can show "Remove".
         s.add(DiscordRole(role_id="900000000000000099", name="Old Movie Night", color=0x95A5A6, position=0,
                           deleted=True))
+
+
+class DemoEmojiGuild:
+    """The demo server's custom emoji (in memory), with the same methods DiscordService has for them."""
+
+    LIMIT = 50
+
+    def __init__(self) -> None:
+        self._emoji: dict[str, dict[str, object]] = {}
+        self._next = 1300000000000000001
+
+    async def list_emojis(self) -> list[dict[str, object]]:
+        return list(self._emoji.values())
+
+    def emoji_slots(self) -> dict[str, int]:
+        animated = sum(1 for e in self._emoji.values() if e["animated"])
+        return {"limit": self.LIMIT, "static": len(self._emoji) - animated, "animated": animated}
+
+    async def add_emoji(self, name: str, image: bytes, animated: bool, reason: str) -> dict[str, object]:
+        import base64
+
+        from woosarr.services.discord_bot import DiscordConfigError
+        from woosarr.services.emoji_library import sniff
+
+        if any(e["name"] == name for e in self._emoji.values()):
+            raise DiscordConfigError(f"The server already has an emoji called :{name}:.")
+        eid = str(self._next)
+        self._next += 1
+        url = f"data:{sniff(image)};base64,{base64.b64encode(image).decode()}"
+        self._emoji[eid] = {"id": eid, "name": name, "animated": animated, "available": True, "url": url,
+                            "text": f"<{'a' if animated else ''}:{name}:{eid}>"}
+        return self._emoji[eid]
+
+    def _get(self, emoji_id: str) -> dict[str, object]:
+        from woosarr.services.discord_bot import DiscordConfigError
+
+        if emoji_id not in self._emoji:
+            raise DiscordConfigError("That emoji isn't on the server any more.")
+        return self._emoji[emoji_id]
+
+    async def rename_emoji(self, emoji_id: str, name: str, reason: str) -> tuple[dict[str, object], str]:
+        e = self._get(emoji_id)
+        old = str(e["text"])
+        e["name"], e["text"] = name, f"<{'a' if e['animated'] else ''}:{name}:{emoji_id}>"
+        return e, old
+
+    async def delete_emoji(self, emoji_id: str, reason: str) -> dict[str, object]:
+        self._get(emoji_id)
+        return self._emoji.pop(emoji_id)

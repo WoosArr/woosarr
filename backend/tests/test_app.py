@@ -137,3 +137,19 @@ class AppTests(unittest.TestCase):
                 continue
             deps = {d.call for d in route.dependant.dependencies}
             self.assertIn(require_admin, deps, route.path)
+
+
+class PreloadTests(unittest.TestCase):
+    def test_file_serving_helpers_are_imported_before_the_loop_runs(self):
+        # Live 2026-10-23: anyio imported its file module on the first static file served, inside
+        # the event loop; a cold disk made that take >10 s and stalled the Discord heartbeat.
+        import subprocess
+        import sys
+
+        code = ("import sys, tempfile, pathlib; from woosarr.core.config import Settings; "
+                "from woosarr.main import create_app; d = pathlib.Path(tempfile.mkdtemp()); "
+                "create_app(Settings(config_dir=d / 'c', static_dir=d / 's')); "
+                "print('anyio._core._fileio' in sys.modules)")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False,
+                             cwd=Path(__file__).resolve().parents[1])
+        self.assertEqual(out.stdout.strip().splitlines()[-1], "True", out.stderr[-2000:])

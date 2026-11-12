@@ -271,12 +271,26 @@
       "AppSettings": {
         "additionalProperties": false,
         "properties": {
+          "admin_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Admin Role Ids",
+            "type": "array"
+          },
           "audit_retention_days": {
             "default": 365,
             "maximum": 3650.0,
             "minimum": 7.0,
             "title": "Audit Retention Days",
             "type": "integer"
+          },
+          "bot_status": {
+            "default": "Try /help for help",
+            "maxLength": 128,
+            "title": "Bot Status",
+            "type": "string"
           },
           "dry_run": {
             "default": true,
@@ -291,6 +305,11 @@
             ],
             "title": "Family Link Mode",
             "type": "string"
+          },
+          "hide_deleted": {
+            "default": true,
+            "title": "Hide Deleted",
+            "type": "boolean"
           },
           "ignore_unverified_links": {
             "default": false,
@@ -309,6 +328,36 @@
             "maxItems": 50,
             "title": "Invite Role Ids",
             "type": "array"
+          },
+          "invite_welcome": {
+            "default": true,
+            "title": "Invite Welcome",
+            "type": "boolean"
+          },
+          "invite_welcome_find_server_text": {
+            "default": "Can't find the libraries? Open Plex and pick **{server}** from the server list.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Find Server Text",
+            "type": "string"
+          },
+          "invite_welcome_text": {
+            "default": "**You're on the Plex server \ud83c\udf89**\nYour invite was accepted and your Discord account is now linked to the Plex account **{plex_username}**. You can see **{libraries}**.",
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Invite Welcome Text",
+            "type": "string"
+          },
+          "invite_welcome_verify_needed_text": {
+            "default": "You'll need this to {features}.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Verify Needed Text",
+            "type": "string"
+          },
+          "invite_welcome_verify_text": {
+            "default": "**One more step:** run `/link` here and tap **Sign in with Plex** to confirm the Plex account is really yours. Your Plex password is never shared; WooSarr only reads your username.",
+            "maxLength": 1500,
+            "title": "Invite Welcome Verify Text",
+            "type": "string"
           },
           "leave_policy": {
             "default": "drop_role_access",
@@ -377,6 +426,11 @@
           "request_all_members": {
             "default": true,
             "title": "Request All Members",
+            "type": "boolean"
+          },
+          "request_auto_retry": {
+            "default": true,
+            "title": "Request Auto Retry",
             "type": "boolean"
           },
           "request_channel_id": {
@@ -455,6 +509,24 @@
             ],
             "title": "Unverified Role Id"
           },
+          "update_check": {
+            "default": true,
+            "title": "Update Check",
+            "type": "boolean"
+          },
+          "update_check_minutes": {
+            "default": 360,
+            "enum": [
+              360,
+              180,
+              60,
+              30,
+              15,
+              5
+            ],
+            "title": "Update Check Minutes",
+            "type": "integer"
+          },
           "username_link_all_members": {
             "default": true,
             "title": "Username Link All Members",
@@ -494,9 +566,18 @@
             "title": "Actor",
             "type": "string"
           },
+          "actor_label": {
+            "title": "Actor Label",
+            "type": "string"
+          },
           "details": {
             "additionalProperties": true,
             "title": "Details",
+            "type": "object"
+          },
+          "details_named": {
+            "additionalProperties": true,
+            "title": "Details Named",
             "type": "object"
           },
           "dry_run": {
@@ -506,6 +587,13 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "object"
           },
           "target_id": {
             "anyOf": [
@@ -517,6 +605,17 @@
               }
             ],
             "title": "Target Id"
+          },
+          "target_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Label"
           },
           "target_type": {
             "anyOf": [
@@ -543,7 +642,11 @@
           "target_type",
           "target_id",
           "details",
-          "dry_run"
+          "dry_run",
+          "names",
+          "actor_label",
+          "target_label",
+          "details_named"
         ],
         "title": "AuditOut",
         "type": "object"
@@ -692,6 +795,39 @@
           "height"
         ],
         "title": "AvatarOut",
+        "type": "object"
+      },
+      "BuildOut": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "channel",
+          "commit",
+          "date",
+          "label"
+        ],
+        "title": "BuildOut",
         "type": "object"
       },
       "ChannelOut": {
@@ -973,6 +1109,36 @@
         "title": "DiscoveryOut",
         "type": "object"
       },
+      "EmojiAddIn": {
+        "properties": {
+          "id": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^[A-Za-z0-9_]{2,32}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "name"
+        ],
+        "title": "EmojiAddIn",
+        "type": "object"
+      },
       "EmojiOut": {
         "properties": {
           "animated": {
@@ -1009,6 +1175,162 @@
           "available"
         ],
         "title": "EmojiOut",
+        "type": "object"
+      },
+      "EmojiRenameIn": {
+        "properties": {
+          "name": {
+            "pattern": "^[A-Za-z0-9_]{2,32}$",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "EmojiRenameIn",
+        "type": "object"
+      },
+      "EmojiSearchOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryEmojiOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "boolean"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "more"
+        ],
+        "title": "EmojiSearchOut",
+        "type": "object"
+      },
+      "EmojiSlotsOut": {
+        "properties": {
+          "animated": {
+            "title": "Animated",
+            "type": "integer"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "static": {
+            "title": "Static",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit",
+          "static",
+          "animated"
+        ],
+        "title": "EmojiSlotsOut",
+        "type": "object"
+      },
+      "EmojiSourceOut": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "key": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "license",
+          "live",
+          "count",
+          "updated_at",
+          "checked_at",
+          "version",
+          "error"
+        ],
+        "title": "EmojiSourceOut",
         "type": "object"
       },
       "ErrorGroupOut": {
@@ -1227,6 +1549,41 @@
             "title": "Activity",
             "type": "array"
           },
+          "clock": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clock"
+          },
+          "emoji": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emoji"
+          },
           "invites": {
             "additionalProperties": true,
             "title": "Invites",
@@ -1251,6 +1608,14 @@
             "additionalProperties": true,
             "title": "Requests",
             "type": "object"
+          },
+          "role_libraries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Role Libraries",
+            "type": "array"
           },
           "roles": {
             "items": {
@@ -1279,6 +1644,7 @@
           "access_by_day",
           "libraries",
           "roles",
+          "role_libraries",
           "invites",
           "requests",
           "setup",
@@ -1295,6 +1661,11 @@
           },
           "connected": {
             "title": "Connected",
+            "type": "boolean"
+          },
+          "connecting": {
+            "default": false,
+            "title": "Connecting",
             "type": "boolean"
           },
           "detail": {
@@ -1436,7 +1807,7 @@
             "items": {
               "$ref": "#/components/schemas/WidgetIn"
             },
-            "maxItems": 20,
+            "maxItems": 81,
             "title": "Widgets",
             "type": "array"
           }
@@ -1503,6 +1874,66 @@
           "shared"
         ],
         "title": "LibraryAccess",
+        "type": "object"
+      },
+      "LibraryEmojiOut": {
+        "properties": {
+          "animated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animated"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "credit": {
+            "title": "Credit",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "emojigg",
+              "openmoji",
+              "slackmojis"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "name",
+          "title",
+          "category",
+          "animated",
+          "page",
+          "credit"
+        ],
+        "title": "LibraryEmojiOut",
         "type": "object"
       },
       "LibraryOut": {
@@ -1651,6 +2082,17 @@
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved By"
           },
           "seq": {
             "title": "Seq",
@@ -2780,6 +3222,14 @@
             "title": "Message Id",
             "type": "string"
           },
+          "notes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
           "pinned": {
             "title": "Pinned",
             "type": "boolean"
@@ -2816,6 +3266,106 @@
         "title": "PurgeOut",
         "type": "object"
       },
+      "ReactionChange": {
+        "properties": {
+          "emoji": {
+            "title": "Emoji",
+            "type": "string"
+          },
+          "members": {
+            "title": "Members",
+            "type": "integer"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          },
+          "new_emoji": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Emoji"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "role_name": {
+            "title": "Role Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "emoji",
+          "new_emoji",
+          "role_id",
+          "role_name",
+          "members",
+          "names"
+        ],
+        "title": "ReactionChange",
+        "type": "object"
+      },
+      "ReactionChangesOut": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ReactionChange"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "clear_impact": {
+            "items": {
+              "$ref": "#/components/schemas/RoleImpactOut"
+            },
+            "title": "Clear Impact",
+            "type": "array"
+          },
+          "clear_losing": {
+            "title": "Clear Losing",
+            "type": "integer"
+          },
+          "keep_impact": {
+            "items": {
+              "$ref": "#/components/schemas/RoleImpactOut"
+            },
+            "title": "Keep Impact",
+            "type": "array"
+          },
+          "keep_losing": {
+            "title": "Keep Losing",
+            "type": "integer"
+          },
+          "moved": {
+            "title": "Moved",
+            "type": "boolean"
+          },
+          "published": {
+            "title": "Published",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "published",
+          "moved",
+          "changes",
+          "keep_losing",
+          "keep_impact",
+          "clear_losing",
+          "clear_impact"
+        ],
+        "title": "ReactionChangesOut",
+        "type": "object"
+      },
       "ReactionOption": {
         "properties": {
           "emoji": {
@@ -2823,6 +3373,14 @@
             "minLength": 1,
             "title": "Emoji",
             "type": "string"
+          },
+          "former": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Former",
+            "type": "array"
           },
           "label": {
             "default": "",
@@ -2934,6 +3492,10 @@
             ],
             "title": "Channel Id"
           },
+          "clear_old_reactions": {
+            "title": "Clear Old Reactions",
+            "type": "boolean"
+          },
           "content": {
             "maxLength": 2000,
             "minLength": 1,
@@ -3039,9 +3601,86 @@
           "reactions",
           "preview",
           "preview_length",
-          "outdated"
+          "outdated",
+          "clear_old_reactions"
         ],
         "title": "ReactionPostOut",
+        "type": "object"
+      },
+      "ReactionPostUpdate": {
+        "properties": {
+          "channel_id": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{5,25}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "content": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "keep_old_reactions": {
+            "default": true,
+            "title": "Keep Old Reactions",
+            "type": "boolean"
+          },
+          "legend": {
+            "default": true,
+            "title": "Legend",
+            "type": "boolean"
+          },
+          "legend_header": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Legend Header",
+            "type": "string"
+          },
+          "legend_template": {
+            "default": "{emoji} {role} \u2014 {libraries}",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Legend Template",
+            "type": "string"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ReactionOption"
+            },
+            "maxItems": 20,
+            "title": "Options",
+            "type": "array"
+          },
+          "pin": {
+            "default": true,
+            "title": "Pin",
+            "type": "boolean"
+          },
+          "title": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "content"
+        ],
+        "title": "ReactionPostUpdate",
         "type": "object"
       },
       "RemoveAccessIn": {
@@ -3232,6 +3871,18 @@
             "title": "Media Type",
             "type": "string"
           },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
           "plex_username": {
             "anyOf": [
               {
@@ -3248,6 +3899,23 @@
             "title": "Public",
             "type": "boolean"
           },
+          "retried_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retried At"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
           "seasons": {
             "items": {
               "type": "integer"
@@ -3262,6 +3930,18 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "status_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status At"
           },
           "title": {
             "title": "Title",
@@ -3877,6 +4557,9 @@
       },
       "StatusOut": {
         "properties": {
+          "build": {
+            "$ref": "#/components/schemas/BuildOut"
+          },
           "counts": {
             "additionalProperties": {
               "type": "integer"
@@ -3890,6 +4573,14 @@
           "dry_run": {
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "open_errors": {
+            "title": "Open Errors",
+            "type": "integer"
+          },
+          "open_warnings": {
+            "title": "Open Warnings",
+            "type": "integer"
           },
           "plex": {
             "$ref": "#/components/schemas/IntegrationStatus"
@@ -3907,6 +4598,16 @@
             "title": "Sync",
             "type": "object"
           },
+          "update": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpdateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -3914,13 +4615,17 @@
         },
         "required": [
           "version",
+          "build",
+          "update",
           "dry_run",
           "plex",
           "discord",
           "sync",
           "counts",
           "recent_warnings",
-          "recent_errors"
+          "recent_errors",
+          "open_warnings",
+          "open_errors"
         ],
         "title": "StatusOut",
         "type": "object"
@@ -4071,6 +4776,72 @@
           "url"
         ],
         "title": "TestStart",
+        "type": "object"
+      },
+      "UpdateOut": {
+        "properties": {
+          "behind_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Behind By"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "state",
+          "checked_at",
+          "latest",
+          "behind_by",
+          "url",
+          "detail"
+        ],
+        "title": "UpdateOut",
         "type": "object"
       },
       "UserImpact": {
@@ -4235,36 +5006,126 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WelcomePreview": {
+        "properties": {
+          "defaults": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Defaults",
+            "type": "object"
+          },
+          "needs_verified": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs Verified",
+            "type": "array"
+          },
+          "placeholders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Placeholders",
+            "type": "object"
+          },
+          "unverified": {
+            "title": "Unverified",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "string"
+          }
+        },
+        "required": [
+          "defaults",
+          "placeholders",
+          "needs_verified",
+          "unverified",
+          "verified"
+        ],
+        "title": "WelcomePreview",
+        "type": "object"
+      },
+      "WidgetFilter": {
+        "description": "What one copy of a widget shows (empty / missing = everything). Only the key that fits the\nwidget is used: libraries (Library access), roles (Discord role members, Roles that grant\nlibraries), statuses (Requests), levels (Alerts).",
+        "properties": {
+          "levels": {
+            "default": [],
+            "items": {
+              "enum": [
+                "error",
+                "warning",
+                "account"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Levels",
+            "type": "array"
+          },
+          "libraries": {
+            "default": [],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Libraries",
+            "type": "array"
+          },
+          "roles": {
+            "default": [],
+            "items": {
+              "pattern": "^\\d{1,25}$",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Roles",
+            "type": "array"
+          },
+          "statuses": {
+            "default": [],
+            "items": {
+              "enum": [
+                "pending",
+                "approved",
+                "declined",
+                "failed",
+                "partially_available",
+                "available",
+                "deleted"
+              ],
+              "type": "string"
+            },
+            "maxItems": 7,
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "title": "WidgetFilter",
+        "type": "object"
+      },
       "WidgetIn": {
         "properties": {
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WidgetFilter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hidden": {
             "default": false,
             "title": "Hidden",
             "type": "boolean"
           },
           "id": {
-            "enum": [
-              "integrations",
-              "stat_plex_users",
-              "stat_linked",
-              "stat_libraries",
-              "stat_roles",
-              "stat_requests",
-              "stat_invites",
-              "stat_invites_accepted",
-              "errors",
-              "last_sync",
-              "pending",
-              "links",
-              "access_chart",
-              "activity",
-              "libraries",
-              "requests",
-              "invites",
-              "setup",
-              "security",
-              "roles"
-            ],
+            "pattern": "^[a-z_]{1,40}(-\\d{1,3})?$",
             "title": "Id",
             "type": "string"
           },
@@ -4278,6 +5139,18 @@
             ],
             "title": "Size",
             "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           },
           "view": {
             "default": "default",
@@ -4319,7 +5192,7 @@
   },
   "info": {
     "title": "WooSarr",
-    "version": "1.1.1"
+    "version": "1.2.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5086,6 +5959,114 @@
         ]
       }
     },
+    "/api/v1/discord/emojis/slots": {
+      "get": {
+        "operationId": "slots_api_v1_discord_emojis_slots_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiSlotsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Slots",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/discord/emojis/{emoji_id}": {
+      "delete": {
+        "operationId": "delete_api_v1_discord_emojis__emoji_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "emoji_id",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{1,25}$",
+              "title": "Emoji Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete",
+        "tags": [
+          "emoji"
+        ]
+      },
+      "patch": {
+        "operationId": "rename_api_v1_discord_emojis__emoji_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "emoji_id",
+            "required": true,
+            "schema": {
+              "pattern": "^\\d{1,25}$",
+              "title": "Emoji Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmojiRenameIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
     "/api/v1/discord/guild": {
       "put": {
         "operationId": "discord_set_guild_api_v1_discord_guild_put",
@@ -5534,6 +6515,218 @@
         "summary": "Discord Set Token",
         "tags": [
           "integrations"
+        ]
+      }
+    },
+    "/api/v1/emoji/add": {
+      "post": {
+        "operationId": "add_api_v1_emoji_add_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmojiAddIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/preview/{source}/{item_id}": {
+      "get": {
+        "operationId": "preview_api_v1_emoji_preview__source___item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "emojigg",
+                "openmoji",
+                "slackmojis"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{1,64}$",
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/gif": {},
+              "image/png": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/search": {
+      "get": {
+        "operationId": "search_api_v1_emoji_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "emojigg",
+                "openmoji",
+                "slackmojis"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 100,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hide_animated",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Hide Animated",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "maximum": 120,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmojiSearchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search",
+        "tags": [
+          "emoji"
+        ]
+      }
+    },
+    "/api/v1/emoji/sources": {
+      "get": {
+        "operationId": "sources_api_v1_emoji_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EmojiSourceOut"
+                  },
+                  "title": "Response Sources Api V1 Emoji Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sources",
+        "tags": [
+          "emoji"
         ]
       }
     },
@@ -6730,7 +7923,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReactionPostIn"
+                "$ref": "#/components/schemas/ReactionPostUpdate"
               }
             }
           },
@@ -6811,6 +8004,59 @@
           }
         },
         "summary": "Publish",
+        "tags": [
+          "reaction-posts"
+        ]
+      }
+    },
+    "/api/v1/reaction-posts/{post_id}/reaction-changes": {
+      "post": {
+        "description": "What saving these options would do to members who already reacted (no Discord calls).",
+        "operationId": "reaction_changes_api_v1_reaction_posts__post_id__reaction_changes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "post_id",
+            "required": true,
+            "schema": {
+              "title": "Post Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactionPostIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReactionChangesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reaction Changes",
         "tags": [
           "reaction-posts"
         ]
@@ -7003,6 +8249,49 @@
           }
         },
         "summary": "Seerr Test",
+        "tags": [
+          "requests"
+        ]
+      }
+    },
+    "/api/v1/requests/{row_id}/retry": {
+      "post": {
+        "description": "Have Seerr send a failed request to Radarr/Sonarr again.",
+        "operationId": "retry_request_api_v1_requests__row_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "row_id",
+            "required": true,
+            "schema": {
+              "title": "Row Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Request",
         "tags": [
           "requests"
         ]
@@ -7284,6 +8573,50 @@
           }
         },
         "summary": "Patch Settings",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/v1/settings/invite-welcome/preview": {
+      "post": {
+        "description": "The invite welcome DM with these (unsaved) texts, for a sample member, as both kinds of link.",
+        "operationId": "preview_invite_welcome_api_v1_settings_invite_welcome_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Changes",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WelcomePreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Invite Welcome",
         "tags": [
           "status"
         ]

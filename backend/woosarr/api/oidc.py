@@ -7,7 +7,6 @@ import re
 import secrets
 from datetime import datetime
 from typing import Annotated, Any, Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -28,6 +27,15 @@ public = APIRouter(prefix="/auth/oidc", tags=["sso"])
 admin = APIRouter(prefix="/oidc", tags=["sso"], dependencies=[Depends(require_admin)])
 
 STATE_COOKIE = "woosarr_oidc_state"
+
+# Failed sign-ins return to the login page as `/?sso_error=<code>`. Only these codes are
+# sent, and the page shows its own text for each, so a crafted link can't put words on
+# the login page. The detailed reason goes to the log and the audit trail.
+SsoErrorCode = Literal["unavailable", "expired", "provider_error", "failed", "not_allowed", "disabled"]
+
+
+def _sso_error_target(code: SsoErrorCode) -> str:
+    return f"/?sso_error={code}"
 Kind = Literal["okta", "entra", "google", "adfs", "custom"]
 
 
@@ -87,13 +95,14 @@ def _set_state_cookie(request: Request, response, state: str) -> None:
 def login(slug: str, request: Request, db: DbDep, next: Annotated[str | None, Query()] = None) -> RedirectResponse:
     provider = db.scalar(select(OidcProvider).where(OidcProvider.slug == slug, OidcProvider.enabled.is_(True)))
     if provider is None:
-        return RedirectResponse("/?sso_error=" + quote("unknown or disabled sign-in provider"), status_code=303)
+        log.warning("sso start failed provider=%s: unknown or disabled sign-in provider", slug)
+        return RedirectResponse(_sso_error_target("unavailable"), status_code=303)
     secret_set = request.app.state.secrets.is_set(db, oidc_client_secret(provider.id))
     try:
         url, state = _svc(request).start(provider, secret_set, redirect_uri(request, db), "login", _safe_next(next))
     except OidcError as exc:
         log.warning("sso start failed provider=%s: %s", slug, exc)
-        return RedirectResponse("/?sso_error=" + quote(str(exc)), status_code=303)
+        return RedirectResponse(_sso_error_target("unavailable"), status_code=303)
     response = RedirectResponse(url, status_code=303)
     _set_state_cookie(request, response, state)
     return response
@@ -116,11 +125,13 @@ def callback(request: Request, db: DbDep, code: str | None = None, state: str | 
     svc = _svc(request)
     ip = client_ip(request)
 
-    def fail(message: str, provider: OidcProvider | None = None, test_id: str | None = None) -> RedirectResponse:
-        log.warning("sso sign-in failed provider=%s ip=%s: %s", provider.slug if provider else "?", ip, message)
+    def fail(code: SsoErrorCode, message: str, provider: OidcProvider | None = None,
+             test_id: str | None = None) -> RedirectResponse:
+        log.warning("sso sign-in failed provider=%s ip=%s code=%s: %s", provider.slug if provider else "?", ip,
+                    code, message)
         audit.record(db, f"ip:{ip}", "login_failed", "oidc_provider", provider.slug if provider else None,
-                     reason=message[:300])
-        target = (f"/settings?tab=sso&test={test_id}" if test_id else "/?sso_error=" + quote(message[:300]))
+                     reason=message[:300], code=code)
+        target = f"/settings?tab=sso&test={test_id}" if test_id else _sso_error_target(code)
         response = RedirectResponse(target, status_code=303)
         response.delete_cookie(STATE_COOKIE, path="/api/v1/auth/oidc")
         return response
@@ -128,23 +139,23 @@ def callback(request: Request, db: DbDep, code: str | None = None, state: str | 
     try:
         pending = svc.take_pending(state or "", request.cookies.get(STATE_COOKIE))
     except OidcError as exc:
-        return fail(str(exc))
+        return fail("expired", str(exc))
     provider = db.get(OidcProvider, pending.provider_id)
     test_id = secrets.token_urlsafe(12) if pending.purpose == "test" else None
     if provider is None:
-        return fail("the provider was removed during sign-in")
+        return fail("unavailable", "the provider was removed during sign-in")
     if error:
         message = f"{provider.name} said: {error_description or error}"
         if test_id:
             svc.test_results[test_id] = {"ok": False, "error": message, "provider_id": provider.id}
-        return fail(message, provider, test_id)
+        return fail("provider_error", message, provider, test_id)
     try:
         secret = request.app.state.secrets.get(db, oidc_client_secret(provider.id)) or ""
         outcome = svc.finish(provider, secret, pending, code or "")
     except OidcError as exc:
         if test_id:
             svc.test_results[test_id] = {"ok": False, "error": str(exc), "provider_id": provider.id}
-        return fail(str(exc), provider, test_id)
+        return fail("failed", str(exc), provider, test_id)
 
     if test_id:
         svc.test_results[test_id] = {
@@ -159,14 +170,14 @@ def callback(request: Request, db: DbDep, code: str | None = None, state: str | 
         return response
 
     if not outcome.allowed:
-        return fail(f"{outcome.username or outcome.email or 'this account'} isn't allowed to sign in: {outcome.reason}",
+        return fail("not_allowed", f"{outcome.username or outcome.email or 'this account'} isn't allowed to sign in: {outcome.reason}",
                     provider)
     identity = db.scalar(select(OidcIdentity).where(OidcIdentity.provider_id == provider.id,
                                                    OidcIdentity.subject == outcome.subject))
     if identity is not None:
         user = db.get(AdminUser, identity.admin_user_id)
         if user is None or not user.is_active:
-            return fail("this admin account is disabled", provider)
+            return fail("disabled", "this admin account is disabled", provider)
     else:
         user = AdminUser(username=_username(db, outcome), password_hash=None, auth_source="oidc")
         db.add(user)

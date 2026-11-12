@@ -93,3 +93,75 @@ class DiscordPayloadRedactionTests(unittest.TestCase):
     def test_json_token_fields(self):
         tok = "zz" + "Tok9" * 6
         self.assertNotIn(tok, redaction.redact('{"authToken": "' + tok + '"}'))
+
+
+class UrlParameterRedactionTests(unittest.TestCase):
+    """Live 2026-10-27: the OIDC callback's code and state in uvicorn.access lines, and signed
+    GitHub storage links (sig, hmac) in urllib3 DEBUG lines from the update check."""
+
+    def setUp(self):
+        redaction.registry.clear()
+        # Built at runtime: no secret-shaped literal in source (gitleaks).
+        self.code = "1.AVIA" + "Ks3ky8Wb" * 12
+        self.state = "dPeQ" + "S0U2wLA2" * 4
+        self.sig = "5NWI" + "q8ZrT0x" * 5 + "%3D"
+        self.hmac = "913ff18f" + "616ec02e" * 3
+
+    def test_oidc_callback_access_line(self):
+        line = (f'10.0.3.131:0 - "GET /api/v1/auth/oidc/callback?code={self.code}&state={self.state}'
+                '&session_state=009b5d8a-b85a-3e25-ca0e-7deee5b45abb HTTP/1.1" 303')
+        out = redaction.redact(line)
+        for secret in (self.code, self.state, "009b5d8a-b85a-3e25-ca0e-7deee5b45abb"):
+            self.assertNotIn(secret, out)
+        self.assertIn('/api/v1/auth/oidc/callback?code=[REDACTED]&state=[REDACTED]', out)
+        self.assertTrue(out.endswith(' HTTP/1.1" 303'))
+
+    def test_signed_download_link(self):
+        line = (f'https://pkg-containers.githubusercontent.com:443 "GET /ghcrblobs12/blobs/sha256:0c23?se=2026-10-26'
+                f'&sig={self.sig}&sp=r&hmac={self.hmac} HTTP/1.1" 200 None')
+        out = redaction.redact(line)
+        self.assertNotIn(self.sig, out)
+        self.assertNotIn(self.hmac, out)
+        self.assertIn("se=2026-10-26", out)  # the rest of the URL stays readable
+
+    def test_other_query_values_untouched(self):
+        line = '"GET /api/v1/logs?level=WARNING&limit=200&q=code HTTP/1.1" 200'
+        self.assertEqual(redaction.redact(line), line)
+
+
+class ScrubFilesTests(unittest.TestCase):
+    """Lines written before a pattern existed are scrubbed from the log files once."""
+
+    def setUp(self):
+        import json
+        import tempfile
+        from pathlib import Path
+
+        self.json = json
+        self.dir = Path(tempfile.mkdtemp())
+        self.code = "1.AVIA" + "Ks3ky8Wb" * 12
+        callback = {"ts": "t", "level": "INFO", "logger": "uvicorn.access",
+                    "message": f'1.2.3.4:0 - "GET /api/v1/auth/oidc/callback?code={self.code}&state=x" 303'}
+        plain = {"ts": "t", "level": "INFO", "logger": "woosarr.app", "message": 'said "hi" \\ ok'}
+        self.plain_line = json.dumps(plain, ensure_ascii=False)
+        (self.dir / "woosarr.log").write_text(json.dumps(callback) + "\n" + self.plain_line + "\n")
+        (self.dir / "woosarr.log.1").write_text(json.dumps(callback) + "\nnot json ?code=" + self.code + "\n")
+        (self.dir / "alerts.log").write_text(self.plain_line + "\n")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.dir)
+
+    def test_once_per_version_and_json_stays_valid(self):
+        self.assertEqual(redaction.scrub_files(self.dir), {"woosarr.log": 1, "woosarr.log.1": 2})
+        for name in ("woosarr.log", "woosarr.log.1", "alerts.log"):
+            text = (self.dir / name).read_text()
+            self.assertNotIn(self.code, text)
+        lines = (self.dir / "woosarr.log").read_text().splitlines()
+        self.assertIn("code=[REDACTED]", self.json.loads(lines[0])["message"])
+        self.assertEqual(lines[1], self.plain_line)  # unchanged lines are kept byte for byte
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()),
+                         [".redaction-version", "alerts.log", "woosarr.log", "woosarr.log.1"])
+        # Done for this version: a secret in the file now (it couldn't be, but) is left alone.
+        (self.dir / "alerts.log").write_text("?code=" + self.code + "\n")
+        self.assertEqual(redaction.scrub_files(self.dir), {})

@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 
-from woosarr import __version__
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.core import app_settings
 from woosarr.core.app_settings import AppSettings
@@ -33,18 +32,43 @@ router = APIRouter(tags=["status"], dependencies=[Depends(require_admin)])
 class IntegrationStatus(BaseModel):
     configured: bool
     connected: bool
+    # Set up and still starting (the Discord bot logging in): in progress, not a problem.
+    connecting: bool = False
     detail: str | None = None
+
+
+class BuildOut(BaseModel):
+    version: str  # 1.2.0 / 1.3.0-dev.14
+    channel: str  # release | develop | dev | local
+    commit: str
+    date: str
+    label: str  # "1.3.0-dev.14 (develop, ba15809, 25 Oct 2026)"
+
+
+class UpdateOut(BaseModel):
+    # current | behind (develop: newer develop build) | update (release: newer release) | error
+    state: str
+    checked_at: str
+    latest: str | None
+    behind_by: int | None
+    url: str | None
+    detail: str | None
 
 
 class StatusOut(BaseModel):
     version: str
+    build: BuildOut
+    # None: not checked (setting off, local build, or the first check hasn't run yet)
+    update: UpdateOut | None
     dry_run: bool
     plex: IntegrationStatus
     discord: IntegrationStatus
     sync: dict[str, Any]
     counts: dict[str, int]
-    recent_warnings: int
+    recent_warnings: int  # occurrences
     recent_errors: int
+    open_warnings: int  # problems: entries in Alerts
+    open_errors: int
 
 
 def _count(db, model, *where) -> int:
@@ -58,14 +82,19 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
     plex = state.plex_status()
     discord = state.discord_status()
     # Open alerts: everything not covered by a resolution (services/error_digest.py).
-    recent_warnings, recent_errors = error_digest.visible_counts(db)
+    recent_warnings, recent_errors, open_warnings, open_errors = error_digest.visible_counts(db)
+    b = state.build
+    checker = state.updates
     return StatusOut(
-        version=__version__,
+        version=b.version,
+        build=BuildOut(version=b.version, channel=b.channel, commit=b.commit, date=b.date, label=b.label()),
+        update=UpdateOut(**checker.result) if checker is not None and checker.result and settings.update_check
+        else None,
         dry_run=settings.dry_run,
-        plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"], detail=plex.get("detail")),
-        discord=IntegrationStatus(
-            configured=discord["configured"], connected=discord["connected"], detail=discord.get("detail")
-        ),
+        plex=IntegrationStatus(configured=plex["configured"], connected=plex["connected"],
+                               connecting=bool(plex.get("connecting")), detail=plex.get("detail")),
+        discord=IntegrationStatus(configured=discord["configured"], connected=discord["connected"],
+                                  connecting=bool(discord.get("connecting")), detail=discord.get("detail")),
         sync=state.sync.status(),
         counts={
             "plex_users": _count(db, PlexUser, PlexUser.removed.is_(False)),
@@ -81,6 +110,8 @@ def get_status(request: Request, db: DbDep) -> StatusOut:
         },
         recent_warnings=recent_warnings,
         recent_errors=recent_errors,
+        open_warnings=open_warnings,
+        open_errors=open_errors,
     )
 
 
@@ -132,7 +163,45 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
             request.app.state.sync.trigger(None, "settings changed")
         if "request_command_name" in diff and request.app.state.discord is not None:
             request.app.state.discord.schedule_command_sync()
+        if "bot_status" in diff and request.app.state.discord is not None:
+            request.app.state.discord.schedule_presence()
     return after
+
+
+class WelcomePreview(BaseModel):
+    defaults: dict[str, str]  # setting name -> default text
+    placeholders: dict[str, str]  # {name} -> what it's filled with
+    needs_verified: list[str]  # what currently needs a verified link ({features}); empty = that part is left out
+    unverified: str  # the message a member who invited themselves gets
+    verified: str  # the message when an admin sent the invite
+
+
+@router.post("/settings/invite-welcome/preview", response_model=WelcomePreview)
+def preview_invite_welcome(changes: dict[str, Any], request: Request, db: DbDep) -> WelcomePreview:
+    """The invite welcome DM with these (unsaved) texts, for a sample member, as both kinds of link."""
+    from woosarr.services import invite_welcome as welcome
+
+    try:
+        st = AppSettings.model_validate(app_settings.load(db).model_dump() | changes)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors(include_url=False, include_context=False)
+        ) from None
+    plex = request.app.state.plex
+    server = ((plex.server() if plex is not None else None) or {}).get("name") or "Demo server"
+    titles = list(db.scalars(select(Library.title).where(Library.removed.is_(False), Library.is_exempt.is_(False))
+                             .order_by(Library.title).limit(3))) or ["Movies", "TV Shows"]
+    values = {"member": "alex", "plex_username": "alex_plex", "server": welcome.safe(server, 100),
+              "libraries": welcome.join_words([welcome.safe(t, 100) for t in titles])}
+    client = getattr(request.app.state.discord, "_client", None)
+    needs = welcome.needs_verified(st, bool(getattr(client, "request_name", None)))
+    return WelcomePreview(
+        defaults={"invite_welcome_text": welcome.DEFAULT_TEXT, "invite_welcome_verify_text": welcome.DEFAULT_VERIFY,
+                  "invite_welcome_verify_needed_text": welcome.DEFAULT_VERIFY_NEEDED,
+                  "invite_welcome_find_server_text": welcome.DEFAULT_FIND_SERVER},
+        placeholders=welcome.PLACEHOLDERS, needs_verified=needs,
+        unverified=welcome.compose(st, values, verified=False, has_libraries=True, features=needs),
+        verified=welcome.compose(st, values, verified=True, has_libraries=True, features=needs))
 
 
 def apply_runtime_settings(app, settings: AppSettings) -> None:

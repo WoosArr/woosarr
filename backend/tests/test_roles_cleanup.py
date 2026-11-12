@@ -34,7 +34,7 @@ class RoleCleanupTests(unittest.TestCase):
                        DiscordMember(discord_user_id="501", username="a", role_ids=[GONE, ALIVE]),
                        ReactionPost(title="Pick", content="x", options=[{"emoji": "🍿", "role_id": GONE},
                                                                         {"emoji": "📺", "role_id": ALIVE}])])
-            app_settings.update(s, {"invite_role_ids": [GONE, ALIVE], "username_link_role_ids": [GONE], "verified_role_id": GONE,
+            app_settings.update(s, {"admin_role_ids": [GONE, ALIVE], "invite_role_ids": [GONE, ALIVE], "username_link_role_ids": [GONE], "verified_role_id": GONE,
                                     "request_role_ids": [GONE]})
 
     def tearDown(self):
@@ -51,7 +51,8 @@ class RoleCleanupTests(unittest.TestCase):
         gone = found[GONE]
         self.assertEqual((gone["name"], gone["library_ids"], gone["members_holding"]), ("Old Movie Night", ["1"], 1))
         self.assertEqual(sorted(gone["settings"]),
-                         ["invite_role_ids", "request_role_ids", "username_link_role_ids", "verified_role_id"])
+                         ["admin_role_ids", "invite_role_ids", "request_role_ids", "username_link_role_ids",
+                          "verified_role_id"])
         self.assertEqual(gone["reaction_posts"][0]["emoji"], "🍿")
         self.assertEqual(found[ORPHAN]["name"], f"(unknown role {ORPHAN})")
 
@@ -65,6 +66,7 @@ class RoleCleanupTests(unittest.TestCase):
             st = app_settings.load(s)
             self.assertEqual((st.invite_role_ids, st.request_role_ids, st.verified_role_id), ([ALIVE], [], None))
             self.assertEqual(st.username_link_role_ids, [])
+            self.assertEqual(st.admin_role_ids, [ALIVE])  # an empty list would mean "Discord permissions decide"
             post = s.scalars(select(ReactionPost)).one()
             self.assertEqual([o["role_id"] for o in post.options], [ALIVE])
             self.assertEqual(s.get(DiscordMember, "501").role_ids, [ALIVE])

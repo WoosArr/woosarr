@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, type PlanOut, type StatusOut } from "../api";
 import type { components } from "../generated/api";
 import { Icon, type IconName } from "../icons";
-import { Badge, Empty, ErrorBanner, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
+import { driftTone } from "../drift";
+import { Badge, Empty, ErrorBanner, Modal, PageHead, Spinner, ago, useLoad, useToast, type Tone } from "../ui";
 
 type ErrorGroup = components["schemas"]["ErrorGroupOut"];
 type Insights = components["schemas"]["InsightsOut"];
@@ -12,6 +13,7 @@ type Layout = components["schemas"]["LayoutOut"];
 type WidgetId = Widget["id"];
 type Size = NonNullable<Widget["size"]>;
 type View = NonNullable<Widget["view"]>;
+type WidgetFilter = NonNullable<Widget["filter"]>;
 
 type LastRun = {
   reason: string;
@@ -53,18 +55,43 @@ const TITLES: Record<WidgetId, string> = {
   activity: "Recent activity",
   libraries: "Library access",
   roles: "Discord role members",
+  open_requests: "Open request list",
+  role_libraries: "Roles that grant libraries",
+  stat_clock: "Time drift",
+  stat_discord_users: "Discord users",
+  stat_discord_linked: "Linked Discord users",
+  stat_emoji: "Custom emoji",
+  stat_emoji_animated: "Animated emoji",
   requests: "Requests",
   invites: "Plex invites",
   setup: "Setup checklist",
   security: "Security",
 };
+const isSpacer = (id: WidgetId) => id.startsWith("spacer-");
+// More copies of a widget are "<widget>-2", "<widget>-3", …: each has its own size, chart and name.
+const COPY = /^([a-z_]+)-(\d+)$/;
+const isCopy = (id: WidgetId) => !isSpacer(id) && COPY.test(id);
+/** Which widget an entry shows: "libraries-2" is a Library access widget. */
+const typeOf = (id: WidgetId): WidgetId => (isSpacer(id) ? "spacer" : COPY.exec(id)?.[1] ?? id);
+/** The usual name; copies and blank spaces are numbered so their controls can be told apart. */
+function titleOf(id: WidgetId): string {
+  if (isSpacer(id)) return `Blank space ${id.slice(7)}`;
+  const m = COPY.exec(id);
+  return m ? `${TITLES[m[1]] ?? m[1]} ${m[2]}` : TITLES[id] ?? id;
+}
+/** The admin's own name for the widget, else its usual name. */
+const nameOf = (w: Widget) => w.title?.trim() || titleOf(w.id);
+/** The entry being drawn (its id, for element ids, its name, and what its filter leaves in): widget
+ * code only knows its type. */
+const ThisWidget = createContext<{ id: WidgetId; name: string; note?: string } | null>(null);
 const SIZE_LABEL: Record<Size, string> = { xs: "Eighth width", s: "Quarter width", m: "Half width", l: "Full width" };
 const SIZES: Size[] = ["xs", "s", "m", "l"];
 
 // Widgets whose data can also be drawn as a circle or bars; the first entry names the usual form.
 const VIEWS: Partial<Record<WidgetId, string>> = {
   stat_plex_users: "Number", stat_linked: "Number", stat_libraries: "Number", stat_roles: "Number",
-  stat_requests: "Number", errors: "List", links: "Stacked bar",
+  stat_requests: "Number", errors: "List", links: "Stacked bar", role_libraries: "List",
+  stat_emoji: "Number", stat_emoji_animated: "Number", stat_discord_users: "Number", stat_discord_linked: "Number",
   access_chart: "Columns", activity: "List", libraries: "List", roles: "List", requests: "List", security: "Numbers",
 };
 const VIEW_LABEL: Record<Exclude<View, "default">, string> = { donut: "Circle", bar: "Bars" };
@@ -77,12 +104,18 @@ export default function DashboardPage() {
   const errors = useLoad(() => api.get<ErrorGroup[]>("/api/v1/errors"));
   const layout = useLoad(() => api.get<Layout>("/api/v1/dashboard/layout"));
   const [editing, setEditing] = useState<Widget[] | null>(null);
+  const [filtering, setFiltering] = useState<Widget | null>(null);
 
   useEffect(() => {
     const fast = setInterval(() => { void status.reload(); void errors.reload(); }, 10000);
     const slow = setInterval(() => { void insights.reload(); void preview.reload(); }, 30000);
     return () => { clearInterval(fast); clearInterval(slow); };
   }, [status.reload, errors.reload, insights.reload, preview.reload]);
+  // Bot-dependent tiles (emoji slots, time drift) fill in as soon as Discord connects, not 30 s later.
+  const discordUp = !!status.data?.discord.connected;
+  useEffect(() => {
+    if (discordUp) void insights.reload();
+  }, [discordUp]);
 
   const syncNow = async () => {
     try {
@@ -133,7 +166,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <PageHead title="Dashboard" sub={`WooSarr ${data.version}`}>
+      <PageHead title="Dashboard" sub={<VersionLine status={data} />}>
         {editing ? (
           <>
             <button className="btn" onClick={() => void resetLayout()}>Reset to default</button>
@@ -163,65 +196,274 @@ export default function DashboardPage() {
         <div className="banner danger" role="alert">
           <Icon name="alert" />
           <div>
-            {data.recent_errors} unresolved error{data.recent_errors === 1 ? "" : "s"}. <Link to="/logs?level=ERROR">View logs</Link>
+            {data.open_errors} unresolved error{data.open_errors === 1 ? "" : "s"}
+            {data.recent_errors > data.open_errors ? ` (${data.recent_errors} times)` : ""}: see Alerts below to resolve.{" "}
+            <Link to="/logs?level=ERROR">View logs</Link>
           </div>
         </div>
       ) : null}
 
       {editing ? (
-        <p className="small muted">Move, resize or hide widgets, then <strong>Save layout</strong>. The layout is saved for your admin account.</p>
+        <p className="small muted">Move, resize, rename or hide widgets, then <strong>Save layout</strong>. Hidden widgets, more copies of a widget and <strong>Blank space</strong> (for spacing) are under <a href="#hidden-widgets">More widgets</a> at the bottom. The layout is saved for your admin account.</p>
       ) : null}
 
       <div className="dash-grid">
         {shown.map((w, i) => (
-          <section key={w.id} className={`card dash-w w-${w.size ?? "m"}${editing ? " editing" : ""}`} aria-labelledby={`w-${w.id}`}>
+          <section key={w.id} className={`${isSpacer(w.id) ? "dash-spacer" : "card"} dash-w w-${w.size ?? "m"}${editing ? " editing" : ""}`}
+            aria-labelledby={isSpacer(w.id) ? undefined : `w-${w.id}`} aria-label={isSpacer(w.id) && editing ? titleOf(w.id) : undefined}
+            aria-hidden={isSpacer(w.id) && !editing ? true : undefined}>
             {editing ? (
               <div className="row dash-tools">
-                <strong className="small">{TITLES[w.id]}</strong>
+                {isSpacer(w.id) ? <strong className="small">{titleOf(w.id)}</strong> : (
+                  <input className="inline-input dash-name" aria-label={`Name of ${titleOf(w.id)}`} value={w.title ?? ""}
+                    placeholder={titleOf(w.id)} maxLength={60} title="Leave empty for the usual name"
+                    onChange={(e) => update(w.id, { title: e.target.value })} />
+                )}
                 <span style={{ flex: 1 }} />
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
-                <button className="btn ghost sm icon-btn" aria-label={`Move ${TITLES[w.id]} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
-                <select className="inline-input" aria-label={`Size of ${TITLES[w.id]}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${nameOf(w)} earlier`} disabled={i === 0} onClick={() => move(w.id, -1)}>↑</button>
+                <button className="btn ghost sm icon-btn" aria-label={`Move ${nameOf(w)} later`} disabled={i === shown.length - 1} onClick={() => move(w.id, 1)}>↓</button>
+                <select className="inline-input" aria-label={`Size of ${nameOf(w)}`} value={w.size ?? "m"} onChange={(e) => update(w.id, { size: e.target.value as Size })}>
                   {SIZES.map((s) => <option key={s} value={s}>{SIZE_LABEL[s]}</option>)}
                 </select>
-                {VIEWS[w.id] ? (
-                  <select className="inline-input" aria-label={`Chart for ${TITLES[w.id]}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
-                    <option value="default">{VIEWS[w.id]}</option>
+                {VIEWS[typeOf(w.id)] ? (
+                  <select className="inline-input" aria-label={`Chart for ${nameOf(w)}`} value={w.view ?? "default"} onChange={(e) => update(w.id, { view: e.target.value as View })}>
+                    <option value="default">{VIEWS[typeOf(w.id)]}</option>
                     <option value="donut">{VIEW_LABEL.donut}</option>
                     <option value="bar">{VIEW_LABEL.bar}</option>
                   </select>
                 ) : null}
-                <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>
+                {FILTERS[typeOf(w.id)] ? (
+                  <button className="btn ghost sm" aria-label={`Filter ${nameOf(w)}`} onClick={() => setFiltering(w)}>
+                    <Icon name="eye" size={14} /> {w.filter ? "Filtered" : "Filter"}
+                  </button>
+                ) : null}
+                {isSpacer(w.id) || isCopy(w.id)
+                  ? <button className="btn ghost sm" aria-label={`Remove ${nameOf(w)}`} onClick={() => setEditing(widgets.filter((x) => x.id !== w.id))}>Remove</button>
+                  : <button className="btn ghost sm" onClick={() => update(w.id, { hidden: true })}>Hide</button>}
               </div>
             ) : null}
-            <WidgetBody id={w.id} ctx={ctx} view={w.view ?? "default"} />
+            {isSpacer(w.id) ? null : (
+              <ThisWidget.Provider value={{ id: w.id, name: nameOf(w), note: filterNote(typeOf(w.id), w.filter, ctx) }}>
+                <WidgetBody id={typeOf(w.id)} ctx={applyFilter(typeOf(w.id), ctx, w.filter)} view={w.view ?? "default"} />
+              </ThisWidget.Provider>
+            )}
           </section>
         ))}
       </div>
 
-      {editing && hidden.length ? (
+      {editing ? (
         <section className="card" style={{ marginTop: 16 }} aria-labelledby="hidden-widgets">
           <h2 id="hidden-widgets">More widgets</h2>
           <ul className="dash-hidden">
-            {hidden.map((w) => (
+            <li className="row spread">
+              <span>Blank space <span className="small muted">— empty, for spacing (add as many as you like)</span></span>
+              <button className="btn sm" onClick={() => setEditing([...shown, { id: nextSpacer(widgets), size: "s", view: "default", hidden: false }, ...hidden])}>
+                <Icon name="plus" size={14} /> Add
+              </button>
+            </li>
+            {hidden.filter((w) => !isCopy(w.id)).map((w) => (
               <li key={w.id} className="row spread">
-                <span>{TITLES[w.id]}</span>
+                <span>{TITLES[w.id] ?? w.id}</span>
                 <button className="btn sm" onClick={() => setEditing([...shown, { ...w, hidden: false }, ...hidden.filter((h) => h.id !== w.id)])}>
                   <Icon name="plus" size={14} /> Add
                 </button>
               </li>
             ))}
           </ul>
+          <h3 className="small" style={{ margin: "16px 0 8px" }}>Already on the dashboard: add another copy</h3>
+          <ul className="dash-hidden" aria-label="Add another copy">
+            {shown.filter((w) => !isSpacer(w.id) && !isCopy(w.id)).map((w) => (
+              <li key={w.id} className="row spread">
+                <span>{TITLES[w.id] ?? w.id}</span>
+                <button className="btn sm" aria-label={`Add another ${TITLES[w.id] ?? w.id}`}
+                  onClick={() => setEditing([...shown, { id: nextCopy(widgets, w.id), size: w.size, view: "default", hidden: false, title: null }, ...hidden])}>
+                  <Icon name="plus" size={14} /> Add another
+                </button>
+              </li>
+            ))}
+          </ul>
         </section>
+      ) : null}
+      {filtering ? (
+        <FilterDialog widget={filtering} name={nameOf(filtering)} ctx={ctx} onClose={() => setFiltering(null)}
+          onSave={(f) => { update(filtering.id, { filter: f }); setFiltering(null); }} />
       ) : null}
     </>
   );
 }
 
-function Title({ id, children }: { id: WidgetId; children?: ReactNode }) {
+/** "Next Sync in 12 minutes" (the periodic full sync), or what the sync is doing right now. */
+function nextSync(status: StatusOut): string {
+  const s = status.sync as { running?: boolean; full_reconcile_pending?: boolean; plex_configured?: boolean; next_full_reconcile_in_seconds?: number };
+  if (s.plex_configured === false) return "";
+  if (s.running) return "Syncing now";
+  if (s.full_reconcile_pending) return "Sync queued";
+  const minutes = Math.ceil(Number(s.next_full_reconcile_in_seconds ?? 0) / 60);
+  return minutes <= 1 ? "Next Sync in 1 minute" : `Next Sync in ${minutes} minutes`;
+}
+
+/** Why a bot-dependent tile has no number yet: still starting, or really not connected. */
+function botWaiting(status: StatusOut): string {
+  const d = status.discord;
+  return d.connected ? "Loading…" : d.connecting ? "Connecting to Discord…" : d.configured ? "Discord bot not connected" : "Discord isn't set up";
+}
+
+/** Used and total slots for static (stat_emoji) or animated emoji; null until the bot is connected. */
+function emojiSlots(ins: Insights | null, id: WidgetId): { used: number; limit: number } | null {
+  const e = ins?.emoji;
+  if (!e) return null;
+  return { used: id === "stat_emoji" ? e.static : e.animated, limit: e.limit };
+}
+
+/** "WooSarr 1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026" and whether it's the newest build of its channel. */
+function VersionLine({ status }: { status: StatusOut }) {
+  const b = status.build;
+  const u = status.update;
+  const date = b.date ? new Date(b.date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+  const bits = [b.channel === "release" ? null : b.channel === "local" ? "local build" : b.channel,
+    b.commit ? b.commit.slice(0, 7) : null, date || null].filter(Boolean);
+  const newest = b.channel === "develop" ? "Newest develop build" : "Newest release";
+  let badge = null;
+  if (u?.state === "current") badge = <Badge tone="ok">{newest}</Badge>;
+  else if (u?.state === "behind") {
+    const n = u.behind_by ?? 0;
+    badge = <a href={u.url ?? undefined} target="_blank" rel="noreferrer"><Badge tone="info" icon="download">
+      {`Newer develop build${u.latest ? ` ${u.latest}` : ""}: ${n} commit${n === 1 ? "" : "s"} ahead`}</Badge></a>;
+  } else if (u?.state === "update") {
+    badge = <a href={u.url ?? undefined} target="_blank" rel="noreferrer"><Badge tone="info" icon="download">{`${u.latest} is available`}</Badge></a>;
+  } else if (u?.state === "error") badge = <span className="small muted" title={u.detail ?? undefined}>Couldn't check for updates</span>;
+  return (
+    <span className="row" style={{ gap: 8 }}>
+      <span>WooSarr {b.version}{bits.length ? <span className="muted"> · {bits.join(" · ")}</span> : null}</span>
+      {badge}
+    </span>
+  );
+}
+
+// ---- per-copy filters ---------------------------------------------------------------------
+
+/** Which widgets can be filtered, and by what. */
+const FILTERS: Partial<Record<WidgetId, keyof WidgetFilter>> = {
+  libraries: "libraries", roles: "roles", role_libraries: "roles", requests: "statuses", errors: "levels",
+};
+const LEVEL_LABEL: Record<string, string> = { error: "Errors", warning: "Warnings", account: "Account alerts" };
+const levelOf = (g: ErrorGroup) => (g.logger === ACCOUNT_LOGGER ? "account" : g.level === "WARNING" ? "warning" : "error");
+
+/** The choices a filter offers for a widget: [value, label]. */
+function filterChoices(type: WidgetId, ctx: Ctx): [string, string][] {
+  const ins = ctx.insights;
+  const byName = (a: [string, string], b: [string, string]) => a[1].localeCompare(b[1], undefined, { sensitivity: "base" });
+  switch (FILTERS[type]) {
+    case "libraries":
+      return ((ins?.libraries ?? []) as { library_id: string; title: string }[]).map((l): [string, string] => [l.library_id, l.title]).sort(byName);
+    case "roles":
+      return (((type === "role_libraries" ? ins?.role_libraries : ins?.roles) ?? []) as { role_id: string; name: string }[])
+        .map((r): [string, string] => [r.role_id, r.name]).sort(byName);
+    case "statuses":
+      return Object.entries(REQ_STATE).map(([k, [, label]]): [string, string] => [k, label]);
+    case "levels":
+      return Object.entries(LEVEL_LABEL);
+    default:
+      return [];
+  }
+}
+
+/** The copy's data with its filter applied; the widget and its charts draw whatever is left. */
+function applyFilter(type: WidgetId, ctx: Ctx, f: WidgetFilter | null | undefined): Ctx {
+  const key = FILTERS[type];
+  const want = key && f ? new Set<string>((f[key] ?? []) as string[]) : null;
+  if (!want || !want.size) return ctx;
+  if (key === "levels") return { ...ctx, errors: ctx.errors?.filter((g) => want.has(levelOf(g))) ?? null };
+  const ins = ctx.insights;
+  if (!ins) return ctx;
+  if (key === "libraries") {
+    return { ...ctx, insights: { ...ins, libraries: (ins.libraries as { library_id: string }[]).filter((l) => want.has(l.library_id)) } };
+  }
+  if (key === "roles") {
+    const field = type === "role_libraries" ? "role_libraries" : "roles";
+    return { ...ctx, insights: { ...ins, [field]: (ins[field] as { role_id: string }[]).filter((r) => want.has(r.role_id)) } };
+  }
+  if (key === "statuses") {
+    const r = ins.requests as { recent: { status: string }[]; by_status: Record<string, number> };
+    return { ...ctx, insights: { ...ins, requests: { ...ins.requests, recent: r.recent.filter((x) => want.has(x.status)),
+      by_status: Object.fromEntries(Object.entries(r.by_status).filter(([k]) => want.has(k))) } } };
+  }
+  return ctx;
+}
+
+/** "3 of 21 libraries", "Waiting, Approved": shown next to a filtered widget's name. */
+function filterNote(type: WidgetId, f: WidgetFilter | null | undefined, ctx: Ctx): string | undefined {
+  const key = FILTERS[type];
+  const chosen = key && f ? ((f[key] ?? []) as string[]) : [];
+  if (!chosen.length) return undefined;
+  const choices = filterChoices(type, ctx);
+  if (key === "statuses" || key === "levels") {
+    const label = new Map(choices);
+    return chosen.map((c) => label.get(c) ?? c).join(", ");
+  }
+  const noun = key === "libraries" ? "libraries" : "roles";
+  return choices.length ? `${chosen.length} of ${choices.length} ${noun}` : `${chosen.length} ${noun}`;
+}
+
+function FilterDialog({ widget, name, ctx, onClose, onSave }: {
+  widget: Widget; name: string; ctx: Ctx; onClose: () => void; onSave: (f: WidgetFilter | null) => void;
+}) {
+  const type = typeOf(widget.id);
+  const key = FILTERS[type]!;
+  const choices = filterChoices(type, ctx);
+  const [chosen, setChosen] = useState<Set<string>>(new Set((widget.filter?.[key] ?? []) as string[]));
+  const toggle = (v: string) => {
+    const next = new Set(chosen);
+    if (next.has(v)) next.delete(v); else next.add(v);
+    setChosen(next);
+  };
+  const save = () => onSave(chosen.size ? { libraries: [], roles: [], statuses: [], levels: [], [key]: [...chosen] } as WidgetFilter : null);
+  return (
+    <Modal title={`Filter ${name}`} onClose={onClose} actions={
+      <>
+        <button className="btn" disabled={!chosen.size} onClick={() => setChosen(new Set())}>Show everything</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={save}>Apply</button>
+      </>
+    }>
+      <p className="small muted">Show only what's ticked in this copy; nothing ticked shows everything. <strong>Save layout</strong> keeps it.</p>
+      {choices.length === 0 ? <p className="small muted">Nothing to choose from yet.</p> : (
+        <div className="chooser" role="group" aria-label={`Show in ${name}`}>
+          {choices.map(([v, label]) => (
+            <label key={v} className="check">
+              <input type="checkbox" checked={chosen.has(v)} onChange={() => toggle(v)} />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function nextCopy(widgets: Widget[], type: WidgetId): WidgetId {
+  const used = new Set(widgets.map((w) => w.id));
+  let n = 2;
+  while (used.has(`${type}-${n}`)) n++;
+  return `${type}-${n}`;
+}
+
+function nextSpacer(widgets: Widget[]): WidgetId {
+  const used = new Set(widgets.map((w) => w.id));
+  let n = 1;
+  while (used.has(`spacer-${n}`)) n++;
+  return `spacer-${n}`;
+}
+
+function Title({ id, children, suffix }: { id: WidgetId; children?: ReactNode; suffix?: string }) {
+  const entry = useContext(ThisWidget);
   return (
     <div className="row spread" style={{ marginBottom: 8 }}>
-      <h2 id={`w-${id}`} style={{ margin: 0 }}>{TITLES[id]}</h2>
+      <h2 id={`w-${entry?.id ?? id}`} className={suffix ? "fit-title" : undefined} style={{ margin: 0 }}>
+        {entry?.name ?? titleOf(id)}{suffix ? ` - ${suffix}` : ""}
+        {entry?.note ? <span className="small muted" style={{ fontWeight: 400 }}> · {entry.note}</span> : null}
+      </h2>
       {children}
     </div>
   );
@@ -235,7 +477,9 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     return (
       <>
         <Title id={id} />
-        {!data ? <Spinner /> : <Chart view={view} {...data} />}
+        {data ? <Chart view={view} {...data} />
+          : ins ? <p className="small muted">{id.startsWith("stat_emoji") ? botWaiting(ctx.status) : "Nothing to show yet."}</p>
+          : <Spinner />}
       </>
     );
   }
@@ -243,7 +487,7 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
     case "integrations":
       return (
         <>
-          <Title id={id} />
+          <Title id={id} suffix={nextSync(ctx.status)} />
           <div className="grid cols-2">
             <Integration name="Plex" icon="plex" s={ctx.status.plex} />
             <Integration name="Discord" icon="discord" s={ctx.status.discord} />
@@ -261,6 +505,34 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       );
     case "stat_plex_users":
       return <Stat id={id} value={c.plex_users} to="/users" />;
+    case "stat_clock": {
+      const off = ins?.clock?.offset_seconds;
+      if (off === undefined || off === null) {
+        // No clock at all: no bot to measure with (demo). A clock without a number: still connecting/measuring.
+        return <Stat id={id} value={null} sub={!ins ? undefined : !ins.clock ? "Measured once the Discord bot is connected"
+          : ctx.status.discord.connecting ? "Connecting to Discord…" : "Measuring…"} />;
+      }
+      const [tone, word] = driftTone(off);
+      const secs = Math.round(Math.abs(off));
+      return <Stat id={id} value={`${secs} s`} tone={tone} badge={word}
+        sub={secs === 0 ? undefined : `Server clock is ${secs} s ${off > 0 ? "behind" : "ahead"}`} />;
+    }
+    case "stat_discord_users": {
+      const l = ins?.links;
+      return <Stat id={id} value={c.discord_members} to="/users?tab=discord"
+        sub={l ? `${l.members - l.members_unlinked} linked` : undefined} />;
+    }
+    case "stat_discord_linked": {
+      const l = ins?.links;
+      return <Stat id={id} value={l ? l.members - l.members_unlinked : null} to="/users?tab=discord&link=linked"
+        sub={l ? `${l.members_verified} verified` : undefined} />;
+    }
+    case "stat_emoji":
+    case "stat_emoji_animated": {
+      const e = emojiSlots(ins, id);
+      return <Stat id={id} value={e ? `${e.used}/${e.limit}` : null} to="/emoji"
+        sub={!ins ? undefined : e ? `${e.limit - e.used} free` : botWaiting(ctx.status)} />;
+    }
     case "stat_linked":
       return <Stat id={id} value={c.linked_users} sub={`${c.verified_links} verified`} to="/users" />;
     case "stat_libraries":
@@ -294,6 +566,10 @@ function WidgetBody({ id, ctx, view }: { id: WidgetId; ctx: Ctx; view: View }) {
       return <Roles ins={ins} />;
     case "requests":
       return <Requests ins={ins} />;
+    case "open_requests":
+      return <OpenRequests ins={ins} />;
+    case "role_libraries":
+      return <RoleLibraries ins={ins} />;
     case "invites":
       return <Invites ins={ins} />;
     case "setup":
@@ -308,23 +584,31 @@ function Integration({ name, icon, s }: { name: string; icon: "plex" | "discord"
     <div className="card flat">
       <div className="row spread">
         <span className="row"><Icon name={icon} /> <strong>{name}</strong></span>
-        {s.connected ? <Badge tone="ok">Connected</Badge> : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
+        {s.connected ? <Badge tone="ok">Connected</Badge>
+          : s.connecting ? <Badge tone="info" icon="refresh">Connecting…</Badge>
+          : s.configured ? <Badge tone="danger">Disconnected</Badge> : <Badge tone="neutral">Not set up</Badge>}
       </div>
-      {s.detail ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
+      {s.detail && !s.connecting ? <p className="small muted" style={{ marginTop: 8 }}>{s.detail}</p> : null}
       {!s.configured ? <Link to="/setup" className="small">Set up {name} →</Link> : null}
     </div>
   );
 }
 
-function Stat({ id, value, sub, to }: { id: WidgetId; value: number | null; sub?: string; to: string }) {
-  return (
-    <Link to={to} className="stat-link">
-      <div className="stat-label" id={`w-${id}`}>{TITLES[id]}</div>
-      <div className="stat-value">{value ?? "–"}</div>
+function Stat({ id, value, sub, to, tone, badge }: {
+  id: WidgetId; value: number | string | null; sub?: string; to?: string; tone?: Tone; badge?: string;
+}) {
+  const entry = useContext(ThisWidget);
+  const body = (
+    <>
+      <div className="stat-label" id={`w-${entry?.id ?? id}`}>{entry?.name ?? titleOf(id)}</div>
+      <div className={`stat-value${tone ? ` tone-${tone}` : ""}`}>{value ?? "–"}</div>
+      {badge && tone ? <Badge tone={tone}>{badge}</Badge> : null}
       {sub ? <div className="small muted">{sub}</div> : null}
-    </Link>
+    </>
   );
+  return to ? <Link to={to} className="stat-link">{body}</Link> : <div className="stat-link">{body}</div>;
 }
+
 
 function Loading({ ins }: { ins: Insights | null }) {
   return ins ? null : <Spinner />;
@@ -516,9 +800,9 @@ function AccessChart({ ins }: { ins: Insights | null }) {
 
 const ACTION_TEXT: Record<string, string> = {
   link_self: "linked their Plex account", link_admin: "linked a user", unlink_self: "unlinked themselves",
-  unlink_admin: "unlinked a user", invite_sent: "sent a Plex invite", invite_accepted: "invite accepted",
+  unlink_admin: "unlinked a user", invite_sent: "sent a Plex invite", invite_accepted: "invite accepted", invite_welcome: "welcome message",
   role_mapping_changed: "changed role libraries", settings_changed: "changed settings", library_exempt: "changed an exemption",
-  request_created: "requested a title", reaction_added: "reacted on a post", reaction_removed: "removed a reaction",
+  request_created: "requested media", reaction_added: "reacted on a post", reaction_removed: "removed a reaction",
   login_failed: "failed to sign in", error_resolved: "resolved an error", discord_avatar_set: "changed the bot avatar",
   reaction_post_published: "published a reaction post", seerr_connected: "connected Seerr",
 };
@@ -533,7 +817,7 @@ function actor(a: string): string {
 
 function Activity({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="activity" /><Loading ins={ins} /></>;
-  const rows = ins.activity as { ts: string; actor: string; action: string; target_id: string | null }[];
+  const rows = ins.activity as { ts: string; actor: string; actor_label?: string; action: string; target_label?: string | null }[];
   return (
     <>
       <Title id="activity"><Link to="/logs?tab=audit" className="small">Audit trail →</Link></Title>
@@ -541,7 +825,7 @@ function Activity({ ins }: { ins: Insights | null }) {
         <ul className="dash-list small">
           {rows.map((r, i) => (
             <li key={i} className="row spread">
-              <span><strong>{actor(r.actor)}</strong> {ACTION_TEXT[r.action] ?? r.action.replace(/_/g, " ")}</span>
+              <span title={r.target_label ?? undefined}><strong>{r.actor_label ?? actor(r.actor)}</strong> {ACTION_TEXT[r.action] ?? r.action.replace(/_/g, " ")}</span>
               <span className="muted">{ago(r.ts)}</span>
             </li>
           ))}
@@ -605,6 +889,74 @@ function Roles({ ins }: { ins: Insights | null }) {
   );
 }
 
+type RoleLibRow = { role_id: string; name: string; color: number; members: number; linked: number; libraries: string[] };
+
+/** Like Discord role members, for the roles that grant libraries (with the libraries' names). */
+function RoleLibraries({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="role_libraries" /><Loading ins={ins} /></>;
+  const roles = ins.role_libraries as RoleLibRow[];
+  const max = Math.max(1, ...roles.map((r) => r.members));
+  return (
+    <>
+      <Title id="role_libraries"><Link to="/roles" className="small">Roles →</Link></Title>
+      {roles.length === 0 ? <p className="muted small">No role grants libraries yet. Map roles to libraries on the <Link to="/roles">Roles</Link> page.</p> : (
+        <ul className="dash-list small">
+          {roles.slice(0, 8).map((r) => (
+            <li key={r.role_id}>
+              <div className="row spread">
+                <span className="row" style={{ gap: 6 }}>
+                  <span className="role-dot" aria-hidden="true" style={r.color ? { background: `#${r.color.toString(16).padStart(6, "0")}` } : undefined} />
+                  {r.name}
+                </span>
+                <span className="muted">{r.members} member{r.members === 1 ? "" : "s"} · {r.linked} linked</span>
+              </div>
+              <div className="muted">{r.libraries.join(", ")}</div>
+              <div className="dash-bar thin" aria-hidden="true"><span style={{ width: `${(r.members / max) * 100}%`, background: "var(--accent)" }} /></div>
+            </li>
+          ))}
+          {roles.length > 8 ? <li className="muted small">…and {roles.length - 8} more on the <Link to="/roles">Roles</Link> page</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
+type RequestRow = { title: string; year: string; media_type: string; status: string; created_at: string; plex_username: string | null; discord_name: string | null };
+
+function RequestItem({ x }: { x: RequestRow }) {
+  return (
+    <li className="row spread" style={{ alignItems: "flex-start" }}>
+      <span>
+        {x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}
+        {x.plex_username || x.discord_name ? (
+          <span className="muted" style={{ display: "block" }}>
+            by {x.plex_username ?? x.discord_name}{x.plex_username ? "" : " (Discord)"}
+          </span>
+        ) : null}
+      </span>
+      <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
+    </li>
+  );
+}
+
+function OpenRequests({ ins }: { ins: Insights | null }) {
+  if (!ins) return <><Title id="open_requests" /><Loading ins={ins} /></>;
+  const r = ins.requests as { configured: boolean; open: RequestRow[]; open_count: number };
+  return (
+    <>
+      <Title id="open_requests"><Link to="/requests" className="small">Requests →</Link></Title>
+      {!r.configured && r.open_count === 0 ? (
+        <p className="small muted">Connect Seerr on the <Link to="/setup">Integrations</Link> page so members can request movies and shows from Discord.</p>
+      ) : r.open_count === 0 ? <p className="small muted">No open requests: everything requested is available, declined or done.</p> : (
+        <ul className="dash-list small">
+          {r.open.map((x, i) => <RequestItem key={i} x={x} />)}
+          {r.open_count > r.open.length ? <li className="muted small">…and {r.open_count - r.open.length} more on the <Link to="/requests">Requests</Link> page</li> : null}
+        </ul>
+      )}
+    </>
+  );
+}
+
 const REQ_STATE: Record<string, [Tone, string]> = {
   pending: ["warn", "Waiting"], approved: ["info", "Approved"], declined: ["danger", "Declined"], failed: ["danger", "Failed"],
   partially_available: ["accent", "Partly available"], available: ["ok", "Available"], deleted: ["neutral", "Removed"],
@@ -612,7 +964,7 @@ const REQ_STATE: Record<string, [Tone, string]> = {
 
 function Requests({ ins }: { ins: Insights | null }) {
   if (!ins) return <><Title id="requests" /><Loading ins={ins} /></>;
-  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: { title: string; year: string; media_type: string; status: string; created_at: string; plex_username: string | null; discord_name: string | null }[] };
+  const r = ins.requests as { configured: boolean; by_status: Record<string, number>; last_7d: number; recent: RequestRow[] };
   return (
     <>
       <Title id="requests"><Link to="/requests" className="small">Requests →</Link></Title>
@@ -625,19 +977,7 @@ function Requests({ ins }: { ins: Insights | null }) {
             <span className="small muted">{r.last_7d} this week</span>
           </div>
           <ul className="dash-list small">
-            {r.recent.map((x, i) => (
-              <li key={i} className="row spread" style={{ alignItems: "flex-start" }}>
-                <span>
-                  {x.media_type === "movie" ? "🍿" : "📺"} {x.title}{x.year ? ` (${x.year})` : ""}
-                  {x.plex_username || x.discord_name ? (
-                    <span className="muted" style={{ display: "block" }}>
-                      by {x.plex_username ?? x.discord_name}{x.plex_username ? "" : " (Discord)"}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="muted">{(REQ_STATE[x.status] ?? [, x.status])[1]} · {ago(x.created_at)}</span>
-              </li>
-            ))}
+            {r.recent.slice(0, 5).map((x, i) => <RequestItem key={i} x={x} />)}
           </ul>
         </>
       )}
@@ -732,6 +1072,27 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
         segs: [{ label: "Verified", value: l.verified, color: C.ok }, { label: "Unverified", value: l.unverified, color: C.warn },
           { label: "Not linked", value: l.unlinked, color: C.muted }] };
     }
+    case "stat_discord_users": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      return { label: "Discord users by link status", center: String(l.members), unit: "members",
+        segs: [{ label: "Verified", value: l.members_verified, color: C.ok }, { label: "Unverified", value: l.members_unverified, color: C.warn },
+          { label: "Not linked", value: l.members_unlinked, color: C.muted }] };
+    }
+    case "stat_discord_linked": {
+      if (need(ins)) return null;
+      const l = ins!.links;
+      const linked = l.members - l.members_unlinked;
+      return { label: "Linked Discord users", center: `${l.members ? Math.round((linked / l.members) * 100) : 0}%`,
+        segs: [{ label: "Linked", value: linked, color: C.accent }, { label: "Not linked", value: l.members_unlinked, color: C.muted }] };
+    }
+    case "stat_emoji":
+    case "stat_emoji_animated": {
+      const e = emojiSlots(ins, id);
+      if (!e) return null;
+      return { label: id === "stat_emoji" ? "Custom emoji slots" : "Animated emoji slots", center: `${e.used}/${e.limit}`,
+        segs: [{ label: "Used", value: e.used, color: C.accent }, { label: "Free", value: Math.max(0, e.limit - e.used), color: C.muted }] };
+    }
     case "stat_linked": {
       if (need(ins)) return null;
       const l = ins!.links;
@@ -795,10 +1156,11 @@ function seriesFor(id: WidgetId, ctx: Ctx): Series | null {
       return { label: "Users with access per library",
         segs: libs.map((l, i) => ({ label: l.title, value: l.users, color: CYCLE[i % CYCLE.length] })) };
     }
-    case "roles": {
+    case "roles":
+    case "role_libraries": {
       if (need(ins)) return null;
-      const roles = (ins!.roles as RoleRow[]).slice(0, 8);
-      return { label: "Members per Discord role", unit: "memberships",
+      const roles = ((id === "roles" ? ins!.roles : ins!.role_libraries) as { name: string; members: number }[]).slice(0, 8);
+      return { label: id === "roles" ? "Members per Discord role" : "Members per role that grants libraries", unit: "memberships",
         segs: roles.map((r, i) => ({ label: r.name, value: r.members, color: CYCLE[i % CYCLE.length] })) };
     }
     case "security": {

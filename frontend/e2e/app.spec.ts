@@ -27,6 +27,15 @@ async function login(page: Page) {
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 }
 
+/** Save the dashboard layout and wait until the server has it (a reload right after clicking used to
+ * beat the save on a slow CI runner). */
+async function saveLayout(page: Page) {
+  await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith("/api/v1/dashboard/layout") && r.request().method() === "PUT" && r.ok()),
+    page.getByRole("button", { name: "Save layout" }).click(),
+  ]);
+}
+
 test.beforeEach(({ page }) => watchConsole(page));
 test.afterEach(() => expect(errors, "browser console errors / CSP violations").toEqual([]));
 
@@ -45,10 +54,13 @@ test("first-run setup creates the admin and lands on the dashboard", async ({ pa
 
 test("sidebar navigation reaches every page", async ({ page }) => {
   await login(page);
-  for (const name of ["Users", "Roles", "Libraries", "Reaction Posts", "Requests", "Logs", "Settings", "Integrations", "Dashboard"]) {
+  for (const name of ["Users", "Roles", "Libraries", "Reaction Posts", "Custom Emoji", "Requests", "Logs", "Settings", "Integrations", "Dashboard"]) {
     await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   }
+  // Which build: in the sidebar (from /api/health) and under the dashboard title.
+  await expect(page.locator(".sidebar-foot")).toContainText(/WooSarr \d+\.\d+\.\d+/);
+  await expect(page.locator(".page-head")).toContainText(/WooSarr \d+\.\d+\.\d+/);
 });
 
 test("admin links a user and maps a role with an impact preview", async ({ page }) => {
@@ -184,6 +196,9 @@ test("logs and audit trail", async ({ page }) => {
   await page.getByRole("tab", { name: "Audit trail" }).click();
   await expect(page.getByRole("cell", { name: "Role mapping changed" }).first()).toBeVisible();
   await expect(page.getByRole("cell", { name: "Unlinked by admin" }).first()).toBeVisible();
+  // Names, not ids: the role's name in Target, not "role:<snowflake>".
+  await expect(page.getByRole("cell", { name: /^role \D/ }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^role:\d/ })).toHaveCount(0);
 });
 
 test("theme, colour-vision palette and API key", async ({ page }) => {
@@ -217,10 +232,83 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   expect(saved.username_link_all_members).toBe(false);
   expect(saved.username_link_role_ids).toHaveLength(1);
   await expect(page.getByRole("group", { name: "Plex Invites" })).toBeVisible();
+  // Admin roles first, then username linking, then Plex Invites.
+  const legends = await page.locator(".card.settings fieldset > legend").allTextContents();
+  expect(legends.slice(0, 3)).toEqual(["Admin roles", "Who may link by typing a Plex username (unverified)", "Plex Invites"]);
+  const admins = page.getByRole("group", { name: "Admin roles" });
+  await expect(admins.getByRole("checkbox", { name: /All members/ })).toHaveCount(0);
+  await expect(admins.getByRole("checkbox").first()).not.toBeChecked();  // none by default: Discord permissions decide
+  await admins.getByRole("checkbox").first().check();
+  await page.getByRole("button", { name: "Save" }).click();
+  // Wait for the saved value: the "Settings saved." toast from the save above may still be showing.
+  await expect.poll(async () => (await (await page.request.get("/api/v1/settings")).json()).admin_role_ids).toHaveLength(1);
+  await admins.getByRole("checkbox").first().uncheck();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => (await (await page.request.get("/api/v1/settings")).json()).admin_role_ids).toEqual([]);
   await expect(page.getByLabel("When a member unlinks themselves")).toBeVisible();
   await page.goto("/settings?tab=logging");  // merged into General; old links still work
   await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByLabel("Log level")).toBeVisible();
+  const every = page.getByLabel("Check for updates every");
+  await expect(every).toHaveValue("360");  // 6 hours by default
+  await every.selectOption({ label: "15 minutes" });
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Check for updates every")).toHaveValue("15");
+});
+
+test("invite welcome message: edit the parts, preview both kinds of link, reset", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings?tab=linking");
+  const box = page.getByRole("group", { name: "Invite welcome message" });
+  const preview = box.getByLabel("Welcome message preview");
+  await expect(preview).toContainText("You're on the Plex server");
+  await expect(preview).toContainText("Sign in with Plex");  // member invited themselves
+  await expect(preview).toContainText("Demo server");
+  await box.getByRole("button", { name: "An admin sent the invite" }).click();
+  await expect(preview).not.toContainText("Sign in with Plex");
+  const main = box.getByLabel("Message", { exact: true });
+  await main.fill("Hi {member}, welcome to {server}!");
+  await expect(preview).toContainText("Hi alex, welcome to Demo server!");
+  await box.getByLabel("Where to find the server").fill("");
+  await expect(preview).toHaveText("Hi alex, welcome to Demo server!");
+  await main.fill("Hi {nope}");
+  await expect(box.getByText(/unknown placeholder \{nope\}/)).toBeVisible();
+  await box.getByRole("button", { name: "Reset to default" }).first().click();
+  await expect(main).toHaveValue(/You're on the Plex server/);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  const saved = await (await page.request.get("/api/v1/settings")).json();
+  expect(saved.invite_welcome_find_server_text).toBe("");
+  expect(saved.invite_welcome_text).toMatch(/^\*\*You're on the Plex server/);
+});
+
+// While dry-run is on: once live, a full sync removes deleted roles by itself (tests/test_cleanup.py).
+test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
+  await login(page);
+  await page.goto("/roles");
+  // Hidden by default (Settings → General → Hide deleted items).
+  await expect(page.getByText("1 role deleted in Discord is hidden.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: /Hide deleted items/ }).click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  await page.goto("/roles");
+  const row = page.getByRole("row", { name: /Old Movie Night/ });
+  await expect(row.getByText("Deleted in Discord")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
+  await row.getByRole("button", { name: "Remove Old Movie Night from WooSarr" }).click();
+  await expect(page.getByRole("dialog")).toContainText("no longer exists in Discord");
+  await expect(page.getByRole("dialog")).toContainText("nothing else refers to it");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("Removed 1 role.")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
+  await page.goto("/settings");
+  await page.getByRole("switch", { name: /Hide deleted items/ }).click();  // back to the default
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
 });
 
 test("going live needs confirmation; sign out returns to login", async ({ page }) => {
@@ -237,12 +325,12 @@ test("going live needs confirmation; sign out returns to login", async ({ page }
 });
 
 test("no serious accessibility violations on any page (light and dark)", async ({ page }) => {
-  test.setTimeout(150_000); // 13 pages x 2 themes
+  test.setTimeout(180_000); // 16 pages x 2 themes
   await login(page);
   const problems: string[] = [];
   for (const theme of ["light", "dark"]) {
     await page.evaluate((mode) => localStorage.setItem("woosarr.theme", JSON.stringify({ mode })), theme);
-    for (const path of ["/", "/users", "/users?tab=discord", "/roles", "/libraries", "/reactions", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
+    for (const path of ["/", "/users", "/users?tab=discord", "/roles", "/libraries", "/reactions", "/emoji", "/requests", "/logs", "/logs?tab=audit", "/settings", "/settings?tab=linking", "/settings?tab=requests", "/settings?tab=appearance", "/settings?tab=keys", "/setup"]) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -253,6 +341,63 @@ test("no serious accessibility violations on any page (light and dark)", async (
     }
   }
   expect(problems).toEqual([]);
+});
+
+test("custom emoji: search, hide animated, add, use in a reaction post, rename, delete", async ({ page }) => {
+  await login(page);
+  await page.goto("/emoji");
+  const results = page.getByRole("list", { name: "Emoji results" });
+  await expect(results.getByRole("button", { name: "blob_wave: add to server" })).toBeVisible();
+  // Animated emoji are hidden until the switch is turned off.
+  await expect(results.getByRole("button", { name: /party_parrot/ })).toHaveCount(0);
+  await page.getByRole("switch", { name: "Hide animated" }).uncheck();
+  await expect(results.getByRole("button", { name: /party_parrot/ })).toBeVisible();
+  // Previews come from WooSarr, not the source site.
+  const src = await results.getByRole("button", { name: /party_parrot/ }).locator("img").getAttribute("src");
+  expect(src).toMatch(/^\/api\/v1\/emoji\/preview\/emojigg\//);
+
+  await page.getByRole("tab", { name: "OpenMoji" }).click();
+  await page.getByLabel("Search emoji").fill("popcorn");
+  // Wait for the (debounced) search to apply: only popcorn is listed, nothing else in OpenMoji's demo set.
+  await expect(results.getByRole("button")).toHaveCount(1);
+  await results.getByRole("button", { name: "popcorn: add to server" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add to Discord" });
+  await dialog.getByLabel("Name").fill("bad name");
+  await expect(dialog.getByRole("button", { name: "Add to server" })).toBeDisabled();
+  await dialog.getByLabel("Name").fill("movie_popcorn");
+  await dialog.getByRole("button", { name: "Add to server" }).click();
+  await expect(page.getByText(":movie_popcorn: added to the server.")).toBeVisible();
+  const server = page.getByRole("list", { name: "Server emoji" });
+  await expect(server.getByText(":movie_popcorn:")).toBeVisible();
+  await expect(page.getByText(/Static 1 of 50/)).toBeVisible();
+
+  // The search text carries over between libraries; slackmojis has no list to browse, so with an
+  // empty box it asks for a search. (This used to pass only when it ran faster than the 0.35 s
+  // search delay: "popcorn" was still pending when the tab changed.)
+  await page.getByRole("tab", { name: "slackmojis" }).click();
+  await expect(page.getByLabel("Search emoji")).toHaveValue("popcorn");
+  await expect(page.getByText("No emoji found")).toBeVisible();
+  await page.getByLabel("Search emoji").fill("");
+  await expect(page.getByText("Search slackmojis", { exact: true })).toBeVisible();
+
+  // The reaction post picker fetches the server's emoji each time it opens.
+  await page.goto("/reactions");
+  await page.getByRole("button", { name: "New post" }).click();
+  const editor = page.getByRole("dialog");
+  await editor.getByRole("button", { name: "Emoji 1: choose emoji" }).click();
+  await editor.getByRole("button", { name: ":movie_popcorn:" }).click();
+  await expect(editor.getByLabel("Emoji 1", { exact: true })).toHaveValue(/^<:movie_popcorn:\d+>$/);
+  await editor.getByRole("button", { name: "Close" }).click();
+
+  await page.goto("/emoji");
+  await server.getByRole("button", { name: "Rename :movie_popcorn:" }).click();
+  const rename = page.getByRole("dialog", { name: "Rename :movie_popcorn:" });
+  await rename.getByLabel("Name").fill("popcorn_time");
+  await rename.getByRole("button", { name: "Rename" }).click();
+  await expect(server.getByText(":popcorn_time:")).toBeVisible();
+  await server.getByRole("button", { name: "Delete :popcorn_time:" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByText("No custom emoji yet.", { exact: false })).toBeVisible();
 });
 
 test("request command name can be renamed but not to a reserved name", async ({ page }) => {
@@ -293,7 +438,8 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   // Hide the Plex users tile, add the Security widget, move Linked users first.
   await page.locator("section", { has: page.getByText("Plex users", { exact: true }) }).getByRole("button", { name: "Hide" }).click();
   await page.getByRole("region", { name: "More widgets" }).getByRole("listitem").filter({ hasText: "Security" }).getByRole("button", { name: "Add" }).click();
-  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections: now first
+  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Connections
+  await page.getByRole("button", { name: "Move Linked users earlier" }).click(); // past Setup checklist: now first
   await expect(page.getByRole("button", { name: "Move Linked users earlier" })).toBeDisabled();
   await page.getByLabel("Size of Linked users").selectOption("m");
   // Libraries: eighth width, drawn as a circle; Link coverage: bars.
@@ -302,7 +448,7 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await page.getByLabel("Chart for Link coverage").selectOption("bar");
   const a11yCharts = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(a11yCharts.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await expect(page.getByText("Dashboard saved.")).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Security" })).toBeVisible();
@@ -316,11 +462,95 @@ test("dashboard widgets can be hidden, moved, added back and reset", async ({ pa
   await expect(page.getByRole("list", { name: /Plex users by link status: Verified \d+/ })).toBeVisible();
   await page.getByRole("button", { name: "Customize" }).click();
   await page.getByRole("button", { name: "Reset to default" }).click();
-  await page.getByRole("button", { name: "Save layout" }).click();
+  await saveLayout(page);
   await page.reload();
   await expect(page.getByRole("link", { name: /Plex users\s*5/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Alerts" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Link coverage" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Connections - (Next Sync in \d+ minutes?|Syncing now|Sync queued)$/ })).toBeVisible();
+});
+
+test("new widgets: open requests and roles that grant libraries; libraries page sync", async ({ page }) => {
+  await login(page);
+  await page.getByRole("button", { name: "Customize" }).click();
+  const more = page.getByRole("region", { name: "More widgets" });
+  for (const name of ["Open request list", "Roles that grant libraries", "Custom emoji", "Animated emoji",
+    "Discord users", "Linked Discord users", "Time drift"]) {
+    await more.getByRole("listitem").filter({ hasText: new RegExp(`^${name}`) }).getByRole("button", { name: "Add" }).click();
+  }
+  await saveLayout(page);
+  await expect(page.getByRole("heading", { name: "Roles that grant libraries" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open request list" })).toBeVisible();
+  // Demo server: 50 slots each, none used yet.
+  await expect(page.getByRole("link", { name: /Custom emoji\s*0\/50\s*50 free/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Animated emoji\s*0\/50/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Discord users\s*\d+\s*\d+ linked$/ })).toBeVisible();
+  await expect(page.getByText("Measured once the Discord bot is connected")).toBeVisible();  // demo: no bot
+  await page.getByRole("link", { name: /^Linked Discord users\s*\d+\s*\d+ verified$/ }).click();
+  await expect(page).toHaveURL(/tab=discord&link=linked/);
+  await expect(page.getByRole("group", { name: "Link filter" }).getByRole("button", { name: "Linked", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await saveLayout(page);
+
+  // Blank space: as many as wanted, empty outside Customize, removed rather than hidden.
+  await page.getByRole("button", { name: "Customize" }).click();
+  const blank = more.getByRole("listitem").filter({ hasText: /^Blank space/ }).getByRole("button", { name: "Add" });
+  await blank.click();
+  await blank.click();
+  await expect(page.getByRole("region", { name: "Blank space 2" })).toBeVisible();
+  await saveLayout(page);
+  await page.reload();
+  await expect(page.locator(".dash-spacer")).toHaveCount(2);
+  await expect(page.locator(".dash-spacer").first()).toBeEmpty();
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("region", { name: "Blank space 1" }).getByRole("button", { name: "Remove" }).click();
+  await saveLayout(page);
+  await page.reload();
+  await expect(page.locator(".dash-spacer")).toHaveCount(1);
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Reset to default" }).click();
+  await saveLayout(page);
+
+  // A second copy of a widget, renamed and drawn differently; the original keeps its name.
+  await page.getByRole("button", { name: "Customize" }).click();
+  await more.getByRole("button", { name: "Add another Library access" }).click();
+  await page.getByLabel("Name of Library access 2").fill("Libraries at a glance");
+  await page.getByLabel("Chart for Libraries at a glance").selectOption("donut");
+  await saveLayout(page);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Library access", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^Users with access per library/ })).toBeVisible();  // the copy, as a circle
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Remove Libraries at a glance" }).click();
+  await saveLayout(page);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Libraries at a glance" })).toHaveCount(0);
+
+  // A filtered copy shows only what's chosen, and says so next to its name.
+  await page.getByRole("button", { name: "Customize" }).click();
+  await more.getByRole("button", { name: "Add another Library access" }).click();
+  await page.getByRole("button", { name: "Filter Library access 2" }).click();
+  const filter = page.getByRole("dialog", { name: "Filter Library access 2" });
+  await filter.getByLabel("Movies", { exact: true }).check();
+  await filter.getByRole("button", { name: "Apply" }).click();
+  await saveLayout(page);
+  await page.reload();
+  const copy = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: /^Library access 2/ }) });
+  await expect(copy.getByRole("heading")).toHaveText(/Library access 2 · 1 of \d+ libraries/);
+  await expect(copy.getByRole("listitem")).toHaveCount(1);
+  await expect(copy.getByRole("listitem")).toContainText(/^Movies/);
+  const original = page.locator(".dash-grid > section", { has: page.getByRole("heading", { name: "Library access", exact: true }) });
+  await expect(original.getByRole("listitem")).toHaveCount(6);  // the original still shows everything
+  await page.getByRole("button", { name: "Customize" }).click();
+  await page.getByRole("button", { name: "Remove Library access 2" }).click();
+  await saveLayout(page);
+
+  await page.goto("/libraries");
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText("Full sync queued.")).toBeVisible();
 });
 
 test("users page has a Linked tab between Unverified and Unlinked", async ({ page }) => {
@@ -358,20 +588,6 @@ test("users page Discord tab: members, filters and a role change preview", async
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("tab", { name: "Plex" }).click();
   await expect(page.getByRole("region", { name: "Plex users" })).toBeVisible();
-});
-
-test("roles deleted in Discord can be removed from WooSarr", async ({ page }) => {
-  await login(page);
-  await page.goto("/roles");
-  const row = page.getByRole("row", { name: /Old Movie Night/ });
-  await expect(row.getByText("Deleted in Discord")).toBeVisible();
-  await expect(page.getByRole("row", { name: /Movie Night/ }).filter({ hasNotText: "Old" }).getByRole("button", { name: /Remove/ })).toHaveCount(0);
-  await row.getByRole("button", { name: "Remove Old Movie Night from WooSarr" }).click();
-  await expect(page.getByRole("dialog")).toContainText("no longer exists in Discord");
-  await expect(page.getByRole("dialog")).toContainText("nothing else refers to it");
-  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
-  await expect(page.getByText("Removed 1 role.")).toBeVisible();
-  await expect(page.getByRole("row", { name: /Old Movie Night/ })).toHaveCount(0);
 });
 
 test("libraries: create role lets the admin set the name", async ({ page }) => {

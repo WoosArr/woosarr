@@ -83,7 +83,7 @@ function PlexCard() {
     <section className="card stack" aria-labelledby="plex-setup">
       <div className="row spread">
         <h2 id="plex-setup" className="row"><Icon name="plex" /> Plex</h2>
-        {s?.connected ? <Badge tone="ok">Connected</Badge> : s?.signed_in ? <Badge tone="warn">Needs a server</Badge> : <Badge tone="neutral">Not set up</Badge>}
+        {!s ? <Badge tone="neutral">{st.error ? "Couldn't check" : "Checking…"}</Badge> : s.connected ? <Badge tone="ok">Connected</Badge> : s.signed_in ? <Badge tone="warn">Needs a server</Badge> : <Badge tone="neutral">Not set up</Badge>}
       </div>
       <ErrorBanner error={st.error} />
       {!s ? <Spinner /> : !s.signed_in ? (
@@ -337,7 +337,7 @@ function DiscordCard() {
     <section className="card stack" aria-labelledby="discord-setup">
       <div className="row spread">
         <h2 id="discord-setup" className="row"><Icon name="discord" /> Discord</h2>
-        {s?.connected ? <Badge tone="ok">Connected</Badge> : s?.configured ? <Badge tone="warn">Not connected</Badge> : <Badge tone="neutral">Not set up</Badge>}
+        {!s ? <Badge tone="neutral">{st.error ? "Couldn't check" : "Checking…"}</Badge> : s.connected ? <Badge tone="ok">Connected</Badge> : s.connecting ? <Badge tone="neutral">Connecting…</Badge> : s.configured ? <Badge tone="warn">Not connected</Badge> : <Badge tone="neutral">Not set up</Badge>}
       </div>
       <ErrorBanner error={st.error} />
       {!s ? <Spinner /> : !s.bot || replacing ? (

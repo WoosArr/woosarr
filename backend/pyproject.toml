@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "woosarr"
-version = "1.1.1"
+version = "1.2.0"
 description = "Sync Plex library access from Discord roles"
 license = "AGPL-3.0-only"
 requires-python = ">=3.14"
@@ -25,6 +25,8 @@ dependencies = [
   "pydantic>=2.14",
   "pydantic-settings>=2.16",
   "python-multipart>=0.0.9",
+  # Custom Emoji page: resize and convert images to Discord's emoji limits.
+  "pillow>=13.0",
 ]
 
 [project.optional-dependencies]

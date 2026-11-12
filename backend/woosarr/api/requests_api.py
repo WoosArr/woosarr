@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
+from woosarr.db.models import MediaRequest
 from woosarr.services import audit, media_requests
 from woosarr.services.seerr import SeerrError
 
@@ -57,6 +58,10 @@ class RequestOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     checked_at: datetime | None
+    status_at: datetime | None = None  # when the status last changed
+    retries: int = 0  # automatic retries of a failed request so far
+    retried_at: datetime | None = None
+    next_retry_at: datetime | None = None  # failed: when WooSarr retries it next (None: it won't)
 
 
 class PollOut(BaseModel):
@@ -127,3 +132,17 @@ async def poll_now(request: Request) -> PollOut:
         if discord is not None and await discord.send_notice(notice):
             sent += 1
     return PollOut(notified=sent)
+
+
+@router.post("/requests/{row_id}/retry", response_model=RequestOut)
+def retry_request(row_id: int, request: Request, db: DbDep, principal: AdminDep) -> RequestOut:
+    """Have Seerr send a failed request to Radarr/Sonarr again."""
+    try:
+        _svc(request).retry(row_id, principal.actor)
+    except media_requests.RequestDenied as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    except SeerrError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Seerr: {exc}") from None
+    db.expire_all()
+    row = db.get(MediaRequest, row_id)
+    return RequestOut(**media_requests.rows_out(db, [row])[0])

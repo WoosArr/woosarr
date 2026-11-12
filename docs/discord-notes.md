@@ -13,14 +13,16 @@ Grant only what the features you use need. WooSarr reads the bot's actual permis
 | **Give and remove roles** | Add or remove roles for many members at once (Users → Discord) | **Manage Roles** | The bot's highest role must be **above** the roles it gives or takes |
 | **Reaction posts** | Post the message, add its reactions, give/remove roles when members react | **View Channels, Send Messages, Add Reactions, Read Message History** (in that channel) and **Manage Roles** | The bot's highest role must be **above** the roles the reactions give; guild reactions intent (not privileged; always on) |
 | **Public requests** | Post requests in the requests channel mentioning the member; reply there and update the post's status | **View Channels, Send Messages, Embed Links, Read Message History** (in that channel) | Only when *Settings → Requests → Visibility* is **Public**; private requests need none of these |
+| **Add and update emoji** | Custom Emoji page: add emoji from emoji.gg, OpenMoji or slackmojis; rename and delete server emoji | **Create Expressions** (add) and **Manage Expressions** (rename/delete any emoji) | Server emoji slots (50 static + 50 animated without boosts) |
+| **Clear old reactions** | When you change a reaction post's emoji and turn off *Keep old reactions working*, remove members' old reactions from the message | **Manage Messages** (in that channel) | Optional; without it the old reactions stay on the message but no longer give roles |
 | **Pin reaction posts** | Pin the post | **Pin Messages** | Optional; without it the post is still sent, just not pinned |
 | **Create the reaction channel** | Create the channel if it doesn't exist | **Manage Channels** | Optional; pick an existing channel instead |
 
-Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Add Reactions `64`, Read Message History `65536`, Pin Messages `2251799813685248`. All features: `2251800082205776`.
+Permission integers (for building links by hand): Manage Roles `268435456`, Manage Channels `16`, View Channels `1024`, Embed Links `16384`, Send Messages `2048`, Manage Messages `8192`, Add Reactions `64`, Read Message History `65536`, Manage Expressions `1073741824`, Create Expressions `8796093022208`, Pin Messages `2251799813685248`. All features: `2260597248978000`.
 
 Channel overrides win over server permissions: if a reaction post channel denies the bot *Send Messages* or *Add Reactions*, the channel list marks it "bot can't post here".
 
-WooSarr never needs Administrator, Kick/Ban, Manage Messages or Message Content.
+WooSarr never needs Administrator, Kick/Ban or Message Content; Manage Messages only for the optional *Clear old reactions*.
 
 Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
@@ -35,16 +37,18 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
 ## Runtime
 
-- Intents: `guilds`, `members` and `guild_reactions` (for reaction posts); never message content.
+- Intents: `guilds`, `members` (privileged: *Server Members Intent*), `guild_reactions` (reaction posts) and `emojis_and_stickers` (keeps the emoji picker current); never message content.
 - `/link`, `/unlink`, `/invite`, `/help` and the request command are **guild** commands (`tree.sync(guild=…)`), so they appear immediately (global commands can take up to an hour). The log line `discord commands registered in guild …` lists them.
 - On connect: full cache sync (`guild.roles`, `guild.fetch_members()`), then a full reconcile.
-- Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`.
+- Events → sync queue: `on_member_update` (roles), `on_member_join`, `on_raw_member_remove` (works without the member in cache), `on_guild_role_create/update/delete`. `on_raw_reaction_add/remove` give and take reaction post roles.
 - Reconnect/resume is discord.py's (`reconnect=True`). `PrivilegedIntentsRequired` and `LoginFailure` are shown on the dashboard and Integrations page; **Restart bot** retries without a container restart.
 - DB work runs in `asyncio.to_thread`; Plex calls run on the sync worker, so the gateway heartbeat never waits on Plex.
 
 ## `/link`
 
-Ephemeral reply with two buttons:
+**Who counts as an admin** in Discord commands (*Settings → Linking → Admin roles*): with no roles chosen (default), the server owner and anyone whose roles grant *Manage Server* or *Administrator*; with roles chosen, the server owner and members with one of those roles (Discord permissions no longer count). The same rule applies to `/link`, `/invite` and the request command.
+
+With no options, an ephemeral reply with two buttons:
 
 - **Sign in with Plex (verified)**: WooSarr starts a Plex PIN with a throwaway client id and replies with a link button; it polls for up to 5 min, reads the identity, signs the token out and verifies it's dead (see `plex-notes.md`), then links with `method=oauth`, `verified=true`.
 - **Enter Plex username**: modal with one text field; matches a known Plex user by username or email (case-insensitive); `method=username`, `verified=false`. Only offered to members allowed by *Settings → Linking → Who may link by typing a Plex username* (everyone by default); the bot refreshes the member's roles before deciding, and refuses a typed username from anyone else (`link_failed`, reason `username_link_not_allowed`).
@@ -54,6 +58,7 @@ Rules (`services/link_service.py`, `linking.decide_link`):
 - A Discord member has **one** link. One linked elsewhere must be unlinked first (`discord_already_linked`).
 - A Plex account may have **several** members (a family sharing it; see the admin guide). Typing a username never joins an account someone else is linked to (`plex_account_taken`).
 - *Sign in with Plex* proves the account: it removes other members' unverified (typed-username) claims. If verified members remain, it joins them only when *Settings → Linking → Shared Plex accounts* is set to allow sign-in; otherwise it's refused and the member is told to ask an admin.
+- **Admins: `/link member plex_user`** links a member (or, without `member`, themselves) to a Plex user, the same as *Link* on the Users page: `method=admin`, `verified=true`, `linked_by=discord-admin:<id>`, audited `link_admin` with `via=discord`, and a sync for that account. `plex_user` suggests the server's Plex users by username (an email finds them too, but emails are never shown; each says how many members are already linked, so adding one to a shared account is visible); a typed username or email works too. A member linked to a different Plex account must be unlinked first. Members who aren't admins get no suggestions, and the options are refused for them. No cooldown. Log line: `discord <id> linked by admin discord <id> to plex user <id>`.
 - Per-member cooldown (*Settings → Linking*); every attempt is audited (`link_self` with outcome `created` / `upgraded` / `replaced` / `joined` / `unchanged`, or `link_failed` with the reason and who holds the account). Attempts on someone else's account, takeovers and joins appear in the dashboard's **Alerts**.
 
 ## `/unlink`
@@ -69,14 +74,31 @@ Audited as `unlink_self` (with the policy and the members who remain).
 
 ## `/help`
 
-A private reply listing every command the bot has registered with its options: `/link`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up) and `/help`. `help` can't be used as the request command's name.
+A private reply listing every command the bot has registered with its options: `/link [member] [plex_user]`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up; it mentions pasting an IMDb, TMDB or TVDB link) and `/help`. `help` can't be used as the request command's name.
 
 ## `/invite email [member]`
 
-- Members holding a role in **Settings → Linking → Plex Invites** may invite **themselves**. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
+- Members holding a role in **Settings → Linking → Plex Invites** (or anyone in the server, if *anyone* is ticked there) may invite **themselves**; with neither, only admins can invite. Admins (see [`/link`](#link) for who counts) may invite for any member (`member` option), and their invites link verified.
 - Libraries = what the target member's roles grant (exempt libraries are never granted by roles). No libraries → refused.
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
-- Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, a full sync finds them by email/username and links them (`method=invite`; verified when an admin sent it). Pending invites are listed on the Users page.
+- Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, WooSarr finds them by email/username and links them (`method=invite`; verified when an admin sent it; a member who invited themselves is linked unverified and can verify with `/link` → *Sign in with Plex*). While an invite sent in the last 24 hours is pending, WooSarr reads Plex's list of users with a share once a minute (one plex.tv call), so an accepted invite links, gets its link-status roles and syncs within about a minute; older invites are matched by the full sync (*Full reconcile every*, 15 minutes by default). Log lines: `plex user added id=… username=…`, `invite N accepted by …; linked to discord …`, and once per outage `invite check failed (…)` / `invite check works again`. Pending invites are listed on the Users page.
+
+### Welcome message when an invite is accepted
+
+Once an accepted invite is linked and the member's libraries are synced, the bot DMs them (**Settings → Linking → Invite welcome message**, on by default). The message has four parts, each edited in its own box; the optional ones are only added when they apply, and an empty box is left out:
+
+| Part | Added when | Default |
+|------|-----------|---------|
+| Message | always | **You're on the Plex server 🎉** Your invite was accepted and your Discord account is now linked to the Plex account **{plex_username}**. You can see **{libraries}**. |
+| When the link is unverified | the member invited themselves (an admin's invite links verified) | **One more step:** run `/link` here and tap **Sign in with Plex** to confirm the Plex account is really yours. Your Plex password is never shared; WooSarr only reads your username. |
+| When a setting needs a verified link | also unverified, and *Verified links only* (requests, with Seerr connected) or *Ignore unverified links* is on | You'll need this to {features}. |
+| Where to find the server | the member can see at least one library | Can't find the libraries? Open Plex and pick **{server}** from the server list. |
+
+Placeholders: `{member}` (Discord name), `{plex_username}`, `{libraries}` (e.g. *Disney, Movies and TV Shows*), `{server}` (the Plex server's name), `{features}` (e.g. *request movies and shows with `/request`*), `{request_command}`. An unknown placeholder is refused when saving. Names are escaped, so a Plex username can't add formatting or mentions. The settings page previews the message for a member who invited themselves and for an admin's invite. Each part is up to 1,500 characters; the whole message is cut at Discord's 2,000.
+
+- Sent once per invite. While the bot is disconnected it waits and goes out once the bot is back (for invites accepted in the last 24 hours). Members who don't accept DMs from server members don't get it; it isn't retried.
+- Audited as `invite_welcome` (`sent`, `verified`). Log lines: `invite N welcome sent to …`, `invite N welcome for … not sent: member doesn't accept DMs from the bot`, `invite N: welcome message is turned off`.
+- Invites accepted before this feature existed are never welcomed.
 
 ## Link-status roles
 
@@ -90,7 +112,9 @@ Libraries page → **Create role** opens the same dialog as the Roles page with 
 
 ## Roles deleted in Discord
 
-When a role is deleted in Discord (or was deleted while the bot was offline), the Roles page marks it **Deleted in Discord** and keeps its mappings so nothing changes silently. **Remove** (per role) or **Remove N deleted roles** forgets it in WooSarr and cleans up everything that refers to it: role → library mappings, the link-status roles and the *Plex Invites*, *request* and *link by typing a username* role lists in Settings, and reaction-post options that give it (the post's legend is updated). The confirmation lists exactly what will be removed. Roles that still exist in Discord can't be removed here (delete them in Discord first). No one can hold a deleted role, so no Plex access changes; a sync runs anyway when mappings were removed. Audited as `role_removed`.
+When a role is deleted in Discord (or was deleted while the bot was offline), members lose it at once and the next sync takes away the libraries only that role gave. WooSarr keeps the role's mappings until then, so that sync knows which libraries to take away. After the next full sync that runs live and without errors, WooSarr forgets the role and everything that refers to it: role → library mappings, the link-status roles and the *Admin roles*, *Plex Invites*, *request* and *link by typing a username* role lists in Settings (if that empties *Admin roles*, Discord's Manage Server / Administrator permissions decide again), reaction-post options that give it (the post's legend is updated) and dashboard filters. It's audited as `role_removed` by WooSarr.
+
+In dry-run nothing is forgotten automatically: the Roles page marks the role **Deleted in Discord** (turn off *Settings → General → Hide deleted items* to see it), and **Remove** (per role) or **Remove N deleted roles** does the same clean-up by hand, after a confirmation that lists exactly what will be removed. Role ids mapped before the bot ever saw them in Discord are only removed by hand. Roles that still exist in Discord can't be removed here (delete them in Discord first). If Discord suddenly reports no roles at all, nothing is marked deleted.
 
 ## Reaction posts
 
@@ -101,7 +125,35 @@ Reaction Posts page:
 3. **Save & post**: the bot sends (or edits) the message, adds each reaction, pins it if allowed. Saving again updates the same message; changing the channel posts a new one.
 4. Members **react** to get the roles and **remove the reaction** to drop them; a role is kept if another reaction the member kept still gives it. Plex libraries then follow from the normal role → library mappings (Roles page) for linked members, so a reaction role is just like any other role.
 5. On every (re)connect the bot re-reads each post's reactions and gives/removes roles to match (catches changes made while it was offline). Disabling a post stops reactions from changing roles; deleting a post leaves the roles members already have.
-6. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
+6. **Changing a published post's emoji or removing a reaction:** the editor lists the members who reacted with each emoji that's going away and what they'll lose, with the Plex impact. For an emoji you replaced, **Keep old reactions working** (on by default) means reactions with the old emoji keep giving the role; the bot takes its own old reaction off so new members use the new one, and WooSarr forgets the old emoji once nobody reacts with it. Turn it off to remove the old reactions when you update the post (needs **Manage Messages**; without it they stay on the message but stop counting); those members get the role back by reacting with the new emoji. Members who reacted to a reaction you removed lose its role when you update the post (their reactions stay on the message). Moving the post to another channel posts a new message, so nobody's reactions carry over.
+7. **Automatic updates**: after every sync (role → library mappings, library names) and when a role is renamed or deleted in Discord, the bot re-renders each published post and edits the message only if its text changed. The Reaction Posts page shows *Update pending* until it has.
+
+## Custom emoji
+
+Custom Emoji page (sidebar):
+
+![Custom Emoji page: the server's emoji, and the emoji.gg library with animated emoji shown](images/custom-emoji.png)
+
+- **Libraries:** three tabs. **emoji.gg** (about 5,400 emoji) and **OpenMoji** (about 2,500, CC BY-SA 4.0: credit OpenMoji where you use them) are downloaded lists that WooSarr keeps in `/config/cache/emoji`, checked at startup (unless checked in the last hour) and then daily; emoji.gg's NSFW category is never shown. If a download fails, the copy from last time is kept, the tab says so, and it's retried an hour later. **slackmojis** has no full list, so it is searched live as you type.
+- **Hide animated** (on by default): animated emoji can only be used by members with Discord Nitro and use a separate set of slots. A slackmojis GIF that is really a single frame counts as static.
+- **Previews** are fetched by WooSarr, not your browser: only from each source's own image host (`cdn3.emoji.gg`, `cdn.jsdelivr.net`, `emojis.slackmojis.com`), over HTTPS, without following redirects, at most 8 MB, and only PNG, GIF, JPEG or WebP. They are cached on disk (up to 200 MB, oldest dropped first).
+- **Add to server:** pick an emoji, check its name (2-32 letters, digits or underscores; prefilled from the title) and add it. WooSarr converts it to fit Discord's limits: still images become a PNG of at most 128 px; animations stay GIFs and are resized frame by frame only if they're over 256 KB. The Discord audit log shows *Added from emoji.gg by admin:… (WooSarr)*; WooSarr's audit trail records the source, the emoji's page and its credit.
+- **On your server:** the server's emoji with the used slots (static and animated: 50 each, more with server boosts), **Rename** and **Delete**. Renaming an emoji that a reaction post uses updates the post's options (reactions are matched by name and id). Deleting one that a post still uses is refused; remove it from the post first.
+- The bot needs **Create Expressions** to add emoji and **Manage Expressions** to rename and delete them (including emoji others added). The bot receives emoji changes made in Discord straight away (the *guild emojis* intent, not privileged), so the reaction post picker is always current.
+
+## Discord's 3-second limit
+
+Discord gives the bot 3 seconds, from the moment a member uses a command, to answer; after that the member sees *The application did not respond*. So every slash command answers "WooSarr is thinking…" before any of its own work (centrally, in the command tree), and then replies. Buttons and forms do the same (except *Enter Plex username*, whose answer is the form itself). Suggestions while typing (`/request`) can't be acknowledged early; they're kept fast instead.
+
+Every command is logged with how long it took to reach WooSarr and how long the answer took, e.g. `/help from member … acknowledged: reached WooSarr 0.4 s after use, answer took 0.2 s (reused connection; HTTP 204 after 0.2 s)`. Over 2 s to arrive or 1 s to answer is a warning even when Discord still took it. If Discord had already given up, the warning says which side was slow (*Discord (or the network to it) delivered it late* or *sending the answer was slow*), and the member gets a DM asking them to try again (at most once a minute). Ages are measured on Discord's clock: WooSarr estimates the server clock's offset from Discord's replies and mentions it when it's 2 s or more.
+
+A watchdog also notices when WooSarr itself stops running for more than 3 s, and says which kind of stall it was: *the event loop is blocked* (WooSarr's own code was busy; the warning shows what it was running) or *WooSarr was paused* (nothing in the process ran: the host was out of CPU, disk or memory; the warning adds the host's load, pressure and swap figures). A command that arrived late during a stall is blamed on WooSarr, not Discord.
+
+To keep answers quick, the bot keeps its connections to Discord open (DNS answers cached for 10 minutes) and makes a tiny request every minute so one is always ready.
+
+## Bot status
+
+The bot shows a custom status under its name in the member list, by default **Try /help for help**. Change it (or leave it empty for none) in *Settings → General → Discord bot status*; the bot updates it right away and sets it again every time it connects. Up to 128 characters, one line.
 
 ## Bot avatar
 

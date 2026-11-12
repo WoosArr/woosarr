@@ -20,14 +20,14 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import app_settings, auth, kv
 from woosarr.core import secret_store as names
 from woosarr.db.models import DiscordLink, DiscordMember, MediaRequest, PlexUser, utcnow
 from woosarr.db.session import Database
-from woosarr.services import audit
+from woosarr.services import audit, self_resolve
 from woosarr.services.discord_text import safe
 from woosarr.services.seerr import (
     Details,
@@ -45,16 +45,25 @@ USER_CACHE_SECONDS = 600
 SEARCH_CACHE_SECONDS = 60
 OPEN_STATES = ("pending", "approved", "partially_available")
 NOTIFY_STATES = ("approved", "declined", "failed", "partially_available", "available")
-TRACK_DAYS = 60
+# Failed and declined requests are still checked (and listed) this long after they got that status,
+# in case an admin retries or approves them in Seerr.
+RECHECK_STATES = ("failed", "declined")
+RECHECK_DAYS = 30
+# Other finished requests (available, removed in Seerr) leave the Requests page this long after they
+# finished; open ones stay, and are checked, however old they are.
+CLOSED_VISIBLE_DAYS = 7
+# Automatic retries of a failed request (request_auto_retry): the n-th one this long after the
+# request failed or was last retried.
+RETRY_AFTER = (timedelta(hours=1), timedelta(hours=6), timedelta(hours=24))
 # Seerr searches (suggestions + /request text) per member: each one is a TMDB call.
 SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS = 30, 60
-POLL_SECONDS = 300
+POLL_SECONDS = 1800
 
 STATE_TEXT = {
     "pending": "waiting for approval",
     "approved": "approved, on its way",
     "declined": "declined",
-    "failed": "approved, but downloading failed (an admin can retry it in Seerr)",
+    "failed": "approved, but downloading failed (an admin can retry it)",
     "partially_available": "partly available on Plex",
     "available": "available on Plex",
     "deleted": "removed from Seerr",
@@ -99,7 +108,7 @@ class RequestService:
         self._session_factory = session_factory  # tests inject a fake HTTP session
         self._lock = threading.Lock()
         self._users: tuple[float, list[dict]] | None = None
-        self._search: dict[str, tuple[float, list[Hit]]] = {}
+        self._search: dict[tuple[str, int], tuple[float, list[Hit]]] = {}
         self.last_error: str | None = None
         self.last_ok_at: float | None = None
         self.search_limiter = auth.RateLimiter(SEARCHES_PER_WINDOW, SEARCH_WINDOW_SECONDS)
@@ -181,6 +190,7 @@ class RequestService:
 
     def _ok(self) -> None:
         self.last_error, self.last_ok_at = None, time.time()
+        self_resolve.recovered("seerr")
 
     def _failed(self, exc: SeerrError) -> None:
         if exc.status is None or exc.status in (401,) or exc.status >= 500:
@@ -266,12 +276,14 @@ class RequestService:
 
     # ---- search / details -------------------------------------------------------------
 
-    def search(self, query: str, timeout: float | None = None, member: str | None = None) -> list[Hit]:
-        """Seerr search (cached a minute). member: count it against that member's search limit."""
+    def search(self, query: str, timeout: float | None = None, member: str | None = None,
+               pages: int = 1) -> list[Hit]:
+        """Seerr search (cached a minute), best guesses first. member: count it against that
+        member's search limit. pages: TMDB pages to read (the pick list reads two)."""
         query = " ".join(query.split())[:100]
         if len(query) < 2:
             return []
-        key = query.lower()
+        key = (query.lower(), pages)
         with self._lock:
             cached = self._search.get(key)
         if cached and time.monotonic() - cached[0] < SEARCH_CACHE_SECONDS:
@@ -284,7 +296,7 @@ class RequestService:
         if client is None:
             return []
         try:
-            hits = client.search(query, timeout=timeout)
+            hits = client.search(query, timeout=timeout, pages=pages)
         except SeerrError as exc:
             self._failed(exc)
             raise
@@ -332,18 +344,32 @@ class RequestService:
                              tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=exc.status, error=str(exc)[:200])
             return Outcome(False, message)
         self._ok()
-        if code == 202 or not req or not req.get("id"):
+        title = f"**{safe(item.title, 200)}**"
+        if code == 202:
+            # Seerr's "No seasons available to request": everything is already requested or on
+            # the server. Not an error; nothing was created.
+            with self._db.session() as s:
+                audit.record(s, actor, "request_nothing_to_do", "discord_user", discord_user_id,
+                             media_type=media_type, tmdb_id=tmdb_id, title=item.title, seasons=sorted(seasons or []),
+                             seerr_user_id=who.seerr_user_id)
+            log.info("request by discord %s: nothing to request, %s %s is already requested or available",
+                     discord_user_id, media_type, item.title)
+            what = "Every season you picked of" if seasons else "Every season of"
+            return Outcome(True, f"{what} {title} is already requested or available.")
+        if not req or not req.get("id"):
+            log.warning("seerr accepted the request for %s %s (HTTP %s) but returned no request id", media_type,
+                        item.title, code)
             with self._db.session() as s:
                 audit.record(s, actor, "request_failed", "discord_user", discord_user_id, media_type=media_type,
-                             tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=code, error="nothing to request")
-            return Outcome(False, f"Every season of **{safe(item.title, 200)}** is already requested or available.")
+                             tmdb_id=tmdb_id, seerr_user_id=who.seerr_user_id, status=code, error="no request id")
+            return Outcome(False, f"Seerr didn't confirm the request for {title}; check Seerr before trying again.")
         state = request_state(req)
         with self._db.session() as s:
             row = MediaRequest(seerr_request_id=int(req["id"]), discord_user_id=discord_user_id,
                                plex_user_id=who.plex_user_id, seerr_user_id=who.seerr_user_id,
                                media_type=media_type, tmdb_id=int(tmdb_id), title=item.title[:300], year=item.year,
                                seasons=sorted(seasons or []), status=state, notified_status=state,
-                               checked_at=utcnow())
+                               checked_at=utcnow(), status_at=utcnow())
             s.add(row)
             s.flush()
             row_id = row.id
@@ -355,6 +381,57 @@ class RequestService:
         what = f"**{safe(item.title, 200)}**" + (f" ({item.year})" if item.year else "")
         return Outcome(True, f"Requested {what}: {STATE_TEXT.get(state, state)}.", state, row_id)
 
+    def retry(self, row_id: int, actor: str) -> str:
+        """An admin's retry of a failed request: Seerr sends it to Radarr/Sonarr again. The new status,
+        or SeerrError / RequestDenied (not failed anymore, unknown request)."""
+        client = self.client()
+        if client is None:
+            raise RequestDenied("Seerr isn't connected.")
+        with self._db.session() as s:
+            row = s.get(MediaRequest, row_id)
+            if row is None:
+                raise RequestDenied("No such request.")
+            if row.status != "failed":
+                raise RequestDenied("Only failed requests can be retried.")
+        return self._retry(client, row_id, actor, automatic=False)
+
+    def _retry(self, client: SeerrClient, row_id: int, actor: str, automatic: bool) -> str:
+        with self._db.session() as s:
+            request_id = s.get(MediaRequest, row_id).seerr_request_id
+        error: SeerrError | None = None
+        try:
+            state = request_state(client.retry_request(request_id))
+        except SeerrError as exc:
+            if exc.status == 409:  # not failed in Seerr anymore (retried or approved there): read it
+                state = request_state(client.get_request(request_id))
+            else:
+                self._failed(exc)
+                error, state = exc, "failed"
+        if error is None:
+            self._ok()
+        with self._db.session() as s:
+            row = s.get(MediaRequest, row_id)
+            now = utcnow()
+            if automatic:
+                row.retries = (row.retries or 0) + 1
+            row.retried_at = now
+            before = row.status
+            if state != before:
+                row.status, row.status_at = state, now
+            audit.record(s, actor, "request_retried", "media_request", str(request_id), title=row.title,
+                         before=before, after=state, automatic=automatic,
+                         attempt=row.retries if automatic else None,
+                         error=str(error)[:200] if error else None)
+            title, attempt = row.title, row.retries
+        if error is not None:
+            log.warning("request %s (%s): retry in Seerr by %s failed: %s", request_id, title, actor, error)
+            if not automatic:
+                raise error
+        else:
+            log.info("request %s (%s) retried in Seerr by %s%s: %s", request_id, title, actor,
+                     f" (automatic, try {attempt} of {len(RETRY_AFTER)})" if automatic else "", state)
+        return state
+
     def set_post(self, row_id: int, channel_id: str, message_id: str) -> None:
         """Remember where a public request was posted (status updates reply to it)."""
         with self._db.session() as s:
@@ -365,17 +442,18 @@ class RequestService:
     # ---- status updates ---------------------------------------------------------------
 
     def poll(self) -> list[Notice]:
-        """Re-read open requests from Seerr. Returns the status changes to tell members about."""
+        """Re-read open requests (and recently failed or declined ones) from Seerr, and retry failed ones
+        that are due. Returns the status changes to tell members about."""
         client = self.client()
         if client is None:
             return []
         with self._db.session() as s:
-            notify = app_settings.load(s).request_notify
-            rows = [(r.id, r.seerr_request_id) for r in s.scalars(select(MediaRequest).where(
-                MediaRequest.status.in_(OPEN_STATES),
-                MediaRequest.created_at >= utcnow() - timedelta(days=TRACK_DAYS)))]
+            settings = app_settings.load(s)
+            notify, auto_retry = settings.request_notify, settings.request_auto_retry
+            rows = [(r.id, r.seerr_request_id) for r in s.scalars(select(MediaRequest).where(checked()))]
         out: list[Notice] = []
         changed = 0
+        due: list[int] = []
         for row_id, request_id in rows:
             try:
                 state = request_state(client.get_request(request_id))
@@ -389,29 +467,71 @@ class RequestService:
             self._ok()
             with self._db.session() as s:
                 row = s.get(MediaRequest, row_id)
-                row.checked_at = utcnow()
-                if state == row.status:
-                    continue
-                changed += 1
-                audit.record(s, "system", "request_status", "media_request", str(request_id),
-                             before=row.status, after=state, title=row.title)
-                row.status = state
-                if notify and state in NOTIFY_STATES and row.notified_status != state:
+                now = row.checked_at = utcnow()
+                was = row.status
+                if state != was:
+                    changed += 1
+                    audit.record(s, "system", "request_status", "media_request", str(request_id),
+                                 before=was, after=state, title=row.title)
+                    row.status, row.status_at = state, now
+                # A failed request WooSarr will retry: the member hears of it only if every try fails.
+                retrying = state == "failed" and auto_retry and (row.retries or 0) < len(RETRY_AFTER)
+                if retrying and retry_due(row, now):
+                    due.append(row_id)
+                held = state == "failed" and was == "failed"  # failed while retrying, now out of tries
+                if (notify and state in NOTIFY_STATES and row.notified_status != state and not retrying
+                        and (state != was or held)):
                     row.notified_status = state
                     what = f"**{safe(row.title, 200)}**" + (f" ({row.year})" if row.year else "")
                     out.append(Notice(row.discord_user_id, f"Your request for {what} is {STATE_TEXT[state]}.", state,
                                       row.channel_id, row.message_id))
+        else:
+            for row_id in due:
+                self._retry(client, row_id, "system", automatic=True)
         if rows:
-            log.info("request poll: %s open, %s changed, %s to notify", len(rows), changed, len(out))
+            log.info("request poll: %s checked, %s changed, %s to notify, %s retried", len(rows), changed, len(out),
+                     len(due))
         return out
 
 
+def checked():
+    """The requests poll() re-reads: open ones, and failed or declined ones for RECHECK_DAYS."""
+    return or_(MediaRequest.status.in_(OPEN_STATES),
+               MediaRequest.status.in_(RECHECK_STATES) & (MediaRequest.status_at >= utcnow() - timedelta(days=RECHECK_DAYS)))
+
+
+def next_retry_at(row: MediaRequest, auto_retry: bool = True) -> Any:
+    """When a failed request is retried next: RETRY_AFTER after it failed or was last retried."""
+    tries = row.retries or 0
+    if not auto_retry or row.status != "failed" or tries >= len(RETRY_AFTER):
+        return None
+    since = max(t for t in (row.status_at or row.created_at, row.retried_at) if t is not None)
+    return since + RETRY_AFTER[tries]
+
+
+def retry_due(row: MediaRequest, now: Any) -> bool:
+    when = next_retry_at(row)
+    return when is not None and now >= when
+
+
 def recent(session: Session, limit: int = 200) -> list[dict[str, Any]]:
-    rows = session.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(limit)).all()
+    """The Requests page: every request still being checked (open, recently failed or declined), plus
+    finished ones from the last week (newest first; limit caps the finished ones)."""
+    newest = MediaRequest.created_at.desc()
+    open_rows = list(session.scalars(select(MediaRequest).where(checked()).order_by(newest)))
+    closed = session.scalars(select(MediaRequest).where(
+        MediaRequest.id.not_in([r.id for r in open_rows]),
+        MediaRequest.status_at >= utcnow() - timedelta(days=CLOSED_VISIBLE_DAYS)).order_by(newest).limit(limit))
+    rows = sorted([*open_rows, *closed], key=lambda r: r.created_at, reverse=True)
+    return rows_out(session, rows)
+
+
+def rows_out(session: Session, rows: list[MediaRequest]) -> list[dict[str, Any]]:
     members = {m.discord_user_id: m for m in session.scalars(select(DiscordMember).where(
         DiscordMember.discord_user_id.in_({r.discord_user_id for r in rows})))}
     plex = dict(session.execute(select(PlexUser.plex_user_id, PlexUser.username).where(
         PlexUser.plex_user_id.in_({r.plex_user_id for r in rows if r.plex_user_id}))).all())
+    auto_retry = app_settings.load(session).request_auto_retry
     return [{"id": r.id, "seerr_request_id": r.seerr_request_id, "media_type": r.media_type, "tmdb_id": r.tmdb_id,
              "title": r.title, "year": r.year, "seasons": list(r.seasons or []), "status": r.status,
              "discord_user_id": r.discord_user_id,
@@ -419,7 +539,8 @@ def recent(session: Session, limit: int = 200) -> list[dict[str, Any]]:
              if r.discord_user_id in members else None,
              "plex_username": plex.get(r.plex_user_id or ""), "public": r.message_id is not None,
              "created_at": r.created_at, "updated_at": r.updated_at,
-             "checked_at": r.checked_at} for r in rows]
+             "checked_at": r.checked_at, "status_at": r.status_at, "retries": r.retries or 0,
+             "retried_at": r.retried_at, "next_retry_at": next_retry_at(r, auto_retry)} for r in rows]
 
 
 async def run_poller(service: RequestService, send: Any, interval: float = POLL_SECONDS,

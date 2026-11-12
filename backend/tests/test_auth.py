@@ -139,7 +139,16 @@ class SessionTests(unittest.TestCase):
             self.assertEqual(r.status_code, 401)
         r = anon.post("/api/v1/auth/login", json={"username": ADMIN, "password": PASSWORD})
         self.assertEqual(r.status_code, 401)
-        self.assertIn("locked", r.json()["detail"])
+        # Same answer as an unknown user, so a lockout doesn't reveal that the account exists;
+        # the real reason is in the audit trail.
+        self.assertEqual(r.json()["detail"], auth.LOGIN_FAILED)
+        unknown = anon.post("/api/v1/auth/login", json={"username": "nobody-here", "password": PASSWORD})
+        self.assertEqual((unknown.status_code, unknown.json()), (r.status_code, r.json()))
+        with self.h.app.state.db.session() as s:
+            reasons = [e.details.get("reason") for e in s.scalars(
+                select(AuditLog).where(AuditLog.action == "login_failed").order_by(AuditLog.id))]
+        self.assertIn("bad_password+now_locked", reasons)
+        self.assertEqual(reasons[-2:], ["locked", "unknown_user"])
         admins = self.c.get("/api/v1/admins").json()
         self.assertTrue(admins[0]["locked"])
         self.c.patch(f"/api/v1/admins/{admins[0]['id']}", json={"unlock": True})
@@ -149,7 +158,7 @@ class SessionTests(unittest.TestCase):
     def test_unknown_user_gets_same_error(self):
         r = self.h.new_client().post("/api/v1/auth/login", json={"username": "nobody", "password": PASSWORD})
         self.assertEqual(r.status_code, 401)
-        self.assertEqual(r.json()["detail"], "invalid username or password")
+        self.assertEqual(r.json()["detail"], auth.LOGIN_FAILED)
 
     def test_ip_rate_limit(self):
         anon = self.h.new_client()
@@ -252,3 +261,26 @@ class ApiKeyTests(unittest.TestCase):
         self.assertIn(created["prefix"], listing)
         logging.getLogger("woosarr.test").warning("oops leaked %s", created["key"])
         self.assertNotIn(created["key"], self.c.get("/api/v1/logs", params={"limit": 5000}).text)
+
+
+class SsoAdminPasswordTests(unittest.TestCase):
+    def setUp(self):
+        self.h = AppHarness()
+        self.c = self.h.setup_admin()
+
+    def tearDown(self):
+        self.h.close()
+
+    def test_sso_admins_get_no_password(self):
+        from woosarr.db.models import AdminUser
+
+        with self.h.app.state.db.session() as s:
+            sso = AdminUser(username="alice", password_hash=None, auth_source="oidc")
+            s.add(sso)
+            s.flush()
+            sso_id = sso.id
+        r = self.c.patch(f"/api/v1/admins/{sso_id}", json={"password": "a-long-enough-pass"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("single sign-on", r.json()["detail"])
+        with self.h.app.state.db.session() as s:
+            self.assertEqual(s.get(AdminUser, sso_id).auth_source, "oidc")

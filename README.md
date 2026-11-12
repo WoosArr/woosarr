@@ -2,25 +2,28 @@
 
 # WooSarr
 
-Automatically grants and removes **Plex library access** based on **Discord roles**.
+WooSarr is a Plex user and library management system with Seerr integration for media requests. 
 
 [![Support WooSarr on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/woosai)
 
 ![WooSarr dashboard](docs/images/dashboard-dark.png)
 
-- **Discord roles → Plex libraries.** Map each role to libraries; members get the union of all their roles. Grants are **additive**: a library stays if any role, manual grant or exemption keeps it.
-- **Only linked users are managed.** Members link themselves with `/link`: *Sign in with Plex* (verified; the one-time token is invalidated straight away) or by typing their Plex username (unverified, can be limited to chosen roles).
-- **Shared Plex accounts.** Several Discord members can share one Plex account (a family); it gets the libraries all their roles give.
-- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change.
-- **Exemptions and manual grants.** Exempt libraries are never touched by roles; admins can grant or remove libraries per user.
-- **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role) and link-status roles (Verified / Unverified / Linked).
-- **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, and hear back when it's available ([docs/requests.md](docs/requests.md)).
-- **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
-- **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs.
-- **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
+- **Mass actions and manual grants.** Select multiple Plex users and add or remove libraries from them. Or, add or remove roles from Discord users en masse. With one action!
+- **Discord roles → Plex libraries.** Map roles to one or more libraries. Users are granted access to libraries matching their roles. Grants are **additive**!  If you have two roles that grant a library, and remove one of those roles, the user retains access.
+- **Invite Discord users to Plex.** Admins can use `/invite` to invite Discord users to the Plex server. (Optionally) Users can use `/invite` to invite themselves to the Plex server.
+- **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role), link-status roles (Verified / Unverified / Linked) and adding or removing roles for many members at once.
+- **Link Discord users to Plex accounts.** Discord users can link themselves with `/link`: *Sign in with Plex* (verified users) or by typing their Plex username (unverified users). Admins can also link other Discord users in the web UI or with `/link`. 
+- **Shared Plex accounts.** Have users with multiple Discord accounts, or multiple Discord users who share a Plex account?  They can share! Allows multiple people access to requesting media, and maintains library access if one user has appropriate roles (Limited to verified accounts only) 
+- **Exemptions.** Exempt libraries from management so that they are never touched by roles.
+- **Roles via reaction:** Create a post with predefined reactions.  Users who react get prescribed roles.  
+- **Custom Emojis:** Have you ever wanted to add an emoji to your Discord server so that your react post could have cool emojis for the role that grants them access to your sweet anime collection, or looked at the movie and tv emoji options and wished there was something better?  Wish no more!  Search emoji.gg, OpenMoji and slackmojis to add emojis to your Discord server (animated ones hidden unless you want them). You can also rename and delete server emojis.
+- **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, by typing the title or pasting an IMDb, TMDB or TVDB link, and hear back when it's available. Failed requests are retried ([docs/requests.md](docs/requests.md)).
+- **Alerts:** warnings, errors and account events on the dashboard until resolved; a full audit trail of every change in the logs.
+- **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs, and a check for newer versions.
+- **Admin sign-in** with a password or OIDC to your SSO provider: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
+- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role mapping change, library removal or access-changing setting. Prevents accidental changes to access until configuration is complete. 
 
-> **Status:** in use on a real Plex server and Discord server; installing from the Unraid template works. Still to do: the Community Applications listing (until then, install from the template as below). See [docs/action-plan.md](docs/action-plan.md).
 
 ## Screenshots
 
@@ -33,17 +36,29 @@ Automatically grants and removes **Plex library access** based on **Discord role
 | ![Settings: linking rules](docs/images/settings-linking.png) | ![Integrations: Plex, Discord and Seerr](docs/images/integrations.png) |
 | **Settings → Linking**: who may link how, shared accounts, leave and unlink rules | **Integrations**: connect Plex, Discord and Seerr |
 
-All screenshots use WooSarr's demo mode (a fake Plex server and Discord guild); `make screenshots` regenerates them.
-
 ## Install
+UnRAID and Docker installation have been tested and verified.
+TrueNAS, Proxmox, and Docker Compose installs have not been verified on a live server.
 
 ### Unraid
 
-1. Copy [`unraid/woosarr.xml`](unraid/woosarr.xml) to `/boot/config/plugins/dockerMan/templates-user/my-woosarr.xml`.
-2. Docker tab → **Add Container** → choose **woosarr** → **Apply**.
-3. Open the WebUI. Details: [docs/unraid-notes.md](docs/unraid-notes.md).
+WooSarr is in Unraid's Community Applications:
+
+1. **Apps** tab → search for **WooSarr** → **Install**.
+2. Check the data folder (`/mnt/user/appdata/woosarr`) and WebUI port (`31337`); `PUID`/`PGID` are under *Show more settings* → **Apply**.
+3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI** (see [First run](#first-run)).
+
+Updates show on the Docker tab like any other container (**apply update**). Details, development builds and installing without Community Applications (from [`unraid/woosarr.xml`](unraid/woosarr.xml)): [docs/unraid-notes.md](docs/unraid-notes.md).
 
 Prefer Compose (the *Docker Compose Manager* plugin today, built into Unraid 8)? Use [`compose.yaml`](compose.yaml) with `WOOSARR_CONFIG=/mnt/user/appdata/woosarr`; see [Unraid notes → Docker Compose](docs/unraid-notes.md#docker-compose).
+
+### TrueNAS
+
+TrueNAS 24.10 or later: create a dataset owned by the **apps** user (568), then *Apps → Discover Apps → ⋮ → Install via YAML* with [`truenas/compose.yaml`](truenas/compose.yaml) (set your dataset's path in it). WooSarr runs as the apps user with no capabilities. The setup code is in the app's logs. Step by step, updates and backups: [docs/truenas-notes.md](docs/truenas-notes.md). A listing in the TrueNAS Apps catalog is prepared but not yet submitted.
+
+### Proxmox VE
+
+Run Docker in a small Debian 13 LXC (Options → Features: **nesting** and **keyctl**) or a VM, then follow [Docker Compose](#docker-compose) below. Proxmox VE 9.1's OCI-image containers (a technology preview) can also run the image directly. Both, step by step: [docs/proxmox-notes.md](docs/proxmox-notes.md).
 
 ### Docker Compose
 
@@ -77,9 +92,11 @@ docker run -d --name woosarr \
 
 Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (current release), `1.0.0` / `1.0` (a version), `develop` (newest development build, for testing; back up `/config` first, database changes don't go backwards) and `sha-<commit>` (one exact build).
 
+**Which build am I on?** The dashboard and the sidebar show the operating version. Releases use semantic versioning `1.2.0`. Develop builds read similarly, showing the next release's number, then a build number that counts the commits since the last release, the commit and its date. Ex. `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026`. WooSarr checks GitHub at startup and every 6 hours by default (3 hours down to 5 minutes in *Settings → General*) and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
+
 ## First run
 
-1. Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):
+1. ***IMPORTANT*** Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):
 
    ```
    ================================================================
@@ -91,7 +108,7 @@ Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (curren
 4. **Roles** page: choose which libraries each Discord role grants. **Libraries** page: exempt any library that roles should never touch.
 5. **Dashboard**: check *Pending changes*. When they look right, turn off **dry-run** in *Settings → General*.
 
-How access is decided, the Discord commands, troubleshooting, backups and all settings: [docs/admin-guide.md](docs/admin-guide.md). Bot permissions per feature: [docs/discord-notes.md](docs/discord-notes.md).
+How access is decided, the pages, the Discord commands, every setting, troubleshooting and backups: [docs/admin-guide.md](docs/admin-guide.md). Bot permissions per feature: [docs/discord-notes.md](docs/discord-notes.md).
 
 ## HTTPS and reverse proxies
 
@@ -146,7 +163,7 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 
 **A reaction post won't publish.** The bot needs View Channels, Send Messages, Add Reactions and Read Message History in that channel (channel permission overrides win over server roles). The post is saved anyway; a toast and the Alerts widget say which permission is missing. *Integrations → Discord → Bot features and permissions* shows what the bot can do.
 
-**Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token and the bot token are stored, encrypted.
+**Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token, the bot token, the Seerr API key and any SSO client secrets are stored, all encrypted.
 
 **Another bot already has `/request`.** Both work; Discord shows each with its bot's name. Rename WooSarr's in *Settings → Requests* or hide the other bot's under *Server Settings → Integrations* ([docs/requests.md](docs/requests.md#another-bot-already-has-request)).
 
@@ -156,12 +173,14 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 
 | Doc | For |
 |-----|-----|
-| [Admin guide](docs/admin-guide.md) | How access is decided, Discord commands, shared accounts, dashboard and alerts, troubleshooting, backups, environment variables |
-| [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, link-status roles, bot avatar |
-| [Requests](docs/requests.md) | `/request` through Seerr: setup, who may request, public or private, diagnostics |
+| [Admin guide](docs/admin-guide.md) | How access is decided, the pages, Discord commands, shared accounts, dashboard and alerts, every setting, troubleshooting, backups, environment variables |
+| [Discord notes](docs/discord-notes.md) | Bot setup, permissions per feature, `/link`, `/unlink`, `/invite`, reaction posts, custom emoji, link-status roles, bot avatar |
+| [Requests](docs/requests.md) | `/request` through Seerr: setup, search and pasted links, who may request, public or private, failed requests, diagnostics |
 | [Single sign-on](docs/sso.md) | OIDC providers for admin sign-in |
 | [Plex notes](docs/plex-notes.md) | How WooSarr talks to Plex and what was verified on a real server |
-| [Unraid notes](docs/unraid-notes.md) | The Unraid template |
+| [Unraid notes](docs/unraid-notes.md) | The Unraid template, Community Applications, development builds, Docker Compose |
+| [TrueNAS notes](docs/truenas-notes.md) | Install via YAML as the apps user; the TrueNAS Apps catalog listing |
+| [Proxmox notes](docs/proxmox-notes.md) | Docker Compose in an LXC or VM; OCI image as an LXC (9.1+) |
 | [Threat model](docs/threat-model.md) | What's protected and how |
 | [Changelog](CHANGELOG.md) | What changed |
 
@@ -179,13 +198,11 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: merges to `main` (→ `latest`) and version tags (`v1.2.3` → `1.2.3`, `1.2`) run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push to `develop` runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: each release is a merge to `main` plus a version tag on it (`v1.2.3` → `1.2.3`, `1.2` and, for the newest release, `latest`, all one image). They run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml` and `truenas/compose.yaml`), scan it for secrets and vulnerabilities, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, change and share WooSarr freely; if you distribute a modified version, or let others use one over a network, you must make its source code available under the same licence.
-
-Versions published before 2026-10-19 (including v0.1.0) were released under the MIT licence.
 
 ## Disclaimer
 

@@ -83,18 +83,21 @@ function SaveRow({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => v
   );
 }
 
-function RolePicker({ legend, hint, all, allHint, roles, value, onAll, onChange }: {
-  legend: ReactNode; hint: ReactNode; all: boolean; allHint: string; roles: RoleOut[]; value: string[];
-  onAll: (x: boolean) => void; onChange: (ids: string[]) => void;
+/** Roles to tick; with onAll, also an "All members" switch that overrides them. */
+function RolePicker({ legend, hint, all = false, allHint, roles, value, onAll, onChange }: {
+  legend: ReactNode; hint: ReactNode; all?: boolean; allHint?: string; roles: RoleOut[]; value: string[];
+  onAll?: (x: boolean) => void; onChange: (ids: string[]) => void;
 }) {
   return (
     <fieldset className="plain">
       <legend className="small" style={{ fontWeight: 600 }}>{legend}</legend>
       <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>{hint}</span>
-      <label className="check" style={{ marginBottom: 6 }}>
-        <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
-        <span><strong>All members</strong> <span className="muted small">— {allHint}</span></span>
-      </label>
+      {onAll ? (
+        <label className="check" style={{ marginBottom: 6 }}>
+          <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
+          <span><strong>All members</strong> <span className="muted small">— {allHint}</span></span>
+        </label>
+      ) : null}
       <div className="chooser" style={all ? { opacity: 0.5 } : undefined} aria-disabled={all}>
         {roles.filter((r) => !r.managed && !r.deleted).map((r) => {
           const on = value.includes(r.role_id);
@@ -148,6 +151,9 @@ const POLICY_OPTIONS = (
   </>
 );
 
+const UPDATE_INTERVALS: [number, string][] = [[360, "6 hours"], [180, "3 hours"], [60, "1 hour"], [30, "30 minutes"],
+  [15, "15 minutes"], [5, "5 minutes"]];
+
 function General() {
   const f = useSettingsDraft();
   const { impact, changed } = useImpact(f.draft);
@@ -189,6 +195,19 @@ function General() {
           {["DEBUG", "INFO", "WARNING", "ERROR"].map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
       </Field>
+      <Switch checked={v.update_check ?? true} onChange={(x) => set({ update_check: x })}
+        label={<><strong>Check GitHub for newer versions</strong> <span className="muted small">— releases compare with the newest release, develop builds with the newest develop build</span></>} />
+      <Field label="Check for updates every" hint="At startup, then this often. Each check uses at most one of the 60 requests an hour GitHub allows per address.">
+        <select value={v.update_check_minutes ?? 360} disabled={!(v.update_check ?? true)} style={{ maxWidth: 220 }}
+          onChange={(e) => set({ update_check_minutes: Number(e.target.value) as AppSettings["update_check_minutes"] })}>
+          {UPDATE_INTERVALS.map(([m, label]) => <option key={m} value={m}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="Discord bot status" hint="Shown under the bot's name in Discord's member list. Leave empty for none. Up to 128 characters.">
+        <input type="text" maxLength={128} value={v.bot_status ?? ""} placeholder="Try /help for help" onChange={(e) => set({ bot_status: e.target.value })} style={{ maxWidth: 420 }} />
+      </Field>
+      <Switch checked={v.hide_deleted ?? true} onChange={(x) => set({ hide_deleted: x })}
+        label={<><strong>Hide deleted items</strong> <span className="muted small">— leave out libraries missing on the Plex server, roles deleted in Discord, Plex users no longer shared with and requests removed in Seerr</span></>} />
       <Field label="Keep audit entries for (days)" hint="Older audit entries are deleted. 7–3650.">
         <input type="number" min={7} max={3650} value={v.audit_retention_days} onChange={(e) => set({ audit_retention_days: Number(e.target.value) })} style={{ maxWidth: 160 }} />
       </Field>
@@ -208,11 +227,26 @@ function Linking() {
   return (
     <div className="card settings" style={{ maxWidth: 720 }}>
       <RolePicker
+        legend="Admin roles"
+        hint={<>Members who count as admins in Discord: they can <code>/link</code> and <code>/invite</code> other members
+          (verified), and request without a request role. The server owner always counts.
+          None selected = the server owner and anyone whose roles grant <strong>Manage Server</strong> or <strong>Administrator</strong>;
+          once roles are selected, only those roles count.</>}
+        roles={roles.data ?? []} value={v.admin_role_ids ?? []}
+        onChange={(ids) => f.set({ admin_role_ids: ids })} />
+      <RolePicker
         legend={<>Who may link by typing a Plex username (unverified)</>}
         hint={<>Members without one of these roles only see <strong>Sign in with Plex</strong> in <code>/link</code>, which verifies their account. None selected = nobody can link by username.</>}
         all={v.username_link_all_members ?? true} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.username_link_role_ids ?? []}
         onAll={(x) => f.set({ username_link_all_members: x })} onChange={(ids) => f.set({ username_link_role_ids: ids })} />
+      <RolePicker
+        legend="Plex Invites"
+        hint={<>Members with one of these roles can <code>/invite</code> their own Plex account; their roles decide the libraries.
+          Admins (above) can always invite, for any member. None selected = admins only.</>}
+        all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
+        value={v.invite_role_ids ?? []}
+        onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
       <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Shared Plex accounts (families)</legend>
         <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
@@ -221,7 +255,7 @@ function Linking() {
         </span>
         <label className="check" style={{ marginBottom: 6 }}>
           <input type="radio" name="family-link-mode" checked={(v.family_link_mode ?? "admin") === "admin"} onChange={() => f.set({ family_link_mode: "admin" })} />
-          <span><strong>Admins only</strong> <span className="muted small">— from the Users page (<em>Add member</em>)</span></span>
+          <span><strong>Admins only</strong> <span className="muted small">— from the Users page (<em>Add member</em>) or with <code>/link member plex_user</code></span></span>
         </label>
         <label className="check">
           <input type="radio" name="family-link-mode" checked={v.family_link_mode === "verified"} onChange={() => f.set({ family_link_mode: "verified" })} />
@@ -243,13 +277,7 @@ function Linking() {
         <select value={v.unlink_policy} onChange={(e) => f.set({ unlink_policy: e.target.value as AppSettings["unlink_policy"] })} style={{ maxWidth: 420 }}>{POLICY_OPTIONS}</select>
       </label>
       <LinkRoles roles={roles.data ?? []} value={v} set={f.set} onCreated={() => void roles.reload()} />
-      <RolePicker
-        legend="Plex Invites"
-        hint={<>Members with one of these roles can <code>/invite</code> their own Plex account; their roles decide the libraries.
-          Discord admins (Manage Server) can always invite for any member. None selected = admins only.</>}
-        all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
-        value={v.invite_role_ids ?? []}
-        onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
+      <InviteWelcome value={v} set={f.set} />
       {changed ? <ImpactCard impact={impact} /> : null}
       <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />
     </div>
@@ -312,6 +340,14 @@ function Account() {
       setError(err);
     }
   };
+  if (status?.user?.auth_source === "oidc") {
+    return (
+      <div className="card stack" style={{ maxWidth: 480 }}>
+        <p>Signed in as <strong>{status.user.username}</strong> with single sign-on.</p>
+        <p className="small muted">This account has no WooSarr password; change your password with your identity provider.</p>
+      </div>
+    );
+  }
   return (
     <form className="card stack" style={{ maxWidth: 480 }} onSubmit={submit}>
       <p>Signed in as <strong>{status?.user?.username}</strong>.</p>
@@ -357,7 +393,7 @@ function Admins() {
             <tbody>
               {admins.data.map((a) => (
                 <tr key={a.id}>
-                  <td><strong>{a.username}</strong>{a.id === status?.user?.id ? <span className="muted small"> (you)</span> : null}<div className="small muted">{a.auth_source}</div></td>
+                  <td><strong>{a.username}</strong>{a.id === status?.user?.id ? <span className="muted small"> (you)</span> : null}<div className="small muted">{a.auth_source === "oidc" ? "Single sign-on" : "Password"}</div></td>
                   <td>
                     <div className="row">
                       {a.is_active ? <Badge tone="ok">Active</Badge> : <Badge tone="neutral">Disabled</Badge>}
@@ -368,7 +404,7 @@ function Admins() {
                   <td>
                     <div className="row" style={{ justifyContent: "flex-end" }}>
                       {a.locked ? <button className="btn sm" onClick={() => void act(() => api.patch(`/api/v1/admins/${a.id}`, { unlock: true }), `${a.username} unlocked.`)}>Unlock</button> : null}
-                      <button className="btn sm" onClick={() => setResetting(a)}>Reset password</button>
+                      {a.auth_source === "local" ? <button className="btn sm" onClick={() => setResetting(a)}>Reset password</button> : null}
                       <button className="btn sm" onClick={() => void act(() => api.patch(`/api/v1/admins/${a.id}`, { is_active: !a.is_active }), `${a.username} ${a.is_active ? "disabled" : "enabled"}.`)}>
                         {a.is_active ? "Disable" : "Enable"}
                       </button>
@@ -546,6 +582,113 @@ function LinkRoles({ roles, value, set, onCreated }: {
           </button>
         </div>
       ))}
+    </fieldset>
+  );
+}
+
+interface WelcomePreview {
+  defaults: Record<string, string>;
+  placeholders: Record<string, string>;
+  needs_verified: string[];
+  unverified: string;
+  verified: string;
+}
+
+type WelcomeKey = "invite_welcome_text" | "invite_welcome_verify_text" | "invite_welcome_verify_needed_text" | "invite_welcome_find_server_text";
+
+/** Discord-ish rendering of a DM: **bold**, `code`, backslash escapes removed, line breaks kept. No HTML. */
+function DmPreview({ text, label }: { text: string; label: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  const plain = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!|~<>@])/g, "$1");
+  return (
+    <div className="discord-preview" aria-label={label}>
+      {parts.map((part, i) => {
+        if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={i}>{plain(part.slice(2, -2))}</strong>;
+        if (/^`[^`]+`$/.test(part)) return <code key={i}>{part.slice(1, -1)}</code>;
+        return <span key={i}>{plain(part)}</span>;
+      })}
+    </div>
+  );
+}
+
+/** Settings → Linking: the DM a member gets when their Plex invite is accepted, in four editable parts. */
+function InviteWelcome({ value, set }: { value: AppSettings; set: (p: Partial<AppSettings>) => void }) {
+  const [preview, setPreview] = useState<WelcomePreview | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [which, setWhich] = useState<"unverified" | "verified">("unverified");
+  const texts = {
+    invite_welcome_text: value.invite_welcome_text,
+    invite_welcome_verify_text: value.invite_welcome_verify_text,
+    invite_welcome_verify_needed_text: value.invite_welcome_verify_needed_text,
+    invite_welcome_find_server_text: value.invite_welcome_find_server_text,
+  };
+  const key = JSON.stringify(texts);
+  // Checked here with the names the last preview listed, so a typo shows at once (the server checks too).
+  const known = preview ? Object.keys(preview.placeholders) : null;
+  const unknown = known ? [...new Set(Object.values(texts).flatMap((x) => [...(x ?? "").matchAll(/\{([A-Za-z_]+)\}/g)].map((m) => m[1])))]
+    .filter((n) => !known.includes(n)) : [];
+  const typo = unknown.length ? `unknown placeholder ${unknown.map((n) => `{${n}}`).join(", ")}; use ${known!.map((n) => `{${n}}`).join(", ")}` : null;
+  useEffect(() => {
+    if (typo) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api.post<WelcomePreview>("/api/v1/settings/invite-welcome/preview", JSON.parse(key))
+        .then((r) => { if (live) { setPreview(r); setError(null); } }, (e) => live && setError(e));
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [key, typo]);
+  const on = value.invite_welcome ?? true;
+  const needs = preview?.needs_verified ?? [];
+  const parts: { key: WelcomeKey; label: string; hint: ReactNode; rows: number }[] = [
+    { key: "invite_welcome_text", label: "Message", rows: 4, hint: "Always sent." },
+    { key: "invite_welcome_verify_text", label: "When the link is unverified", rows: 3,
+      hint: <>Added when the member invited themselves, so their link isn't verified yet (an invite sent by a Discord admin is). Leave empty to leave it out.</> },
+    { key: "invite_welcome_verify_needed_text", label: "When a setting needs a verified link", rows: 2,
+      hint: needs.length
+        ? <>Added after the part above while something needs a verified link. Now: <em>{needs.join("; ")}</em> (that's <code>{"{features}"}</code>).</>
+        : <>Added after the part above only while something needs a verified link (<em>Settings → Requests → Verified links only</em> with Seerr connected, or <em>Ignore unverified links</em>). Nothing does now, so it's left out.</> },
+    { key: "invite_welcome_find_server_text", label: "Where to find the server", rows: 2,
+      hint: "Added when the member can see at least one library. Leave empty to leave it out." },
+  ];
+  return (
+    <fieldset className="plain stack">
+      <legend className="small" style={{ fontWeight: 600 }}>Invite welcome message</legend>
+      <Switch checked={on} onChange={(x) => set({ invite_welcome: x })}
+        label={<><strong>DM members when their Plex invite is accepted</strong> <span className="muted small">— members who don't accept DMs from server members won't get it</span></>} />
+      {preview ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Placeholders: {Object.entries(preview.placeholders).map(([k, d], i) => (
+            <span key={k}>{i ? " · " : ""}<code>{`{${k}}`}</code> {d}</span>
+          ))}. Discord formatting works: <code>**bold**</code>, <code>`code`</code>.
+        </p>
+      ) : null}
+      {parts.map((p) => {
+        const dflt = preview?.defaults[p.key];
+        const current = texts[p.key] ?? "";
+        return (
+          <div key={p.key} className="stack" style={{ gap: 4, opacity: on ? 1 : 0.6 }}>
+            <Field label={p.label} hint={p.hint}>
+              <textarea rows={p.rows} maxLength={1500} value={current} disabled={!on}
+                onChange={(e) => set({ [p.key]: e.target.value } as Partial<AppSettings>)} />
+            </Field>
+            <div>
+              <button type="button" className="btn sm" disabled={!on || dflt === undefined || current === dflt}
+                onClick={() => set({ [p.key]: dflt } as Partial<AppSettings>)}>Reset to default</button>
+            </div>
+          </div>
+        );
+      })}
+      {typo ? <div className="banner warn small" role="alert"><span>{typo}</span></div> : <ErrorBanner error={error} />}
+      {preview && on && !typo ? (
+        <div>
+          <div className="segmented" role="group" aria-label="Preview for">
+            <button type="button" aria-pressed={which === "unverified"} onClick={() => setWhich("unverified")}>Member invited themselves</button>
+            <button type="button" aria-pressed={which === "verified"} onClick={() => setWhich("verified")}>An admin sent the invite</button>
+          </div>
+          <DmPreview text={preview[which]} label="Welcome message preview" />
+          <p className="small muted" style={{ marginTop: 6 }}>Preview with a made-up member and your server's name and libraries.</p>
+        </div>
+      ) : null}
     </fieldset>
   );
 }

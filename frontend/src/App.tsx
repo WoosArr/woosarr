@@ -10,6 +10,7 @@ import UsersPage from "./pages/Users";
 import RolesPage from "./pages/Roles";
 import LibrariesPage from "./pages/Libraries";
 import ReactionsPage from "./pages/Reactions";
+import EmojiPage from "./pages/Emoji";
 import RequestsPage from "./pages/Requests";
 import LogsPage from "./pages/Logs";
 import SettingsPage from "./pages/Settings";
@@ -21,6 +22,7 @@ const NAV: { to: string; label: string; icon: IconName }[] = [
   { to: "/roles", label: "Roles", icon: "roles" },
   { to: "/libraries", label: "Libraries", icon: "library" },
   { to: "/reactions", label: "Reaction Posts", icon: "check" },
+  { to: "/emoji", label: "Custom Emoji", icon: "smile" },
   { to: "/requests", label: "Requests", icon: "download" },
   { to: "/logs", label: "Logs", icon: "logs" },
   { to: "/settings", label: "Settings", icon: "settings" },
@@ -42,6 +44,11 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
+  // The build, for the footer: "1.3.0-dev.14 · ba15809" (public health endpoint).
+  const [build, setBuild] = useState<{ version: string; channel: string; commit: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then(setBuild, () => setBuild(null));
+  }, []);
 
   return (
     <div className="shell">
@@ -75,6 +82,11 @@ function Shell() {
           </div>
           {/* AGPL-3.0 §13: users of a (modified) instance can get its source. Forks: point this at your source. */}
           <a className="small" href="https://github.com/WoosArr/woosarr" target="_blank" rel="noreferrer">Source code · AGPL-3.0</a>
+          {build ? (
+            <span className="small muted" title={`${build.channel} build`}>
+              WooSarr {build.version}{build.commit ? ` · ${build.commit}` : ""}
+            </span>
+          ) : null}
         </div>
       </nav>
       <main className="main" id="main" tabIndex={-1}>
@@ -84,6 +96,7 @@ function Shell() {
           <Route path="/roles" element={<RolesPage />} />
           <Route path="/libraries" element={<LibrariesPage />} />
           <Route path="/reactions" element={<ReactionsPage />} />
+          <Route path="/emoji" element={<EmojiPage />} />
           <Route path="/requests" element={<RequestsPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

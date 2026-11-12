@@ -168,11 +168,15 @@ your redirect URI filled in.
 
 ## Troubleshooting
 
-| Message | Meaning / fix |
-|---------|---------------|
-| *state mismatch* | The sign-in started in another browser/tab or cookies are blocked; start again from the login page. |
-| *issuer mismatch* | The issuer you entered doesn't match the provider's discovery document (e.g. wrong Okta authorization server, Entra `common`). |
-| *different application (audience)* | The client ID doesn't match the application that issued the token. |
-| *expired / isn't valid yet* | The clocks of the container and the provider differ by more than 2 minutes. |
-| *not in an allowed group, email or domain* | Use **Test sign-in** to see which claims arrive; add the groups claim to the ID token or adjust the rules. |
-| *redirect URI mismatch* (at the provider) | The redirect URI registered at the provider must match exactly, including https and the path. |
+The login page only says what kind of failure it was; the details are in WooSarr's log
+(**Logs** page, search `sso`: `sso sign-in failed provider=… ip=… code=…: <reason>`) and in the audit
+trail (`login_failed`). **Test sign-in** shows the full reason and the claims received.
+
+| Login page says | Code | Typical reasons in the log |
+|-----------------|------|----------------------------|
+| *That sign-in provider isn't available right now* | `unavailable` | Provider disabled or removed, its discovery document unreachable, or *issuer mismatch* (the issuer you entered doesn't match the discovery document, e.g. wrong Okta authorization server, Entra `common`). |
+| *The sign-in expired or didn't start in this browser* | `expired` | *state mismatch*: the sign-in started in another browser or tab, took over 10 minutes, or cookies are blocked. Start again from the login page. |
+| *The sign-in provider refused the sign-in* | `provider_error` | `<provider> said: …`, the provider's own error (e.g. the user isn't assigned to the app, or *redirect URI mismatch*: the URI registered at the provider must match exactly, including https and the path). |
+| *Single sign-on failed* | `failed` | *the ID token was issued for a different application (audience)*: the client ID doesn't match. *isn't valid yet* / expired: the container's and provider's clocks differ by more than 2 minutes. Wrong client secret, signature or nonce problems. |
+| *This account isn't allowed to sign in to WooSarr* | `not_allowed` | *not in an allowed group, email or domain*: use **Test sign-in** to see which claims arrive; add the groups claim to the ID token or adjust the rules. |
+| *This admin account is disabled* | `disabled` | The admin linked to this provider account was disabled under *Settings → Admins*. |

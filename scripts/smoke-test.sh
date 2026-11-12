@@ -6,16 +6,18 @@ set -eu
 IMAGE="${1:-woosarr:dev}"
 PORT="${2:-31337}"
 NAME="woosarr-smoke-$$"
+NAME568="woosarr-smoke-568-$$"  # the non-root (TrueNAS-style) run at the end
 CONF="$(mktemp -d)"
+CURRENT="$NAME"  # whose log fail() shows
 
 cleanup() {
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker rm -f "$NAME" "$NAME568" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 fail() {
     echo "FAIL: $*" >&2
-    docker logs "$NAME" 2>&1 | tail -50 >&2 || true
+    docker logs "$CURRENT" 2>&1 | tail -50 >&2 || true
     exit 1
 }
 
@@ -68,5 +70,30 @@ done
 docker stop "$NAME" >/dev/null
 after=$($sudo_cmd cat "$LOG" | wc -l)
 [ "$after" -gt "$before" ] || fail "log file not appended across restart"
+
+# TrueNAS-style start: as a fixed non-root user (568, TrueNAS's "apps"), never root, no capabilities.
+# The entrypoint then skips PUID/PGID and the chown and runs WooSarr directly; /config must already
+# belong to that user (TrueNAS datasets and ixVolumes do).
+CONF2="$(mktemp -d)"
+$sudo_cmd chown 568:568 "$CONF2"
+docker run -d --name "$NAME568" --user 568:568 -p "$PORT:31337" -v "$CONF2:/config" \
+    --security-opt no-new-privileges:true --cap-drop ALL \
+    --health-interval=2s --health-start-period=5s "$IMAGE" >/dev/null
+CURRENT="$NAME568"
+i=0
+until curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -le 30 ] || fail "non-root start: health endpoint never answered"; sleep 1
+done
+i=0
+until [ "$(docker inspect -f '{{.State.Health.Status}}' "$NAME568")" = "healthy" ]; do
+    i=$((i + 1)); [ "$i" -le 30 ] || fail "non-root start: container never became healthy"; sleep 1
+done
+[ "$(docker exec "$NAME568" id -u)" = "568" ] || fail "non-root start: not running as 568"
+$sudo_cmd test -s "$CONF2/app.db" || fail "non-root start: database not created in /config"
+owner=$($sudo_cmd stat -c %u "$CONF2/app.db")
+[ "$owner" = "568" ] || fail "non-root start: app.db owned by $owner, not 568"
+docker stop "$NAME568" >/dev/null
+[ "$(docker inspect -f '{{.State.ExitCode}}' "$NAME568")" != "137" ] || fail "non-root start: SIGKILLed on stop"
+echo "non-root (568) start passed"
 
 echo "smoke test passed"

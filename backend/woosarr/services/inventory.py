@@ -50,6 +50,10 @@ def refresh_libraries(session: Session, gateway: PlexGateway) -> tuple[int, int]
         row.title, row.type, row.removed = lib.title, lib.type, False
         row.synced_at = utcnow()
     removed = 0
+    if not live and existing:
+        log.warning("Plex listed no libraries at all; keeping the %d known ones (not marking them removed)",
+                    len(existing))
+        return 0, 0
     for lib_id, row in existing.items():
         if lib_id not in live and not row.removed:
             row.removed = True
@@ -132,6 +136,25 @@ def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
             removed += 1
             log.info("plex user gone from the owner's friends/Home list id=%s username=%s", uid, row.username)
     return len(live), removed
+
+
+def add_users(session: Session, users: list) -> int:
+    """Add users that are new (or back) without touching anyone else: the invite check reads only
+    part of the roster, so missing users mean nothing here (the full sync marks those removed)."""
+    added = 0
+    for user in users:
+        row = session.get(PlexUser, user.plex_user_id)
+        if row is None:
+            session.add(PlexUser(plex_user_id=user.plex_user_id, username=user.username, email=user.email,
+                                 is_managed=user.is_managed, is_owner=user.is_owner))
+        elif row.removed:
+            row.username, row.email, row.removed = user.username, user.email, False
+        else:
+            continue
+        added += 1
+        log.info("plex user added id=%s username=%s", user.plex_user_id, user.username)
+    session.flush()
+    return added
 
 
 def store_shares(session: Session, plex_user_id: str, library_ids: frozenset[str]) -> None:

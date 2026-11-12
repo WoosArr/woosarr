@@ -11,16 +11,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 import discord
 from discord import app_commands
 
 from woosarr.core import app_settings
-from woosarr.services import audit
-from woosarr.services.discord_text import safe
+from woosarr.services import audit, media_links
+from woosarr.services.discord_text import link_text, safe
+from woosarr.services.discord_timing import acknowledge
 from woosarr.services.media_requests import STATE_TEXT, Notice, RequestDenied, RequestService
-from woosarr.services.seerr import Details, Hit, SeerrError
+from woosarr.services.seerr import Details, Hit, SeerrError, split_year, title_words
+from woosarr.services.tvdb_pages import TvdbPages
 
 if TYPE_CHECKING:
     from woosarr.services.discord_bot import DiscordService
@@ -28,7 +31,12 @@ if TYPE_CHECKING:
 log = logging.getLogger("woosarr.discord.requests")
 
 AUTOCOMPLETE_SECONDS = 2.5  # Discord drops autocomplete answers after 3 s
+# Discord asks for suggestions on every keystroke and discards the older asks as the member types
+# on: wait this long and search only if nothing newer came from the same member.
+SUGGEST_SETTLE_SECONDS = 0.35
 PICK = re.compile(r"^(movie|tv):(\d{1,10})$")
+TVDB_SECONDS = 1.2  # reading a TVDB page while suggesting (it usually takes 0.5-1 s); else search by name
+LINK_HELP = "help:links"  # value of the suggestion that explains which links work
 REQUESTABLE = ("unknown", "deleted")
 STATUS_LINE = {
     "unknown": "Not on Plex yet",
@@ -42,8 +50,16 @@ STATUS_LINE = {
 COLOR = 0x8B5CF6
 
 
-def is_admin(interaction: discord.Interaction) -> bool:
-    perms = getattr(interaction.user, "guild_permissions", None)
+def is_admin(user: Any, admin_role_ids: list[str]) -> bool:
+    """Whether a member counts as a WooSarr admin in Discord commands (setting admin_role_ids).
+    The server owner always does. No admin roles chosen: roles granting Manage Server or
+    Administrator. Admin roles chosen: only those roles."""
+    guild = getattr(user, "guild", None)
+    if guild is not None and getattr(guild, "owner_id", None) == getattr(user, "id", None):
+        return True
+    if admin_role_ids:
+        return bool(set(admin_role_ids) & {str(r.id) for r in getattr(user, "roles", None) or ()})
+    perms = getattr(user, "guild_permissions", None)
     return bool(perms and (perms.manage_guild or perms.administrator))
 
 
@@ -111,7 +127,7 @@ class PickView(_Owned):
     def __init__(self, service: DiscordService, owner_id: int, hits: list[Hit]) -> None:
         super().__init__(owner_id)
         self.service = service
-        select = discord.ui.Select(placeholder="Choose a title", min_values=1, max_values=1, options=[
+        select = discord.ui.Select(placeholder="Choose a movie or show", min_values=1, max_values=1, options=[
             discord.SelectOption(label=f"{n}. {h.label(100 - len(f'{n}. '))}", value=h.key,
                                  description=(h.overview[:97] + "…") if len(h.overview) > 100 else (h.overview or None))
             for n, h in enumerate(hits[:25], 1)])
@@ -129,7 +145,7 @@ class PickView(_Owned):
 def pick_list(hits: list[Hit]) -> discord.Embed:
     """Numbered titles linking to TMDB, shown above the pick menu. Links only open the
     page; choosing still happens in the menu (menu options can't hold links)."""
-    lines = [f"{n}. [{safe(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
+    lines = [f"{n}. [{link_text(h.label())}]({h.tmdb_url})" for n, h in enumerate(hits[:25], 1)]
     return discord.Embed(description="\n".join(lines)[:4096], color=COLOR)
 
 
@@ -178,8 +194,9 @@ class RequestView(_Owned):
     async def _request(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(content="Sending the request…", view=None)
         seasons = self.seasons or None
-        result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id),
-                                         is_admin(interaction), self.item.media_type, self.item.tmdb_id, seasons)
+        admin = await self.service.member_is_admin(interaction.user)
+        result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id), admin,
+                                         self.item.media_type, self.item.tmdb_id, seasons)
         message = result.message
         if result.ok and result.row_id is not None:
             where = await self.service.announce_request(interaction.user.id, self.item, result.state or "pending",
@@ -195,7 +212,7 @@ class RequestView(_Owned):
 
 
 def build_command(service: DiscordService, name: str) -> app_commands.Command:
-    @app_commands.describe(title="Movie or TV show; pick one of the suggestions")
+    @app_commands.describe(title="Movie or TV show: type and pick a suggestion, or paste an IMDb, TMDB or TVDB link")
     async def request(interaction: discord.Interaction, title: str) -> None:
         await service.handle_request_command(interaction, title)
 
@@ -213,6 +230,10 @@ class RequestCommands:
     """Request handlers of DiscordService (needs .requests, .run_db)."""
 
     requests: RequestService | None
+    tvdb_pages: TvdbPages
+
+    async def member_is_admin(self, user: Any) -> bool:
+        return is_admin(user, (await self.run_db(app_settings.load)).admin_role_ids)
 
     def request_command_name(self, session: Any) -> str | None:
         """The name to register, or None while Seerr isn't set up."""
@@ -227,10 +248,11 @@ class RequestCommands:
             return []
         member = None
         if interaction is not None:
-            member, admin = str(interaction.user.id), is_admin(interaction)
+            member = str(interaction.user.id)
 
             def allowed(s) -> bool:
                 st = app_settings.load(s)
+                admin = is_admin(interaction.user, st.admin_role_ids)
                 if (st.request_visibility == "public" and st.request_channel_only
                         and str(interaction.channel_id) != st.request_channel_id):
                     return False
@@ -242,21 +264,54 @@ class RequestCommands:
 
             if not await self.run_db(allowed):
                 return []
+            self._latest_suggestion[member] = interaction.id
+            await asyncio.sleep(SUGGEST_SETTLE_SECONDS)
+            if self._latest_suggestion.get(member) != interaction.id:
+                return []  # the member typed on; Discord has already dropped this ask
+        budget = AUTOCOMPLETE_SECONDS - (SUGGEST_SETTLE_SECONDS if interaction is not None else 0)
         try:
-            hits = await asyncio.wait_for(asyncio.to_thread(self.requests.search, current, AUTOCOMPLETE_SECONDS,
-                                                            member), AUTOCOMPLETE_SECONDS)
+            lookup = media_links.parse(current)
+        except media_links.LinkRejected as exc:
+            return [app_commands.Choice(name=exc.short, value=LINK_HELP)]
+        try:
+            if lookup is not None and lookup.title:  # a TVDB name link: its page names the exact title
+                started = time.monotonic()
+                lookup = await asyncio.wait_for(asyncio.to_thread(self.tvdb_pages.resolve, lookup, TVDB_SECONDS),
+                                                budget)
+                budget -= time.monotonic() - started
+            if lookup is not None and lookup.tmdb_id is not None:
+                item = await asyncio.wait_for(asyncio.to_thread(self.requests.details, lookup.media_type,
+                                                                lookup.tmdb_id), budget)
+                return [app_commands.Choice(name=item.label(), value=item.key)]
+            hits = await asyncio.wait_for(asyncio.to_thread(self.search_for, lookup, current, budget, member, 1),
+                                          budget)
         except (TimeoutError, SeerrError) as exc:
-            log.info("request suggestions for %r unavailable: %s", current[:50], exc or "timeout")
+            # A timeout's message is empty: say what it was.
+            log.info("request suggestions for %r unavailable: %s", current[:50], str(exc) or "timed out")
             return []
         return [app_commands.Choice(name=h.label(), value=h.key) for h in hits[:25]]
 
+    def search_for(self, lookup: media_links.Lookup | None, text: str, timeout: float | None, member: str | None,
+                   pages: int) -> list[Hit]:
+        """Search for what was typed or pasted: Seerr's id lookup for a link, its name for a
+        TVDB name link (only that kind: movie or show), else the text."""
+        if lookup is None:
+            return self.requests.search(text, timeout, member, pages)
+        if lookup.query:
+            return self.requests.search(lookup.query, timeout, member, pages)
+        return [h for h in self.requests.search(lookup.title or "", timeout, member, pages)
+                if h.media_type == lookup.media_type]
+
     async def handle_request_command(self, interaction: discord.Interaction, title: str) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        name = getattr(getattr(interaction, "command", None), "name", None) or "request"
+        if not await acknowledge(interaction, f"/{name}", self.timing):
+            return
         if self.requests is None:
             await interaction.followup.send("Requests aren't set up yet. Ask an admin.", ephemeral=True)
             return
-        uid, admin = str(interaction.user.id), is_admin(interaction)
+        uid = str(interaction.user.id)
         settings = await self.run_db(app_settings.load)
+        admin = is_admin(interaction.user, settings.admin_role_ids)
         if (settings.request_visibility == "public" and settings.request_channel_only
                 and str(interaction.channel_id) != settings.request_channel_id):
             log.info("request by %s refused: used in channel %s, not %s", uid, interaction.channel_id,
@@ -280,16 +335,40 @@ class RequestCommands:
         if picked:
             await self.show_details(interaction, picked.group(1), int(picked.group(2)))
             return
+        if title.strip() == LINK_HELP:
+            await interaction.followup.send(media_links.HOW, ephemeral=True)
+            return
         try:
-            hits = await asyncio.to_thread(self.requests.search, title, None, uid)
+            lookup = media_links.parse(title)
+        except media_links.LinkRejected as exc:
+            log.info("request by %s: link to %s refused", uid, exc.host or "?")
+            await interaction.followup.send(str(exc), ephemeral=True)
+            return
+        if lookup is not None and lookup.title:  # a TVDB name link: its page names the exact title
+            lookup = await asyncio.to_thread(self.tvdb_pages.resolve, lookup, TVDB_SECONDS * 3)
+        if lookup is not None and lookup.tmdb_id is not None:
+            log.info("request by %s: %s link to %s %s", uid, lookup.site, lookup.media_type, lookup.tmdb_id)
+            await self.show_details(interaction, lookup.media_type, lookup.tmdb_id)
+            return
+        if lookup is not None:
+            log.info("request by %s: %s link, looking up %s", uid, lookup.site, lookup.query or repr(lookup.title))
+        try:
+            hits = await asyncio.to_thread(self.search_for, lookup, title, None, uid, 1 if lookup and lookup.query else 2)
         except SeerrError as exc:
             text = str(exc) if exc.status == 429 else f"Seerr isn't answering right now ({safe(str(exc), 200)})."
             await interaction.followup.send(text, ephemeral=True)
             return
         if not hits:
-            await interaction.followup.send(f"Nothing found for **{safe(title, 100)}**.",
-                                            ephemeral=True)
+            text = (f"Nothing found for that {lookup.site} link. Check it's the title's own page, or type the title."
+                    if lookup else f"Nothing found for **{safe(title, 100)}**.")
+            await interaction.followup.send(text, ephemeral=True)
             return
+        if lookup is not None and lookup.title:
+            name, year = split_year(lookup.title)
+            same = [h for h in hits if h.year == year] if year else hits
+            same = [h for h in same if any(title_words(t) == title_words(name) for t in (h.title, h.original_title) if t)]
+            if len(same) == 1:  # the TVDB link's name and year fit one title
+                hits = same
         if len(hits) == 1:
             await self.show_details(interaction, hits[0].media_type, hits[0].tmdb_id)
             return
@@ -377,19 +456,19 @@ class RequestCommands:
                     log.warning("request notice in #%s failed (%s); sending a DM", channel.name, exc)
         return await self.send_dm(notice.discord_user_id, notice.text)
 
-    async def send_dm(self, discord_user_id: str, text: str) -> bool:
+    async def send_dm(self, discord_user_id: str, text: str, what: str = "request notice") -> bool:
         client = getattr(self, "_client", None)
         if client is None or not client.is_ready():
-            log.info("request notice for %s not sent: bot not connected", discord_user_id)
+            log.info("%s for %s not sent: bot not connected", what, discord_user_id)
             return False
         try:
             user = client.get_user(int(discord_user_id)) or await client.fetch_user(int(discord_user_id))
             await user.send(text, allowed_mentions=discord.AllowedMentions.none())
         except discord.Forbidden:
-            log.info("request notice for %s not sent: member doesn't accept DMs from the bot", discord_user_id)
+            log.info("%s for %s not sent: member doesn't accept DMs from the bot", what, discord_user_id)
             return False
         except (discord.NotFound, discord.HTTPException) as exc:
-            log.warning("request notice for %s not sent: %s", discord_user_id, exc)
+            log.warning("%s for %s not sent: %s", what, discord_user_id, exc)
             return False
-        log.info("request notice sent to %s", discord_user_id)
+        log.info("%s sent to %s", what, discord_user_id)
         return True

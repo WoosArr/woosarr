@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import requests
@@ -53,6 +54,7 @@ class FakeSeerr:
         self.quota_exceeded: set[int] = set()
         self.down = False
         self.search_delay = 0.0
+        self.search_results: list[dict] | None = None  # set: every search answers these, 20 a page
 
     # --- helpers for tests -----------------------------------------------------
     def add_user(self, plex_id=None, email=None, plex_username=None, can_request=True) -> int:
@@ -107,6 +109,17 @@ class FakeSeerr:
             if any(c in raw for c in " !'()*"):
                 return FakeResponse(400, {"message": "query must be URL encoded"})
             q = unquote(raw).lower()
+            if self.search_results is not None:
+                page, n = int(query.get("page", 1)), len(self.search_results)
+                return FakeResponse(200, {"page": page, "totalPages": max((n + 19) // 20, 1), "totalResults": n,
+                                          "results": self.search_results[(page - 1) * 20:page * 20]})
+            if m := re.fullmatch(r"(imdb|tmdb|tvdb):(\w+)", q):  # Seerr's id lookups (server/lib/search.ts)
+                kind, ref = m.groups()
+                ids = {"imdb": {("movie", i): f"tt{i:07d}" for i in MOVIES} | {("tv", 1396): "tt0903747"},
+                       "tmdb": {("movie", i): str(i) for i in MOVIES} | {("tv", i): str(i) for i in SHOWS},
+                       "tvdb": {("tv", 1396): "81189"}}[kind]
+                results = [self._movie(i) if t == "movie" else self._show(i) for (t, i), v in ids.items() if v == ref]
+                return FakeResponse(200, {"page": 1, "totalPages": 1, "totalResults": len(results), "results": results})
             results = [self._movie(i) for i, m in MOVIES.items() if q in m["title"].lower()]
             results += [self._show(i) for i, t in SHOWS.items() if q in t["name"].lower()]
             results.append({"id": 287, "mediaType": "person", "name": "Brad Pitt"})
@@ -127,6 +140,15 @@ class FakeSeerr:
             return FakeResponse(200, show)
         if path == "/request" and method == "POST":
             return self._create(user, json or {})
+        if path.startswith("/request/") and path.endswith("/retry") and method == "POST":
+            rid = int(path.split("/")[2])
+            if rid not in self.requests:
+                return FakeResponse(404, {"message": "Request not found."})
+            if self.requests[rid]["status"] != 4:
+                return FakeResponse(409, {"message": "Only failed requests can be retried."})
+            # Seerr answers with the request alone (no media), approved again.
+            self.requests[rid]["status"] = 2
+            return FakeResponse(200, {k: v for k, v in self.requests[rid].items() if k != "media"})
         if path.startswith("/request/") and method == "GET":
             rid = int(path.rsplit("/", 1)[1])
             if rid not in self.requests:

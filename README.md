@@ -10,11 +10,11 @@ WooSarr is a Plex user and library management system with Seerr integration for 
 
 - **Mass actions and manual grants.** Select multiple Plex users and add or remove libraries from them. Or, add or remove roles from Discord users en masse. With one action!
 - **Discord roles → Plex libraries.** Map roles to one or more libraries. Users are granted access to libraries matching their roles. Grants are **additive**!  If you have two roles that grant a library, and remove one of those roles, the user retains access.
-- **Invite Discord users to Plex.** Admins can invite Discord users to  Users can use /invite to invite themselves to 
+- **Invite Discord users to Plex.** Admins can use `/invite` to invite Discord users to the Plex server. (Optionally) Users can use `/invite` to invite themselves to the Plex server.
 - **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role), link-status roles (Verified / Unverified / Linked) and adding or removing roles for many members at once.
-- **Link Discord users to Plex accounts.** Discord users can link themselves with `/link`: *Sign in with Plex* (verified users) or by typing their Plex username (unverified users). Admins can also link other Discord users in the web UI or with /link. 
+- **Link Discord users to Plex accounts.** Discord users can link themselves with `/link`: *Sign in with Plex* (verified users) or by typing their Plex username (unverified users). Admins can also link other Discord users in the web UI or with `/link`. 
 - **Shared Plex accounts.** Have users with multiple Discord accounts, or multiple Discord users who share a Plex account?  They can share! Allows multiple people access to requesting media, and maintains library access if one user has appropriate roles (Limited to verified accounts only) 
-- **Exemptions .** Exempt libraries from mamangement so that they are never touched by roles.
+- **Exemptions.** Exempt libraries from management so that they are never touched by roles.
 - **Roles via reaction:** Create a post with predefined reactions.  Users who react get prescribed roles.  
 - **Custom Emojis:** Have you ever wanted to add an emoji to your Discord server so that your react post could have cool emojis for the role that grants them access to your sweet anime collection, or looked at the movie and tv emoji options and wished there was something better?  Wish no more!  Search emoji.gg, OpenMoji and slackmojis to add emojis to your Discord server (animated ones hidden unless you want them). You can also rename and delete server emojis.
 - **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, by typing the title or pasting an IMDb, TMDB or TVDB link, and hear back when it's available. Failed requests are retried ([docs/requests.md](docs/requests.md)).
@@ -22,7 +22,7 @@ WooSarr is a Plex user and library management system with Seerr integration for 
 - **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs, and a check for newer versions.
 - **Admin sign-in** with a password or OIDC to your SSO provider: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
-- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change. Prevents accidental 
+- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role mapping change, library removal or access-changing setting. Prevents accidental changes to access until configuration is complete. 
 
 
 ## Screenshots
@@ -38,14 +38,14 @@ WooSarr is a Plex user and library management system with Seerr integration for 
 
 ## Install
 UnRAID and Docker installation have been tested and verified.
-TrueNAS, Proxmox, and Docker Compose installs have not been verified.
+TrueNAS, Proxmox, and Docker Compose installs have not been verified on a live server.
 
 ### Unraid
 
 WooSarr is in Unraid's Community Applications:
 
 1. **Apps** tab → search for **WooSarr** → **Install**.
-2. Check the settings (data folder `/mnt/user/appdata/woosarr`, WebUI port `31337`, `PUID`/`PGID`) → **Apply**.
+2. Check the data folder (`/mnt/user/appdata/woosarr`) and WebUI port (`31337`); `PUID`/`PGID` are under *Show more settings* → **Apply**.
 3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI** (see [First run](#first-run)).
 
 Updates show on the Docker tab like any other container (**apply update**). Details, development builds and installing without Community Applications (from [`unraid/woosarr.xml`](unraid/woosarr.xml)): [docs/unraid-notes.md](docs/unraid-notes.md).
@@ -92,7 +92,7 @@ docker run -d --name woosarr \
 
 Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (current release), `1.0.0` / `1.0` (a version), `develop` (newest development build, for testing; back up `/config` first, database changes don't go backwards) and `sha-<commit>` (one exact build).
 
-**Which build am I on?** The dashboard  and the sidebar show the operating version. Releases use semantic versioning `1.2.0`. Develop builds read similarly, showing the next release's number, then a build number that counts the commits since the last release, the commit and its date. . Ex. `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026` WooSarr checks GitHub at startup and every 6 hours and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
+**Which build am I on?** The dashboard and the sidebar show the operating version. Releases use semantic versioning `1.2.0`. Develop builds read similarly, showing the next release's number, then a build number that counts the commits since the last release, the commit and its date. Ex. `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026`. WooSarr checks GitHub at startup and every 6 hours by default (3 hours down to 5 minutes in *Settings → General*) and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
 
 ## First run
 
@@ -163,7 +163,7 @@ Back up `/config` (the database, logs and `secrets/master.key`). The master key 
 
 **A reaction post won't publish.** The bot needs View Channels, Send Messages, Add Reactions and Read Message History in that channel (channel permission overrides win over server roles). The post is saved anyway; a toast and the Alerts widget say which permission is missing. *Integrations → Discord → Bot features and permissions* shows what the bot can do.
 
-**Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token and the bot token are stored, encrypted.
+**Does WooSarr store Plex passwords or user tokens?** No. `/link` sign-ins (arriving with the Discord bot) use a one-time token that is invalidated straight after reading the username. Only the server owner's Plex token, the bot token, the Seerr API key and any SSO client secrets are stored, all encrypted.
 
 **Another bot already has `/request`.** Both work; Discord shows each with its bot's name. Rename WooSarr's in *Settings → Requests* or hide the other bot's under *Server Settings → Integrations* ([docs/requests.md](docs/requests.md#another-bot-already-has-request)).
 
@@ -198,7 +198,7 @@ Security notes: [docs/threat-model.md](docs/threat-model.md).
 
 ## Releases
 
-Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: each release is a merge to `main` plus a version tag on it (`v1.2.3` → `1.2.3`, `1.2` and, for the newest release, `latest`, all one image). They run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml`) and secret-scan it, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
+Development happens on `develop`: please open pull requests against `develop`, not `main` (the default branch, which only changes when a release is merged). Every push to `develop` runs CI and, if it passes, publishes a **`ghcr.io/woosarr/woosarr:develop`** image for testing (not for everyday use; it never becomes `latest`). `main` is the release branch: each release is a merge to `main` plus a version tag on it (`v1.2.3` → `1.2.3`, `1.2` and, for the newest release, `latest`, all one image). They run CI (lint, tests, UI tests, audits, secret scan), smoke-test the image (also through `compose.yaml` and `truenas/compose.yaml`), scan it for secrets and vulnerabilities, then publish `linux/amd64` and `linux/arm64` images to GitHub Container Registry.
 
 ## License
 

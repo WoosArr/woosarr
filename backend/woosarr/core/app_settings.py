@@ -30,6 +30,10 @@ class AppSettings(BaseModel):
     leave_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
     # Members who run /unlink: same choices as leave_policy.
     unlink_policy: Literal["drop_role_access", "keep_all"] = "drop_role_access"
+    # Discord roles whose members count as admins in /invite, /link and /request. Empty: the
+    # server owner and members whose roles grant Manage Server or Administrator. Set: the server
+    # owner and members with one of these roles (Discord permissions no longer count).
+    admin_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # Discord roles whose members may /invite themselves (admins can always invite).
     invite_role_ids: list[str] = Field(default_factory=list, max_length=50)
     # Every member may /invite themselves (overrides invite_role_ids).

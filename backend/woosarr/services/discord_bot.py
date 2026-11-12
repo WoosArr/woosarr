@@ -37,6 +37,7 @@ from woosarr.services import (
 )
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
+from woosarr.services.discord_text import safe
 from woosarr.services.discord_timing import DiscordTiming, acknowledge
 from woosarr.services.tvdb_pages import TvdbPages
 
@@ -109,10 +110,11 @@ def help_text(request_name: str | None) -> str:
     lines = [
         "**WooSarr commands**",
         ("`/link`: link your Discord account to your Plex account. Sign in with Plex (verified) or type your "
-         "Plex username. Once linked, your Discord roles decide which Plex libraries you can see."),
+         "Plex username. Once linked, your Discord roles decide which Plex libraries you can see. Admins can set "
+         "`member` and `plex_user` to link someone else."),
         "`/unlink`: remove that link. You're asked to confirm first.",
         ("`/invite email [member]`: send a Plex invite to an email address or Plex username. Library access is "
-         "determined by possessed roles. Needs a role the server admins allow; Discord admins can set `member` to "
+         "determined by possessed roles. Needs a role the server admins allow; admins can set `member` to "
          "invite for someone else."),
     ]
     if request_name:
@@ -208,8 +210,15 @@ class WooSarrBot(discord.Client):
         guild = discord.Object(id=self.guild_id)
 
         @self.tree.command(name="link", description="Link your Discord account to your Plex account", guild=guild)
-        async def link(interaction: discord.Interaction) -> None:
-            await self.service.handle_link_command(interaction)
+        @app_commands.describe(member="Admins only: the Discord member to link (default: you)",
+                               plex_user="Admins only: the Plex user to link them to (verified)")
+        async def link(interaction: discord.Interaction, member: discord.Member | None = None,
+                       plex_user: str | None = None) -> None:
+            await self.service.handle_link_command(interaction, member, plex_user)
+
+        @link.autocomplete("plex_user")
+        async def link_plex_user(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+            return await self.service.plex_user_suggestions(interaction, current)
 
         @self.tree.command(name="unlink", description="Unlink your Discord account from your Plex account",
                            guild=guild)
@@ -1409,11 +1418,10 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
     async def handle_invite_command(self, interaction: discord.Interaction, email: str,
                                     member: discord.Member | None) -> None:
         actor = interaction.user
-        perms = getattr(actor, "guild_permissions", None)
-        is_admin = bool(perms and (perms.manage_guild or perms.administrator))
         target = member or actor
         if not await acknowledge(interaction, "/invite", self.timing):
             return
+        is_admin = await self.member_is_admin(actor)
         gateway = self._sync._gateway() if self._sync is not None else None
 
         def work() -> invites.InviteResult:
@@ -1428,8 +1436,12 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
 
     # ---- /link (P4-04) -----------------------------------------------------------
 
-    async def handle_link_command(self, interaction: discord.Interaction) -> None:
+    async def handle_link_command(self, interaction: discord.Interaction, member: discord.Member | None = None,
+                                  plex_user: str | None = None) -> None:
         if not await acknowledge(interaction, "/link", self.timing):
+            return
+        if member is not None or plex_user:
+            await self._admin_link(interaction, member, plex_user)
             return
         wait = await self.run_db(link_service.cooldown_remaining, str(interaction.user.id))
         if wait:
@@ -1449,6 +1461,59 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         if by_username:
             text += "\n• **Enter Plex username**: quicker, but unverified."
         await interaction.followup.send(text, view=_LinkView(self, by_username), ephemeral=True)
+
+    async def _admin_link(self, interaction: discord.Interaction, member: discord.Member | None,
+                          plex_user: str | None) -> None:
+        """`/link member plex_user`: an admin links a member (or themselves) to a Plex user, verified,
+        the same as Users → Link in the web UI."""
+        actor = interaction.user
+        if not await self.member_is_admin(actor):
+            log.info("/link by discord %s with admin options refused: not an admin", actor.id)
+            await interaction.followup.send("Only admins can link other members. Run `/link` without options to "
+                                            "link your own account.", ephemeral=True)
+            return
+        target = member or actor
+        if not plex_user:
+            await interaction.followup.send(f"Pick the Plex user to link <@{target.id}> to (`plex_user`).",
+                                            ephemeral=True)
+            return
+        if getattr(target, "bot", False):
+            await interaction.followup.send("Bots can't be linked to a Plex account.", ephemeral=True)
+            return
+
+        def work() -> tuple[str | None, str]:
+            with self._db.session() as s:
+                if isinstance(target, discord.Member):  # the member list may not know them yet
+                    cache.member_changed(s, _member(target))
+                plex = link_service.find_plex_user(s, plex_user)
+                if plex is None:
+                    return None, "No Plex user with that name has access to this server. Pick one of the suggestions."
+                try:
+                    others = link_service.admin_link(s, plex.plex_user_id, str(target.id), f"discord:{actor.id}",
+                                                     f"discord-admin:{actor.id}", via="discord")
+                except link_service.AdminLinkError as exc:
+                    if exc.status == 409:
+                        return None, (f"<@{target.id}> is already linked to another Plex account. Unlink it first "
+                                      "(Users page in WooSarr, or they run `/unlink`).")
+                    return None, "That Plex user is no longer on the server."
+                shared = (f" They share it with {len(others)} other member{'s' if len(others) != 1 else ''}."
+                          if others else "")
+                return plex.plex_user_id, (f"Linked <@{target.id}> to Plex account **{safe(plex.username, 100)}** "
+                                           f"(verified).{shared} Their library access updates shortly.")
+
+        plex_id, message = await asyncio.to_thread(work)
+        if plex_id is not None:
+            log.info("discord %s linked by admin discord %s to plex user %s", target.id, actor.id, plex_id)
+            self.trigger([plex_id], f"linked by discord admin {actor.id}")
+        await interaction.followup.send(message, ephemeral=True)
+
+    async def plex_user_suggestions(self, interaction: discord.Interaction, current: str
+                                    ) -> list[app_commands.Choice[str]]:
+        """Plex users for an admin's `/link plex_user`; nobody else gets the list."""
+        if not await self.member_is_admin(interaction.user):
+            return []
+        found = await self.run_db(link_service.plex_user_suggestions, current[:100])
+        return [app_commands.Choice(name=label, value=pid) for label, pid in found]
 
     async def start_oauth_link(self, interaction: discord.Interaction) -> None:
         discord_id = str(interaction.user.id)

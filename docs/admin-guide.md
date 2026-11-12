@@ -38,10 +38,10 @@ The rules:
 ### Discord commands
 
 - `/help`: lists the commands below with their options (only the asker sees it; `/request` appears only when Seerr is set up).
-- `/link`: link your Plex account (Plex sign-in = verified, or typed username). *Settings → Linking → Who may link by typing a Plex username* can limit the typed-username option to chosen roles; everyone else only sees Plex sign-in, and a typed username from them is refused (audited as `link_failed`, reason `username_link_not_allowed`).
+- `/link`: link your Plex account (Plex sign-in = verified, or typed username). *Settings → Linking → Who may link by typing a Plex username* can limit the typed-username option to chosen roles; everyone else only sees Plex sign-in, and a typed username from them is refused (audited as `link_failed`, reason `username_link_not_allowed`). Admins can link someone else with `/link member plex_user` (verified, like *Link* on the Users page).
 - `/unlink`: remove your own link. What happens to access is set under *Settings → Linking → When a member unlinks themselves*.
 - `/request title` (name set in *Settings → Requests*, default `/request`): request a movie or show through Seerr as the member's own Seerr user. Members type the title and pick a suggestion, or paste the title's IMDb, TMDB or TVDB link. Needs Seerr connected on the Integrations page and a linked (by default verified) Plex account. See [requests.md](requests.md).
-- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Linking → Plex Invites* (or anyone, if that's ticked; nobody by default); Discord admins can invite for anyone. Accepted invites link automatically, within about a minute of being accepted; pending ones are listed on the Users page. Not available in dry-run.
+- `/invite email [member]`: send a Plex invite whose libraries come from the member's roles. Members can invite themselves if they hold a role chosen under *Settings → Linking → Plex Invites* (or anyone, if that's ticked; nobody by default); admins (*Settings → Linking → Admin roles*) can invite for anyone. Accepted invites link automatically, within about a minute of being accepted; pending ones are listed on the Users page. Not available in dry-run.
 
 ### Discord roles managed by WooSarr
 
@@ -83,7 +83,7 @@ Several Discord members can be linked to one Plex account, for example a family 
 
 - **Access** is the union: the account gets every library any of its members' roles give (plus manual grants and exempt libraries, as always). The Users page shows *Shared by N*, each member with their own unlink button, and the roles of all members.
 - **Adding a member** (*Settings → Linking → Shared Plex accounts*):
-  - *Admins only* (default): **Add member** on the Users page.
+  - *Admins only* (default): **Add member** on the Users page, or `/link member plex_user` in Discord.
   - *Admins, or members who sign in with that Plex account*: also `/link` → **Sign in with Plex**. Typing the username is never enough to join someone else's account.
   - Either way, signing in with Plex replaces links other members made by typing the username (they're unproven), and every new member on an account others are linked to shows up in **Alerts**.
 - **A member leaves the Discord server** (*When a linked member leaves the Discord server*): *Remove role-granted libraries* drops what only their roles gave and keeps what the others' roles give; *Leave their access as it is* keeps counting their last known roles. If every member has left, it works as for a single member.
@@ -230,13 +230,14 @@ Changes take effect when you **Save**; settings that change access show an impac
 
 | Setting | Default | |
 |---------|---------|---|
+| Admin roles | none (owner, Manage Server, Administrator) | Roles whose members count as admins in Discord (`/link` and `/invite` for others, requests without a request role). Once roles are chosen, only they (and the server owner) count. |
 | Who may link by typing a Plex username | anyone | Or only members with chosen roles; everyone else only sees *Sign in with Plex*. |
+| Plex Invites | nobody (admins only) | Roles whose members may `/invite` themselves, or anyone in the server. |
 | Shared Plex accounts (families) | Admins only | Or *Admins, or members who sign in with that Plex account* ([Shared Plex accounts](#shared-plex-accounts-families)). |
 | `/link` cooldown (seconds) | 300 | Wait between a member's link attempts; 0 = none. |
 | When a linked member leaves the Discord server | Remove role-granted libraries | Or *Leave their access as it is*. |
 | When a member unlinks themselves | Remove role-granted libraries | Or *Leave their access as it is*. |
 | Discord roles for Plex link status | none | Verified / Unverified / Linked roles, each picked or created ([Discord notes](discord-notes.md#link-status-roles)). |
-| Plex Invites | nobody (admins only) | Roles whose members may `/invite` themselves, or anyone in the server. |
 | Invite welcome message | on | DM sent when an invite is accepted, in four editable parts with a live preview and *Reset to default* each ([Discord notes](discord-notes.md#welcome-message-when-an-invite-is-accepted)). |
 
 **Requests**: command name, who may request, verified links only, create missing Seerr users, notify members, retry failed requests, private or public and the requests channel ([requests.md → Who may request](requests.md#who-may-request-settings--requests)).

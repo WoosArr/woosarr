@@ -289,21 +289,10 @@ class AdminLinkIn(BaseModel):
 def admin_link(plex_user_id: str, body: AdminLinkIn, request: Request, db: DbDep, principal: AdminDep) -> UserOut:
     """Link a Discord member to this Plex account (verified). If other members are already linked,
     this adds one more: a family sharing the account gets the union of their roles."""
-    if db.get(PlexUser, plex_user_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plex user not found")
-    by_discord = db.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == body.discord_user_id))
-    if by_discord and by_discord.plex_user_id != plex_user_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "that Discord account is linked to another Plex user; unlink it first")
-    others = [x.discord_user_id for x in db.scalars(select(DiscordLink).where(
-        DiscordLink.plex_user_id == plex_user_id, DiscordLink.discord_user_id != body.discord_user_id))]
-    if by_discord is None:
-        db.add(DiscordLink(plex_user_id=plex_user_id, discord_user_id=body.discord_user_id,
-                           method="admin", verified=True, linked_by=principal.actor))
-    else:
-        by_discord.method, by_discord.verified, by_discord.linked_by = "admin", True, principal.actor
-    db.flush()
-    audit.record(db, principal.actor, "link_admin", "plex_user", plex_user_id,
-                 discord_user_id=body.discord_user_id, other_discord_user_ids=others or None)
+    try:
+        link_service.admin_link(db, plex_user_id, body.discord_user_id, principal.actor, principal.actor)
+    except link_service.AdminLinkError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
     request.app.state.sync.trigger([plex_user_id], f"linked by {principal.actor}")
     return _users(db, plex_user_id)[0]
 

@@ -38,7 +38,7 @@ Public needs a channel. The bot needs **View Channels, Send Messages, Embed Link
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | **Command name** | `request` | 1–32 characters: lowercase letters, numbers, `-`, `_`. Can't be `link`, `unlink`, `invite` or `help` (WooSarr's other commands). See *Another bot already has /request*. |
-| **All linked members** | on | Off = only members with one of the ticked roles. Discord admins (Manage Server) can always request. |
+| **All linked members** | on | Off = only members with one of the ticked roles. Admins (*Settings → Linking → Admin roles*; by default Manage Server or Administrator) can always request. |
 | **Verified links only** | on | Only members whose link is verified (Sign in with Plex) may request. A username-only `/link` is a claim anyone could make, and requests are made as that Plex account's Seerr user. |
 | **Create missing Seerr users** | on | If the member's Plex account has no Seerr user yet, WooSarr imports it (`POST /api/v1/user/import-from-plex` with that Plex id). Seerr gives it its **default permissions** (Seerr → Settings → Users). Off = the member is told to ask an admin. |
 | **Notify members** | on | DM status changes. |

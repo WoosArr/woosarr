@@ -50,8 +50,16 @@ STATUS_LINE = {
 COLOR = 0x8B5CF6
 
 
-def is_admin(interaction: discord.Interaction) -> bool:
-    perms = getattr(interaction.user, "guild_permissions", None)
+def is_admin(user: Any, admin_role_ids: list[str]) -> bool:
+    """Whether a member counts as a WooSarr admin in Discord commands (setting admin_role_ids).
+    The server owner always does. No admin roles chosen: roles granting Manage Server or
+    Administrator. Admin roles chosen: only those roles."""
+    guild = getattr(user, "guild", None)
+    if guild is not None and getattr(guild, "owner_id", None) == getattr(user, "id", None):
+        return True
+    if admin_role_ids:
+        return bool(set(admin_role_ids) & {str(r.id) for r in getattr(user, "roles", None) or ()})
+    perms = getattr(user, "guild_permissions", None)
     return bool(perms and (perms.manage_guild or perms.administrator))
 
 
@@ -186,8 +194,9 @@ class RequestView(_Owned):
     async def _request(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(content="Sending the request…", view=None)
         seasons = self.seasons or None
-        result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id),
-                                         is_admin(interaction), self.item.media_type, self.item.tmdb_id, seasons)
+        admin = await self.service.member_is_admin(interaction.user)
+        result = await asyncio.to_thread(self.service.requests.submit, str(interaction.user.id), admin,
+                                         self.item.media_type, self.item.tmdb_id, seasons)
         message = result.message
         if result.ok and result.row_id is not None:
             where = await self.service.announce_request(interaction.user.id, self.item, result.state or "pending",
@@ -223,6 +232,9 @@ class RequestCommands:
     requests: RequestService | None
     tvdb_pages: TvdbPages
 
+    async def member_is_admin(self, user: Any) -> bool:
+        return is_admin(user, (await self.run_db(app_settings.load)).admin_role_ids)
+
     def request_command_name(self, session: Any) -> str | None:
         """The name to register, or None while Seerr isn't set up."""
         if self.requests is None or not self.requests.configured():
@@ -236,10 +248,11 @@ class RequestCommands:
             return []
         member = None
         if interaction is not None:
-            member, admin = str(interaction.user.id), is_admin(interaction)
+            member = str(interaction.user.id)
 
             def allowed(s) -> bool:
                 st = app_settings.load(s)
+                admin = is_admin(interaction.user, st.admin_role_ids)
                 if (st.request_visibility == "public" and st.request_channel_only
                         and str(interaction.channel_id) != st.request_channel_id):
                     return False
@@ -296,8 +309,9 @@ class RequestCommands:
         if self.requests is None:
             await interaction.followup.send("Requests aren't set up yet. Ask an admin.", ephemeral=True)
             return
-        uid, admin = str(interaction.user.id), is_admin(interaction)
+        uid = str(interaction.user.id)
         settings = await self.run_db(app_settings.load)
+        admin = is_admin(interaction.user, settings.admin_role_ids)
         if (settings.request_visibility == "public" and settings.request_channel_only
                 and str(interaction.channel_id) != settings.request_channel_id):
             log.info("request by %s refused: used in channel %s, not %s", uid, interaction.channel_id,

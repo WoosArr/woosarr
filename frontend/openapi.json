@@ -271,6 +271,14 @@
       "AppSettings": {
         "additionalProperties": false,
         "properties": {
+          "admin_role_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Admin Role Ids",
+            "type": "array"
+          },
           "audit_retention_days": {
             "default": 365,
             "maximum": 3650.0,

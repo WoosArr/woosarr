@@ -46,7 +46,9 @@ Implementation: `woosarr/services/discord_bot.py` (discord.py 2.7).
 
 ## `/link`
 
-Ephemeral reply with two buttons:
+**Who counts as an admin** in Discord commands (*Settings → Linking → Admin roles*): with no roles chosen (default), the server owner and anyone whose roles grant *Manage Server* or *Administrator*; with roles chosen, the server owner and members with one of those roles (Discord permissions no longer count). The same rule applies to `/link`, `/invite` and the request command.
+
+With no options, an ephemeral reply with two buttons:
 
 - **Sign in with Plex (verified)**: WooSarr starts a Plex PIN with a throwaway client id and replies with a link button; it polls for up to 5 min, reads the identity, signs the token out and verifies it's dead (see `plex-notes.md`), then links with `method=oauth`, `verified=true`.
 - **Enter Plex username**: modal with one text field; matches a known Plex user by username or email (case-insensitive); `method=username`, `verified=false`. Only offered to members allowed by *Settings → Linking → Who may link by typing a Plex username* (everyone by default); the bot refreshes the member's roles before deciding, and refuses a typed username from anyone else (`link_failed`, reason `username_link_not_allowed`).
@@ -56,6 +58,7 @@ Rules (`services/link_service.py`, `linking.decide_link`):
 - A Discord member has **one** link. One linked elsewhere must be unlinked first (`discord_already_linked`).
 - A Plex account may have **several** members (a family sharing it; see the admin guide). Typing a username never joins an account someone else is linked to (`plex_account_taken`).
 - *Sign in with Plex* proves the account: it removes other members' unverified (typed-username) claims. If verified members remain, it joins them only when *Settings → Linking → Shared Plex accounts* is set to allow sign-in; otherwise it's refused and the member is told to ask an admin.
+- **Admins: `/link member plex_user`** links a member (or, without `member`, themselves) to a Plex user, the same as *Link* on the Users page: `method=admin`, `verified=true`, `linked_by=discord-admin:<id>`, audited `link_admin` with `via=discord`, and a sync for that account. `plex_user` suggests the server's Plex users by username (an email finds them too, but emails are never shown; each says how many members are already linked, so adding one to a shared account is visible); a typed username or email works too. A member linked to a different Plex account must be unlinked first. Members who aren't admins get no suggestions, and the options are refused for them. No cooldown. Log line: `discord <id> linked by admin discord <id> to plex user <id>`.
 - Per-member cooldown (*Settings → Linking*); every attempt is audited (`link_self` with outcome `created` / `upgraded` / `replaced` / `joined` / `unchanged`, or `link_failed` with the reason and who holds the account). Attempts on someone else's account, takeovers and joins appear in the dashboard's **Alerts**.
 
 ## `/unlink`
@@ -71,11 +74,11 @@ Audited as `unlink_self` (with the policy and the members who remain).
 
 ## `/help`
 
-A private reply listing every command the bot has registered with its options: `/link`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up; it mentions pasting an IMDb, TMDB or TVDB link) and `/help`. `help` can't be used as the request command's name.
+A private reply listing every command the bot has registered with its options: `/link [member] [plex_user]`, `/unlink`, `/invite email [member]`, the request command (under its configured name, only while Seerr is set up; it mentions pasting an IMDb, TMDB or TVDB link) and `/help`. `help` can't be used as the request command's name.
 
 ## `/invite email [member]`
 
-- Members holding a role in **Settings → Linking → Plex Invites** (or anyone in the server, if *anyone* is ticked there) may invite **themselves**; with neither, only Discord admins can invite. Discord admins (*Manage Server* or *Administrator*) may invite for any member (`member` option).
+- Members holding a role in **Settings → Linking → Plex Invites** (or anyone in the server, if *anyone* is ticked there) may invite **themselves**; with neither, only Discord admins can invite. Admins (see [`/link`](#link) for who counts) may invite for any member (`member` option), and their invites link verified.
 - Libraries = what the target member's roles grant (exempt libraries are never granted by roles). No libraries → refused.
 - Refused in dry-run, if the member is already linked or has a pending invite, if the email/username is already on the server (use `/link`), and within the link cooldown. Every attempt is audited (`invite_sent` / `invite_failed`).
 - Sends `POST shared_servers` with `invited_email` (python-plexapi `inviteFriend`). When the person accepts, WooSarr finds them by email/username and links them (`method=invite`; verified when an admin sent it; a member who invited themselves is linked unverified and can verify with `/link` → *Sign in with Plex*). While an invite sent in the last 24 hours is pending, WooSarr reads Plex's list of users with a share once a minute (one plex.tv call), so an accepted invite links, gets its link-status roles and syncs within about a minute; older invites are matched by the full sync (*Full reconcile every*, 15 minutes by default). Log lines: `plex user added id=… username=…`, `invite N accepted by …; linked to discord …`, and once per outage `invite check failed (…)` / `invite check works again`. Pending invites are listed on the Users page.

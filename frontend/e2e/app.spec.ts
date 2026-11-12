@@ -232,6 +232,19 @@ test("settings tabs: username linking limited to a role", async ({ page }) => {
   expect(saved.username_link_all_members).toBe(false);
   expect(saved.username_link_role_ids).toHaveLength(1);
   await expect(page.getByRole("group", { name: "Plex Invites" })).toBeVisible();
+  // Admin roles first, then username linking, then Plex Invites.
+  const legends = await page.locator(".card.settings fieldset > legend").allTextContents();
+  expect(legends.slice(0, 3)).toEqual(["Admin roles", "Who may link by typing a Plex username (unverified)", "Plex Invites"]);
+  const admins = page.getByRole("group", { name: "Admin roles" });
+  await expect(admins.getByRole("checkbox", { name: /All members/ })).toHaveCount(0);
+  await expect(admins.getByRole("checkbox").first()).not.toBeChecked();  // none by default: Discord permissions decide
+  await admins.getByRole("checkbox").first().check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Settings saved.")).toBeVisible();
+  expect((await (await page.request.get("/api/v1/settings")).json()).admin_role_ids).toHaveLength(1);
+  await admins.getByRole("checkbox").first().uncheck();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect.poll(async () => (await (await page.request.get("/api/v1/settings")).json()).admin_role_ids).toEqual([]);
   await expect(page.getByLabel("When a member unlinks themselves")).toBeVisible();
   await page.goto("/settings?tab=logging");  // merged into General; old links still work
   await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "true");

@@ -83,18 +83,21 @@ function SaveRow({ dirty, onSave, onDiscard }: { dirty: boolean; onSave: () => v
   );
 }
 
-function RolePicker({ legend, hint, all, allHint, roles, value, onAll, onChange }: {
-  legend: ReactNode; hint: ReactNode; all: boolean; allHint: string; roles: RoleOut[]; value: string[];
-  onAll: (x: boolean) => void; onChange: (ids: string[]) => void;
+/** Roles to tick; with onAll, also an "All members" switch that overrides them. */
+function RolePicker({ legend, hint, all = false, allHint, roles, value, onAll, onChange }: {
+  legend: ReactNode; hint: ReactNode; all?: boolean; allHint?: string; roles: RoleOut[]; value: string[];
+  onAll?: (x: boolean) => void; onChange: (ids: string[]) => void;
 }) {
   return (
     <fieldset className="plain">
       <legend className="small" style={{ fontWeight: 600 }}>{legend}</legend>
       <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>{hint}</span>
-      <label className="check" style={{ marginBottom: 6 }}>
-        <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
-        <span><strong>All members</strong> <span className="muted small">— {allHint}</span></span>
-      </label>
+      {onAll ? (
+        <label className="check" style={{ marginBottom: 6 }}>
+          <input type="checkbox" checked={all} onChange={(e) => onAll(e.target.checked)} />
+          <span><strong>All members</strong> <span className="muted small">— {allHint}</span></span>
+        </label>
+      ) : null}
       <div className="chooser" style={all ? { opacity: 0.5 } : undefined} aria-disabled={all}>
         {roles.filter((r) => !r.managed && !r.deleted).map((r) => {
           const on = value.includes(r.role_id);
@@ -224,11 +227,26 @@ function Linking() {
   return (
     <div className="card settings" style={{ maxWidth: 720 }}>
       <RolePicker
+        legend="Admin roles"
+        hint={<>Members who count as admins in Discord: they can <code>/link</code> and <code>/invite</code> other members
+          (verified), and request without a request role. The server owner always counts.
+          None selected = the server owner and anyone whose roles grant <strong>Manage Server</strong> or <strong>Administrator</strong>;
+          once roles are selected, only those roles count.</>}
+        roles={roles.data ?? []} value={v.admin_role_ids ?? []}
+        onChange={(ids) => f.set({ admin_role_ids: ids })} />
+      <RolePicker
         legend={<>Who may link by typing a Plex username (unverified)</>}
         hint={<>Members without one of these roles only see <strong>Sign in with Plex</strong> in <code>/link</code>, which verifies their account. None selected = nobody can link by username.</>}
         all={v.username_link_all_members ?? true} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.username_link_role_ids ?? []}
         onAll={(x) => f.set({ username_link_all_members: x })} onChange={(ids) => f.set({ username_link_role_ids: ids })} />
+      <RolePicker
+        legend="Plex Invites"
+        hint={<>Members with one of these roles can <code>/invite</code> their own Plex account; their roles decide the libraries.
+          Admins (above) can always invite, for any member. None selected = admins only.</>}
+        all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
+        value={v.invite_role_ids ?? []}
+        onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
       <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Shared Plex accounts (families)</legend>
         <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
@@ -237,7 +255,7 @@ function Linking() {
         </span>
         <label className="check" style={{ marginBottom: 6 }}>
           <input type="radio" name="family-link-mode" checked={(v.family_link_mode ?? "admin") === "admin"} onChange={() => f.set({ family_link_mode: "admin" })} />
-          <span><strong>Admins only</strong> <span className="muted small">— from the Users page (<em>Add member</em>)</span></span>
+          <span><strong>Admins only</strong> <span className="muted small">— from the Users page (<em>Add member</em>) or with <code>/link member plex_user</code></span></span>
         </label>
         <label className="check">
           <input type="radio" name="family-link-mode" checked={v.family_link_mode === "verified"} onChange={() => f.set({ family_link_mode: "verified" })} />
@@ -259,13 +277,6 @@ function Linking() {
         <select value={v.unlink_policy} onChange={(e) => f.set({ unlink_policy: e.target.value as AppSettings["unlink_policy"] })} style={{ maxWidth: 420 }}>{POLICY_OPTIONS}</select>
       </label>
       <LinkRoles roles={roles.data ?? []} value={v} set={f.set} onCreated={() => void roles.reload()} />
-      <RolePicker
-        legend="Plex Invites"
-        hint={<>Members with one of these roles can <code>/invite</code> their own Plex account; their roles decide the libraries.
-          Discord admins (Manage Server) can always invite for any member. None selected = admins only.</>}
-        all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
-        value={v.invite_role_ids ?? []}
-        onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
       <InviteWelcome value={v} set={f.set} />
       {changed ? <ImpactCard impact={impact} /> : null}
       <SaveRow dirty={f.dirty} onSave={() => void f.save()} onDiscard={f.discard} />

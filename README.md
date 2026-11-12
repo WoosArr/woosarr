@@ -2,27 +2,28 @@
 
 # WooSarr
 
-Automatically grants and removes **Plex library access** based on **Discord roles**.
+WooSarr is a Plex user and library management system with Seerr integration for media requests. 
 
 [![Support WooSarr on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/woosai)
 
 ![WooSarr dashboard](docs/images/dashboard-dark.png)
 
-- **Discord roles → Plex libraries.** Map each role to libraries; members get the union of all their roles. Grants are **additive**: a library stays if any role, manual grant or exemption keeps it.
-- **Only linked users are managed.** Members link themselves with `/link`: *Sign in with Plex* (verified; the one-time token is invalidated straight away) or by typing their Plex username (unverified, can be limited to chosen roles).
-- **Shared Plex accounts.** Several Discord members can share one Plex account (a family); it gets the libraries all their roles give.
-- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change.
-- **Exemptions and manual grants.** Exempt libraries are never touched by roles; admins can grant or remove libraries per user.
+- **Mass actions and manual grants.** Select multiple Plex users and add or remove libraries from them. Or, add or remove roles from Discord users en masse. With one action!
+- **Discord roles → Plex libraries.** Map roles to one or more libraries. Users are granted access to libraries matching their roles. Grants are **additive**!  If you have two roles that grant a library, and remove one of those roles, the user retains access.
+- **Invite Discord users to Plex.** Admins can invite Discord users to  Users can use /invite to invite themselves to 
 - **Discord bot:** `/link`, `/unlink`, `/invite` (send a Plex invite with the member's role libraries), `/help`, reaction posts (react to get a role), link-status roles (Verified / Unverified / Linked) and adding or removing roles for many members at once.
-- **Custom Emoji:** search emoji.gg, OpenMoji and slackmojis and add emoji to your Discord server (animated ones hidden unless you want them); rename and delete server emoji.
+- **Link Discord users to Plex accounts.** Discord users can link themselves with `/link`: *Sign in with Plex* (verified users) or by typing their Plex username (unverified users). Admins can also link other Discord users in the web UI or with /link. 
+- **Shared Plex accounts.** Have users with multiple Discord accounts, or multiple Discord users who share a Plex account?  They can share! Allows multiple people access to requesting media, and maintains library access if one user has appropriate roles (Limited to verified accounts only) 
+- **Exemptions .** Exempt libraries from mamangement so that they are never touched by roles.
+- **Roles via reaction:** Create a post with predefined reactions.  Users who react get prescribed roles.  
+- **Custom Emojis:** Have you ever wanted to add an emoji to your Discord server so that your react post could have cool emojis for the role that grants them access to your sweet anime collection, or looked at the movie and tv emoji options and wished there was something better?  Wish no more!  Search emoji.gg, OpenMoji and slackmojis to add emojis to your Discord server (animated ones hidden unless you want them). You can also rename and delete server emojis.
 - **Requests through Seerr:** members request movies and shows with `/request` (name configurable) as their own Seerr user, by typing the title or pasting an IMDb, TMDB or TVDB link, and hear back when it's available. Failed requests are retried ([docs/requests.md](docs/requests.md)).
-- **Keeps itself tidy:** libraries deleted in Plex and roles deleted in Discord are cleaned out of mappings, grants and settings, and hidden from the lists (*Hide deleted items*).
-- **Alerts:** warnings, errors and account events (someone trying to link an account that isn't theirs, takeovers, new family members) on the dashboard until resolved; a full audit trail of every change.
+- **Alerts:** warnings, errors and account events on the dashboard until resolved; a full audit trail of every change in the logs.
 - **Web UI on port 31337:** customizable dashboard, light/dark themes, colour-vision palettes, live logs, and a check for newer versions.
-- **Admin sign-in** with a password or OpenID Connect single sign-on: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
+- **Admin sign-in** with a password or OIDC to your SSO provider: Okta, Microsoft Entra ID, Google, ADFS or any OIDC provider ([docs/sso.md](docs/sso.md)).
 - One Docker container (`linux/amd64`, `linux/arm64`) with an Unraid template and a Compose file.
+- **Starts in dry-run.** See exactly what would change before anything does; impact previews before every role, removal or settings change. Prevents accidental 
 
-> **Status:** in use on a real Plex server and Discord server, and available in Unraid's **Community Applications** (Apps tab → search *WooSarr*). See [docs/action-plan.md](docs/action-plan.md).
 
 ## Screenshots
 
@@ -35,9 +36,9 @@ Automatically grants and removes **Plex library access** based on **Discord role
 | ![Settings: linking rules](docs/images/settings-linking.png) | ![Integrations: Plex, Discord and Seerr](docs/images/integrations.png) |
 | **Settings → Linking**: who may link how, shared accounts, leave and unlink rules | **Integrations**: connect Plex, Discord and Seerr |
 
-All screenshots use WooSarr's demo mode (a fake Plex server and Discord guild); `make screenshots` regenerates them.
-
 ## Install
+UnRAID and Docker installation have been tested and verified.
+TrueNAS, Proxmox, and Docker Compose installs have not been verified.
 
 ### Unraid
 
@@ -91,11 +92,11 @@ docker run -d --name woosarr \
 
 Images are published for `linux/amd64` and `linux/arm64`. Tags: `latest` (current release), `1.0.0` / `1.0` (a version), `develop` (newest development build, for testing; back up `/config` first, database changes don't go backwards) and `sha-<commit>` (one exact build).
 
-**Which build am I on?** The dashboard (under its title) and the sidebar show it. Releases read like `1.2.0`. `develop` builds read like `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026`: the next release's number, then a build number that counts the commits since the last release (higher is newer), the commit and its date. WooSarr also checks GitHub at startup and every 6 hours and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
+**Which build am I on?** The dashboard  and the sidebar show the operating version. Releases use semantic versioning `1.2.0`. Develop builds read similarly, showing the next release's number, then a build number that counts the commits since the last release, the commit and its date. . Ex. `1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026` WooSarr checks GitHub at startup and every 6 hours and says whether you're on the newest build of your channel: releases compare with the newest release, `develop` builds with the newest `develop` build (turn it off in *Settings → General*).
 
 ## First run
 
-1. Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):
+1. ***IMPORTANT*** Find the **setup code** in the container log (Unraid: Docker tab → WooSarr icon → **Logs**; Compose: `docker compose logs woosarr`):
 
    ```
    ================================================================
@@ -202,8 +203,6 @@ Development happens on `develop`: please open pull requests against `develop`, n
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, change and share WooSarr freely; if you distribute a modified version, or let others use one over a network, you must make its source code available under the same licence.
-
-Versions published before 2026-10-19 (including v0.1.0) were released under the MIT licence.
 
 ## Disclaimer
 

@@ -38,3 +38,6 @@ frontend/src/generated/
 frontend/test-results/
 frontend/playwright-report/
 .lockvenv/
+
+# git worktrees for parallel sessions (see CLAUDE.md)
+.worktrees/

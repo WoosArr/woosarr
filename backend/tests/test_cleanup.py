@@ -79,6 +79,11 @@ class RemovedLibraryTests(Base):
         self.remove_4k()
         self.gw.writes.clear()
         self.sync.run_now(None, "periodic")
+        with self.db.session() as s:  # missing once: flagged, but nothing forgotten yet (could be a glitch)
+            self.assertTrue(s.get(Library, "36").removed)
+            self.assertEqual(len(s.scalars(select(RoleLibrary).where(RoleLibrary.library_id == "36")).all()), 1)
+        self.assertEqual(self.audit("library_forgotten"), [])
+        self.sync.run_now(None, "periodic")  # still missing at the next full sync: forgotten now
         self.assertFalse(any("36" in libs for _uid, libs in self.gw.writes))  # never written to Plex
         with self.db.session() as s:
             self.assertTrue(s.get(Library, "36").removed)  # kept, so the audit trail keeps its name
@@ -93,6 +98,19 @@ class RemovedLibraryTests(Base):
                          ("36", [FOURK], ["12"]))
         self.sync.run_now(None, "again")
         self.assertEqual(len(self.audit("library_forgotten")), 1)  # once
+
+    def test_a_library_missing_from_one_answer_keeps_its_mappings(self):
+        from woosarr.plex_gateway import PlexLibrary
+        self.sync.run_now(None, "first")
+        self.remove_4k()
+        self.sync.run_now(None, "periodic")
+        self.gw.libraries.append(PlexLibrary("36", "4K Movies", "movie"))  # back at the next sync
+        self.sync.run_now(None, "periodic")
+        with self.db.session() as s:
+            self.assertFalse(s.get(Library, "36").removed)
+            self.assertEqual(len(s.scalars(select(RoleLibrary).where(RoleLibrary.library_id == "36")).all()), 1)
+            self.assertEqual(len(s.scalars(select(ManualGrant)).all()), 1)
+        self.assertEqual(self.audit("library_forgotten"), [])
 
     def test_an_empty_library_list_from_plex_removes_nothing(self):
         self.gw.libraries = []

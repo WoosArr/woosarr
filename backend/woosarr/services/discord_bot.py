@@ -325,7 +325,8 @@ class WooSarrBot(discord.Client):
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         if not self._ours(after.guild):
             return
-        if {r.id for r in before.roles} == {r.id for r in after.roles} and before.display_name == after.display_name:
+        if ({r.id for r in before.roles} == {r.id for r in after.roles} and before.display_name == after.display_name
+                and before.name == after.name):
             return
         pid = await self.service.run_db(cache.member_changed, _member(after))
         if pid:
@@ -454,7 +455,16 @@ class _GuildFeatures:
             raise DiscordConfigError("The bot is still connecting to the Discord server; try again in a moment.")
         return guild
 
-    def _permissions(self) -> tuple[dict[str, bool], dict[str, bool | None]]:
+    @staticmethod
+    def _permission_inputs(session) -> tuple[list[str], set[str]]:
+        """From the DB: the link-status roles and the roles enabled reaction posts give."""
+        st = app_settings.load(session)
+        reaction_roles = {r for p in session.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True)))
+                          for o in p.options or [] for r in option_role_ids(o)}
+        return [r for r in (st.verified_role_id, st.unverified_role_id, st.linked_role_id) if r], reaction_roles
+
+    def _permissions(self, inputs: tuple[list[str], set[str]] | None = None
+                     ) -> tuple[dict[str, bool], dict[str, bool | None]]:
         """(granted permissions, per-feature "bot's role is above the roles it assigns")."""
         try:
             guild = self._guild()
@@ -463,10 +473,10 @@ class _GuildFeatures:
         me = guild.me
         perms = me.guild_permissions
         granted = {name: bool(getattr(perms, name, False) or perms.administrator) for name in features.PERMISSION_BITS}
-        with self._db.session() as s:
-            st = app_settings.load(s)
-            reaction_roles = {r for p in s.scalars(select(ReactionPost).where(ReactionPost.enabled.is_(True)))
-                              for o in p.options or [] for r in option_role_ids(o)}
+        if inputs is None:  # called from a worker thread (the API); the event loop passes inputs (features_now)
+            with self._db.session() as s:
+                inputs = self._permission_inputs(s)
+        link_roles, reaction_roles = inputs
         top = me.top_role.position
 
         def above(role_ids) -> bool | None:
@@ -474,19 +484,25 @@ class _GuildFeatures:
             positions = [r.position for r in roles if r is not None]
             return top > max(positions) if positions else None
 
-        link_roles = [r for r in (st.verified_role_id, st.unverified_role_id, st.linked_role_id) if r]
         return granted, {"link_roles": above(link_roles), "reaction_posts": above(reaction_roles)}
 
-    def feature_status(self) -> list[dict[str, object]]:
-        granted, hierarchy = self._permissions()
+    def feature_status(self, inputs: tuple[list[str], set[str]] | None = None) -> list[dict[str, object]]:
+        """Bot features and whether they're available. Reads the DB itself: call it from a worker thread
+        (sync API routes); code on the event loop uses features_now()."""
+        granted, hierarchy = self._permissions(inputs)
         if not granted:
             # Unknown permissions: features that need none (slash commands) still work.
             return [f if not f["permissions"] else dict(f, available=False, missing=[], notes=["bot not connected"])
                     for f in features.feature_report({}, None)]
         return features.feature_report(granted, hierarchy)
 
-    def require(self, key: str) -> None:
-        ok, why = features.available(self.feature_status(), key)
+    async def features_now(self) -> list[dict[str, object]]:
+        """feature_status() for code on the event loop: the DB part runs in a worker thread, so a slow
+        disk can't block the Discord heartbeat."""
+        return self.feature_status(await self.run_db(self._permission_inputs))
+
+    async def require(self, key: str) -> None:
+        ok, why = features.available(await self.features_now(), key)
         if not ok:
             raise DiscordConfigError(why)
 
@@ -499,7 +515,7 @@ class _GuildFeatures:
         lack) a role are skipped for it. The member cache is updated right away and their linked
         Plex accounts are synced.
         """
-        self.require("assign_roles")
+        await self.require("assign_roles")
         if set(add) & set(remove):
             raise DiscordConfigError("A role can't be added and removed at the same time.")
         guild = self._guild()
@@ -573,7 +589,7 @@ class _GuildFeatures:
         return results
 
     async def create_role(self, name: str, color: int | None = None) -> tuple[str, str]:
-        self.require("create_roles")
+        await self.require("create_roles")
         guild = self._guild()
         try:
             kwargs = {"colour": discord.Colour(color)} if color is not None else {}
@@ -596,7 +612,7 @@ class _GuildFeatures:
 
     async def add_emoji(self, name: str, image: bytes, animated: bool, reason: str) -> dict[str, object]:
         """Upload a custom emoji (Custom Emoji page). Static and animated emoji have separate slots."""
-        self.require("custom_emoji")
+        await self.require("custom_emoji")
         guild = self._guild()
         slots = self.emoji_slots()
         kind = "animated" if animated else "static"
@@ -622,7 +638,7 @@ class _GuildFeatures:
 
     async def rename_emoji(self, emoji_id: str, name: str, reason: str) -> tuple[dict[str, object], str]:
         """(the renamed emoji, its old text)."""
-        self.require("custom_emoji")
+        await self.require("custom_emoji")
         emoji = self._server_emoji(emoji_id)
         old = str(emoji)
         try:
@@ -634,7 +650,7 @@ class _GuildFeatures:
         return _emoji_dict(emoji), old
 
     async def delete_emoji(self, emoji_id: str, reason: str) -> dict[str, object]:
-        self.require("custom_emoji")
+        await self.require("custom_emoji")
         emoji = self._server_emoji(emoji_id)
         gone = _emoji_dict(emoji)
         try:
@@ -659,7 +675,7 @@ class _GuildFeatures:
 
     async def publish_post(self, post_id: int, new_channel_name: str | None = None) -> dict:
         """Post (or update) a reaction post, add its reactions, pin it if wanted."""
-        self.require("reaction_posts")
+        await self.require("reaction_posts")
         guild = self._guild()
 
         def load(s):
@@ -676,7 +692,7 @@ class _GuildFeatures:
             raise DiscordConfigError("Add at least one emoji option first.")
         channel = None
         if new_channel_name:
-            self.require("create_channel")
+            await self.require("create_channel")
             name = new_channel_name.strip().lower().replace(" ", "-")[:100]
             channel = discord.utils.get(guild.text_channels, name=name)
             if channel is None:
@@ -719,7 +735,7 @@ class _GuildFeatures:
             notes += await self._retire_reactions(message, guild, post_id, set(emojis),
                                                   {e for o in post["options"] for e in option_emojis(o)}, post["clear"])
             if post["pin"]:
-                ok, why = features.available(self.feature_status(), "pin_posts")
+                ok, why = features.available(await self.features_now(), "pin_posts")
                 if ok:
                     if not message.pinned:
                         await message.pin(reason="WooSarr reaction post")
@@ -765,7 +781,7 @@ class _GuildFeatures:
         """Emoji the post no longer shows: the bot takes its own reaction off (so nobody picks a dead
         one); with clear, everyone's reactions for emoji that no longer count are removed too."""
         notes: list[str] = []
-        clear_ok, why = features.available(self.feature_status(), "clear_reactions")
+        clear_ok, why = features.available(await self.features_now(), "clear_reactions")
         removed_own, cleared = [], []
         for reaction in message.reactions:
             emoji = normalize_emoji(str(reaction.emoji))
@@ -876,7 +892,7 @@ class _GuildFeatures:
         roles, still_wanted = result
         if not roles:
             return
-        ok, why = features.available(self.feature_status(), "reaction_posts")
+        ok, why = features.available(await self.features_now(), "reaction_posts")
         if not ok:
             log.warning("reaction recorded but roles not changed: %s", why)
             return
@@ -941,7 +957,7 @@ class _GuildFeatures:
             await self.run_db(replace)
             log.info("reaction post %s: %s reactions read", post_id, len(rows))
         after = await self.run_db(lambda s: self._reaction_roles(s)[1])
-        if not features.available(self.feature_status(), "reaction_posts")[0]:
+        if not features.available(await self.features_now(), "reaction_posts")[0]:
             return
         for uid in set(before) | set(after):
             add, remove = after.get(uid, set()), before.get(uid, set()) - after.get(uid, set())
@@ -1060,7 +1076,7 @@ class _GuildFeatures:
             st = await self.run_db(app_settings.load)
             if not any((st.verified_role_id, st.unverified_role_id, st.linked_role_id)):
                 return done
-            ok, why = features.available(self.feature_status(), "link_roles")
+            ok, why = features.available(await self.features_now(), "link_roles")
             if not ok:
                 if why != self._role_problem:
                     log.warning("link-status roles not applied: %s", why)

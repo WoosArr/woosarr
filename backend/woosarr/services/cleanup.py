@@ -1,7 +1,8 @@
 """Forget what still points at libraries removed from Plex and roles deleted in Discord (P3-08).
 
 A library gone from Plex can't be shared any more, so its role mappings, manual grants, observed
-shares and dashboard filters are dropped as soon as the inventory notices (every full sync). The
+shares and dashboard filters are dropped once it has been missing at two full syncs in a row (one
+plex.tv answer that leaves a library out mustn't delete them; meanwhile the planner ignores it). The
 Library row stays, flagged removed, so the audit trail keeps its name.
 
 A role deleted in Discord is different: while its mappings exist, the sync still manages those
@@ -65,9 +66,11 @@ def _scrub_layouts(session: Session, field: str, ids: set[str]) -> int:
 
 # ---- libraries ---------------------------------------------------------------------------------
 
-def forget_removed_libraries(session: Session) -> list[dict[str, Any]]:
-    """Drop the references to libraries flagged removed. Returns what was dropped, per library."""
-    gone = {lib.library_id: lib for lib in session.scalars(select(Library).where(Library.removed.is_(True)))}
+def forget_removed_libraries(session: Session, only: set[str] | None = None) -> list[dict[str, Any]]:
+    """Drop the references to libraries flagged removed (with only: just those of them, e.g. the ones
+    already missing at the previous full sync). Returns what was dropped, per library."""
+    gone = {lib.library_id: lib for lib in session.scalars(select(Library).where(Library.removed.is_(True)))
+            if only is None or lib.library_id in only}
     if not gone:
         return []
     ids = set(gone)

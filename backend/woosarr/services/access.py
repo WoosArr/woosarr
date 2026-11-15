@@ -46,12 +46,17 @@ class Snapshot:
 
 
 def load_snapshot(session: Session) -> Snapshot:
+    # Libraries missing on the Plex server can't be shared: their mappings and grants are ignored until
+    # they're back (or forgotten, services/cleanup.py).
+    missing = set(session.scalars(select(Library.library_id).where(Library.removed.is_(True))))
     role_map: dict[str, set[str]] = defaultdict(set)
     for row in session.scalars(select(RoleLibrary)):
-        role_map[row.role_id].add(row.library_id)
+        if row.library_id not in missing:
+            role_map[row.role_id].add(row.library_id)
     manual: dict[str, set[str]] = defaultdict(set)
     for row in session.scalars(select(ManualGrant)):
-        manual[row.plex_user_id].add(row.library_id)
+        if row.library_id not in missing:
+            manual[row.plex_user_id].add(row.library_id)
     shares: dict[str, set[str]] = defaultdict(set)
     for row in session.scalars(select(LibraryState)):
         shares[row.plex_user_id].add(row.library_id)

@@ -53,6 +53,7 @@ class FakeSeerr:
         self.calls: list[tuple[str, str, dict]] = []
         self.quota_exceeded: set[int] = set()
         self.down = False
+        self.broken_requests: set[int] = set()  # GET /request/<id> answers 502 for these
         self.search_delay = 0.0
         self.search_results: list[dict] | None = None  # set: every search answers these, 20 a page
 
@@ -82,6 +83,8 @@ class FakeSeerr:
         path = parts.path[len(urlsplit(self.base).path) + len("/api/v1"):]
         query = {k: v[0] for k, v in parse_qs(parts.query).items()}
         self.calls.append((method, path, {"headers": dict(headers), "json": json, "raw_query": parts.query}))
+        if method == "GET" and path.startswith("/request/") and int(path.rsplit("/", 1)[1]) in self.broken_requests:
+            return FakeResponse(502, {"message": "Bad Gateway"})
         if path == "/status" and method == "GET":
             return FakeResponse(200, {"version": "2.7.3", "commitTag": "v2.7.3"})
         user = None

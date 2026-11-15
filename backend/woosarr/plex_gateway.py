@@ -1,9 +1,8 @@
 """Boundary between the sync engine and Plex (plan D1b).
 
-Only the interface and an in-memory fake live here. The python-plexapi
-implementation is deliberately NOT written yet: P0-03 (verify replace-vs-merge,
-last-library removal, filter side effects, managed users against a real server)
-gates all Plex write code.
+The interface and an in-memory fake for tests. The real implementation, on
+python-plexapi and plex.tv, is plex_api_gateway.PlexApiGateway (share semantics
+verified on a real server, P0-03: docs/plex-notes.md).
 """
 
 from __future__ import annotations

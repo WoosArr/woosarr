@@ -158,6 +158,8 @@ def callback(request: Request, db: DbDep, code: str | None = None, state: str | 
         return fail("failed", str(exc), provider, test_id)
 
     if test_id:
+        while len(svc.test_results) >= 50:  # kept in memory until restart; only the latest matter
+            svc.test_results.pop(next(iter(svc.test_results)))
         svc.test_results[test_id] = {
             "ok": outcome.allowed, "reason": outcome.reason, "provider_id": provider.id, "subject": outcome.subject,
             "username": outcome.username, "email": outcome.email, "groups": outcome.groups,

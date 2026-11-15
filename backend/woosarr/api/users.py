@@ -345,14 +345,19 @@ class InviteOut(BaseModel):
 
 @router.get("/invites", response_model=list[InviteOut])
 def list_invites(db: DbDep, status_filter: Annotated[str | None, Query(alias="status")] = None) -> list[InviteOut]:
-    names = dict(db.execute(select(DiscordMember.discord_user_id, DiscordMember.username)).all())
     stmt = select(PlexInvite).order_by(PlexInvite.created_at.desc()).limit(200)
     if status_filter:
         stmt = stmt.where(PlexInvite.status == status_filter)
+    return _invites_out(db, list(db.scalars(stmt)))
+
+
+def _invites_out(db, rows: list[PlexInvite]) -> list[InviteOut]:
+    names = dict(db.execute(select(DiscordMember.discord_user_id, DiscordMember.username).where(
+        DiscordMember.discord_user_id.in_({i.discord_user_id for i in rows}))).all())
     return [InviteOut(id=i.id, identifier=i.identifier, discord_user_id=i.discord_user_id,
                       discord_username=names.get(i.discord_user_id), invited_by=i.invited_by, verified=i.verified,
                       library_ids=i.library_ids, status=i.status, plex_user_id=i.plex_user_id,
-                      created_at=i.created_at, resolved_at=i.resolved_at) for i in db.scalars(stmt)]
+                      created_at=i.created_at, resolved_at=i.resolved_at) for i in rows]
 
 
 @router.delete("/invites/{invite_id}", response_model=InviteOut)
@@ -365,7 +370,7 @@ def cancel_invite(invite_id: int, db: DbDep, principal: AdminDep) -> InviteOut:
         inv.status, inv.resolved_at = "cancelled", utcnow()
         audit.record(db, principal.actor, "invite_cancelled", "discord_user", inv.discord_user_id, invite_id=inv.id)
     db.flush()
-    return next(i for i in list_invites(db) if i.id == invite_id)
+    return _invites_out(db, [inv])[0]
 
 
 class MemberOut(BaseModel):

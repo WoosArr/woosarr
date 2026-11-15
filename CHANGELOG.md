@@ -4,6 +4,28 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Security
+- opentelemetry-api 1.45.2 (was 1.45.1; FastAPI depends on it): CVE-2026-126360, flagged by the dependency audit.
+
+### Fixed
+- **A library missing from one of Plex's answers no longer loses its role mappings and manual grants.** A library has to be missing at two full syncs in a row before WooSarr forgets what pointed at it; meanwhile it isn't granted to anyone.
+- **Friends without a share no longer disappear when Plex's friends list is briefly unavailable.** While the friends or Home list doesn't answer, nobody is marked *no longer shared*, and syncing a friend WooSarr can't see right then isn't an error.
+- When Seerr answers an error for one request, the status check skips just that request instead of stopping, so the requests after it are still checked (live: a 502 for one request held up the others).
+- Cancelling an old pending invite (beyond the newest 200) failed with a server error.
+- A wrong current password when changing your own password counted towards locking your account (and as a sign-in).
+- Admins sending `/invite` twice in a row had to wait out the member link cooldown.
+- Choosing an existing role as a link-status role in *Settings → Linking* now applies it right away, not at the next sync.
+- A member who changed only their Discord username kept the old name in WooSarr until the bot reconnected.
+- The Plex sign-in popup returns to *Public URL* (*Settings → Single sign-on*) when one is set, instead of the address the request arrived on (behind a reverse proxy that was the internal one).
+- The dashboard's *Security* tile counted sessions that had already timed out from inactivity.
+- Permission checks the Discord bot makes when members react and when posts are published read the database off the event loop, so a slow disk can't stall the bot.
+- Starting as root, the container now changes ownership only of files in `/config` that don't already belong to `PUID`/`PGID` (it rewrote every file, including the emoji preview cache, on each start).
+
+### Changed
+- **The Unraid Community Applications listing shows releases as updates.** CA can't read when a GHCR image was pushed, so the listing only knew when it was first seen; the template now carries each release's date and summary (`<Date>`, `<Changes>`), written from this changelog by `make unraid-template` and checked in CI. Its description now follows the README (what WooSarr is, then its features). The listing picks this up once it's on `main`.
+- The TrueNAS catalog app (not yet submitted) points at 1.2.0.
+- Logs: `Invalid HTTP request received` (something speaking HTTPS or junk to the plain-HTTP port) and a request cancelled at shutdown are INFO with an explanation instead of Alerts. A stall during a slow import names the code that asked for it, and a command's age is never negative.
+
 ## [1.2.0] - 2026-11-12
 
 Admins can link members and choose admin roles from Discord, accepted invites link within a minute and get a welcome DM, `/request` takes pasted IMDb, TMDB and TVDB links and retries failed requests, a Custom Emoji page, deleted libraries and roles are cleaned up, TrueNAS and Proxmox install guides, many dashboard additions, and security fixes (no username enumeration at sign-in, no link text on the login page, secrets kept out of logs, Debian security updates in the image). Update by pulling `latest` (or `1.2.0`).

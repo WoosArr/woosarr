@@ -79,6 +79,12 @@ def _verify(stored_hash: str | None, password: str) -> bool:
         return False
 
 
+def password_matches(user: AdminUser, password: str) -> bool:
+    """For re-checking a signed-in admin's password (password change): no lockout counting, no
+    last-login update. Guessing is still limited by the per-IP limiter at the route."""
+    return user.auth_source == "local" and _verify(user.password_hash, password)
+
+
 def active_admin_count(session: Session) -> int:
     return session.scalar(
         select(func.count()).select_from(AdminUser).where(AdminUser.is_active.is_(True))

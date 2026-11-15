@@ -61,7 +61,7 @@ Before an admin exists, whoever reaches the UI first could create one.
 - The setup endpoint is gone forever once an admin exists.
 
 ### Password guessing
-argon2id (argon2-cffi defaults: t=3, m=64 MiB, p=4), 12-character minimum, per-account lockout (5 failures → 15 min), per-IP limiter (10 failed attempts / 5 min; successful sign-ins don't count, so several devices behind one address aren't locked out), identical errors for unknown users, wrong passwords, disabled and locked accounts (the reason goes to the log and audit only), dummy hash verification to equalise timing.
+argon2id (argon2-cffi defaults: t=3, m=64 MiB, p=4), 12-character minimum, per-account lockout (5 failures → 15 min; a wrong *current* password when changing your own password is counted by the IP limiter only, so it can't lock a signed-in account), per-IP limiter (10 failed attempts / 5 min; successful sign-ins don't count, so several devices behind one address aren't locked out; the address is the client's as WooSarr sees it, so behind a reverse proxy set `WOOSARR_FORWARDED_ALLOW_IPS` or every visitor shares the proxy's limit), identical errors for unknown users, wrong passwords, disabled and locked accounts (the reason goes to the log and audit only), dummy hash verification to equalise timing.
 
 ### Session theft / fixation
 Session ids are rotated on every login; logout deletes the server-side row; idle (12 h) and absolute (7 d) expiry; password change or admin disable ends other sessions.
@@ -97,11 +97,14 @@ No code path turns input into code: no `eval`/`exec`, no shell or subprocess, no
 ### Plex share mistakes (integrity)
 Plex replaces a user's whole share list on update. WooSarr always computes and writes the **complete** set, re-reads live state right before writing and skips on drift, never touches exempt or unmanaged libraries, and starts in **dry-run**.
 
+### Public endpoints
+Without signing in: `/api/health` (and `/api/v1/health`), the login and first-run endpoints, the SSO provider list and flow, and the static UI. `/api/health` answers the version, channel and commit (the container health check, uptime monitors and the sidebar use it); that tells a visitor which build runs, nothing more. Everything else needs an admin session or API key (N10, `tests/test_app.py`).
+
 ### Supply chain
 Pinned Python versions (`backend/constraints.txt`), npm lockfile, `pip-audit` and `npm audit --omit=dev` in CI, gitleaks on the repo history, and Trivy on the image before publishing: a secret scan, and a vulnerability scan that fails the build on any HIGH or CRITICAL finding that has a fix (unfixed ones are reported). `npm audit` (including dev dependencies) is clean since the 2026-10-18 assessment (vite 8, vitest 5). GitHub Actions are pinned to commit SHAs and the gitleaks/Trivy images to digests (2026-10-19; updated to the newest releases 2026-10-21: gitleaks 8.30.1 with no blanket allowlist, false positives in old commits ignored one fingerprint at a time), so a moved tag can't change what runs in the job that can publish images; Dependabot alerts and GitHub secret scanning with push protection are on. Base images (`python:3.14-slim`, `node:24-alpine`) stay on tags so each build picks up their security fixes (accepted), and the runtime image installs Debian's security updates when it's built (`apt-get upgrade`, refreshed at least once per commit day), so a fix Debian has released doesn't wait for the Python image to be rebuilt.
 
 ### Container
-The entrypoint runs as root only to apply `PUID`/`PGID` and chown `/config`, then drops to that user for good with `gosu`; the app never runs as root (a warning is logged for `PUID=0`). `umask 027` keeps the database and logs private on the host. The Unraid template and README run it with `no-new-privileges`; `compose.yaml` also drops every capability except `CHOWN`, `DAC_OVERRIDE`, `SETUID`, `SETGID` (what the entrypoint needs). Started as a non-root user (TrueNAS's 568), the entrypoint skips all of that and needs no capabilities at all (`truenas/compose.yaml` drops every one). CI starts and restarts the image both ways, as root and as 568, on amd64 and arm64, before publishing.
+The entrypoint runs as root only to apply `PUID`/`PGID` and give `/config` to that user, then drops to it for good with `gosu`. Only `PUID=0` runs the app as root, which the entrypoint warns about. `umask 027` keeps the database and logs private on the host. The Unraid template and README run it with `no-new-privileges`; `compose.yaml` also drops every capability except `CHOWN`, `DAC_OVERRIDE`, `SETUID`, `SETGID` (what the entrypoint needs). Started as a non-root user (TrueNAS's 568), the entrypoint skips all of that and needs no capabilities at all (`truenas/compose.yaml` drops every one). CI starts and restarts the image both ways, as root and as 568, on amd64 and arm64, before publishing.
 
 ## Out of scope
 

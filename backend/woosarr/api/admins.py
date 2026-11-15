@@ -80,7 +80,6 @@ def update_admin(admin_id: int, body: AdminPatchIn, db: DbDep, principal: AdminD
             user.password_hash = auth.hash_password(body.password)
         except ValueError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
-        user.auth_source = "local"
         auth.end_all_sessions(db, user.id, keep_hash=principal.session_hash)
         audit.record(db, principal.actor, "admin_password_reset", "admin", str(user.id))
     if body.unlock:

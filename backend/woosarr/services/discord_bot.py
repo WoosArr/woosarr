@@ -31,6 +31,7 @@ from woosarr.services import (
     discord_requests,
     invite_welcome,
     invites,
+    link_help,
     link_service,
     reaction_text,
     self_resolve,
@@ -236,6 +237,8 @@ class WooSarrBot(discord.Client):
             await interaction.followup.send(help_text(self.request_name), ephemeral=True)
 
     async def setup_hook(self) -> None:
+        # Link / invite buttons under reaction posts and in DMs keep working after a restart.
+        self.add_view(_HelpView(self.service))
         await self.sync_commands(force=True)
 
     async def sync_commands(self, force: bool = False) -> None:
@@ -402,6 +405,44 @@ class _LinkView(discord.ui.View):
     @discord.ui.button(label="Sign in with Plex (verified)", style=discord.ButtonStyle.primary)
     async def by_oauth(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await self.service.start_oauth_link(interaction)
+
+
+class _InviteModal(discord.ui.Modal, title="Get a Plex invite"):
+    email = discord.ui.TextInput(label="Plex email or username", max_length=255)
+
+    def __init__(self, service: DiscordService) -> None:
+        super().__init__(timeout=300)
+        self.service = service
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if not await acknowledge(interaction, "the Plex invite form", self.service.timing):
+            return
+        member = self.service.guild_member(interaction.user)
+        await self.service.send_invite(interaction, member, member, str(self.email.value))
+
+
+class _HelpView(discord.ui.View):
+    """Link and invite buttons, each on its own row: under reaction posts (when the post has them)
+    and in the DM to unlinked members who react (link_help.py). Persistent: fixed custom ids and no
+    timeout, registered once at startup, so buttons on old messages keep working."""
+
+    def __init__(self, service: DiscordService, link: bool = True, invite: bool = True) -> None:
+        super().__init__(timeout=None)
+        self.service = service
+        if not link:
+            self.remove_item(self.link)
+        if not invite:
+            self.remove_item(self.invite)
+
+    @discord.ui.button(label=link_help.LINK_LABEL, style=discord.ButtonStyle.primary, row=0,
+                       custom_id="woosarr:help:link")
+    async def link(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self.service.handle_help_link(interaction)
+
+    @discord.ui.button(label=link_help.INVITE_LABEL, style=discord.ButtonStyle.secondary, row=1,
+                       custom_id="woosarr:help:invite")
+    async def invite(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self.service.handle_help_invite(interaction)
 
 
 def reaction_channel_missing(channel: Any, guild: Any, emojis: list[str]) -> list[str]:
@@ -685,7 +726,8 @@ class _GuildFeatures:
             return {"channel_id": post.channel_id, "message_id": post.message_id,
                     "content": reaction_text.render_post(s, post),
                     "pin": post.pin, "options": list(post.options or []), "title": post.title,
-                    "clear": post.clear_old_reactions}
+                    "clear": post.clear_old_reactions, "link": post.link_button, "invite": post.invite_button,
+                    "buttons": link_help.buttons_key(post), "buttons_before": post.buttons_posted}
 
         post = await self.run_db(load)
         if not post["options"]:
@@ -713,15 +755,24 @@ class _GuildFeatures:
         message = None
         pinned = False
         notes: list[str] = []
+        # Link / invite buttons under the post. view=None takes them off when they were turned off;
+        # posts that never had buttons are sent and edited without touching them.
+        buttons: dict[str, Any] = {}
+        if post["buttons"]:
+            buttons["view"] = _HelpView(self, link=post["link"], invite=post["invite"])
+        elif post["buttons_before"]:
+            buttons["view"] = None
         try:
             if post["message_id"] and str(channel.id) == post["channel_id"]:
                 try:
                     message = await channel.fetch_message(int(post["message_id"]))
-                    await message.edit(content=post["content"], allowed_mentions=discord.AllowedMentions.none())
+                    await message.edit(content=post["content"], allowed_mentions=discord.AllowedMentions.none(),
+                                       **buttons)
                 except discord.NotFound:
                     message = None
             if message is None:
-                message = await channel.send(post["content"], allowed_mentions=discord.AllowedMentions.none())
+                message = await channel.send(post["content"], allowed_mentions=discord.AllowedMentions.none(),
+                                             **{k: v for k, v in buttons.items() if v is not None})
             present = {str(r.emoji) for r in message.reactions if r.me}
             for emoji in emojis:
                 if emoji not in present:
@@ -756,8 +807,10 @@ class _GuildFeatures:
             row = s.get(ReactionPost, post_id)
             row.channel_id, row.message_id, row.published_at = str(channel.id), str(message.id), utcnow()
             row.rendered_content = post["content"]
+            row.buttons_posted = post["buttons"]
             audit.record(s, "system", "reaction_post_published", "reaction_post", str(post_id),
-                         channel=channel.name, message_id=str(message.id), pinned=pinned)
+                         channel=channel.name, message_id=str(message.id), pinned=pinned,
+                         buttons=post["buttons"] or "none")
 
         await self.run_db(save)
 
@@ -884,12 +937,16 @@ class _GuildFeatures:
             roles = options.get((message_id, emoji), set()) if post.enabled else set()
             audit.record(s, f"discord:{discord_user_id}", "reaction_added" if added else "reaction_removed",
                          "reaction_post", str(post.id), emoji=emoji, role_ids=sorted(roles))
-            return roles, wanted.get(discord_user_id, set())
+            # Unlinked member reacting for a role: DM them how to link or get an invite (setting).
+            help_dm = bool(added and roles) and link_help.claim_dm(s, discord_user_id)
+            return roles, wanted.get(discord_user_id, set()), help_dm
 
         result = await self.run_db(work)
         if not result:
             return
-        roles, still_wanted = result
+        roles, still_wanted, help_dm = result
+        if help_dm:
+            await self._send_link_help(discord_user_id, roles, post_message=message_id)
         if not roles:
             return
         ok, why = features.available(await self.features_now(), "reaction_posts")
@@ -1366,6 +1423,77 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         await self.stop()
         await self.start()
 
+    # ---- link help: DM and buttons (link_help.py) ---------------------------------
+
+    def guild_member(self, user: Any) -> Any:
+        """The server member for a user (button clicks in DMs come with a plain user: no roles)."""
+        if isinstance(user, discord.Member):
+            return user
+        try:
+            return self._guild().get_member(int(user.id)) or user
+        except DiscordConfigError:
+            return user
+
+    async def _send_link_help(self, discord_user_id: str, role_ids: set[str], post_message: str) -> None:
+        """The DM to an unlinked member who just reacted for a role, with the link button, and the
+        invite button when they may invite themselves."""
+        try:
+            guild = self._guild()
+        except DiscordConfigError:
+            return
+        member = guild.get_member(int(discord_user_id))
+        if member is not None and getattr(member, "bot", False):
+            return  # other bots' reactions still count, but nobody reads their DMs
+        roles = [guild.get_role(int(r)) for r in sorted(role_ids)]
+        names = [r.name for r in roles if r is not None]
+        st = await self.run_db(app_settings.load)
+        can_invite = (member is not None and discord_requests.is_admin(member, st.admin_role_ids)) or \
+            await self.run_db(link_help.may_invite_self, discord_user_id)
+        text = link_help.dm_text(guild.name, names, can_invite)
+        ok = await self.send_dm(discord_user_id, text, what=f"link help after a reaction on {post_message}",
+                                view=_HelpView(self, link=True, invite=can_invite))
+        await self.run_db(lambda s: audit.record(s, "system", "link_help_dm", "discord_user", discord_user_id,
+                                                 sent=ok, invite_offered=can_invite, roles=sorted(role_ids)))
+
+    async def handle_help_link(self, interaction: discord.Interaction) -> None:
+        """The *Link my Plex account* button: the same choices as `/link`, privately."""
+        if not await acknowledge(interaction, "the Link my Plex account button", self.timing):
+            return
+        log.info("link button pressed by discord %s (%s)", interaction.user.id,
+                 "DM" if interaction.guild is None else "reaction post")
+        if await self.run_db(link_help.is_linked, str(interaction.user.id)):
+            await interaction.followup.send(link_help.already_linked(), ephemeral=True)
+            return
+        await self._offer_link(interaction)
+
+    async def handle_help_invite(self, interaction: discord.Interaction) -> None:
+        """The *Get a Plex invite* button: the email form for members who may invite themselves
+        (the same rules as `/invite`), otherwise a private note. The form has to be the first
+        answer, so this only reads the DB before answering (no "thinking…")."""
+        member = self.guild_member(interaction.user)
+        uid = str(interaction.user.id)
+
+        def check(s) -> tuple[bool, bool, list[str]]:
+            return link_help.is_linked(s, uid), link_help.may_invite_self(s, uid), app_settings.load(s).admin_role_ids
+
+        linked, allowed, admin_roles = await self.run_db(check)
+        admin = discord_requests.is_admin(member, admin_roles)
+        where = "DM" if interaction.guild is None else "reaction post"
+        try:
+            if linked:
+                log.info("invite button pressed by discord %s (%s): already linked", uid, where)
+                await interaction.response.send_message(link_help.already_linked(), ephemeral=True)
+            elif allowed or admin:
+                log.info("invite button pressed by discord %s (%s): invite form shown", uid, where)
+                await interaction.response.send_modal(_InviteModal(self))
+            else:
+                log.info("invite button pressed by discord %s (%s): roles don't allow self-invites", uid, where)
+                await interaction.response.send_message(link_help.not_allowed_to_invite(), ephemeral=True)
+        except discord.NotFound as exc:
+            if exc.code != 10062:
+                raise
+            log.warning("invite button from discord %s answered too late (Discord allows 3 s)", uid)
+
     # ---- /unlink ---------------------------------------------------------------
 
     async def handle_unlink_command(self, interaction: discord.Interaction) -> None:
@@ -1437,6 +1565,10 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         target = member or actor
         if not await acknowledge(interaction, "/invite", self.timing):
             return
+        await self.send_invite(interaction, actor, target, email)
+
+    async def send_invite(self, interaction: discord.Interaction, actor: Any, target: Any, email: str) -> None:
+        """Send a Plex invite (`/invite`, or the invite button's form) and answer privately."""
         is_admin = await self.member_is_admin(actor)
         gateway = self._sync._gateway() if self._sync is not None else None
 
@@ -1459,11 +1591,16 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         if member is not None or plex_user:
             await self._admin_link(interaction, member, plex_user)
             return
+        await self._offer_link(interaction)
+
+    async def _offer_link(self, interaction: discord.Interaction) -> None:
+        """`/link` for yourself (and the link button): Sign in with Plex, and the username form for
+        members allowed to use it. The interaction is already acknowledged."""
         wait = await self.run_db(link_service.cooldown_remaining, str(interaction.user.id))
         if wait:
             await interaction.followup.send(f"Please wait {wait} s before trying to link again.", ephemeral=True)
             return
-        member = interaction.user
+        member = self.guild_member(interaction.user)
 
         def allowed() -> bool:
             with self._db.session() as s:

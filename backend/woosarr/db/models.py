@@ -277,6 +277,11 @@ class ReactionPost(Base):
     retired_options: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default="[]")
     # The next publish also removes the reactions for emoji the post no longer uses (Manage Messages).
     clear_old_reactions: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Buttons under the post (services/link_help.py), each on its own row: link your Plex account,
+    # get a Plex invite. buttons_posted: which ones the posted message has ("link,invite").
+    link_button: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    invite_button: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    buttons_posted: Mapped[str] = mapped_column(String(32), default="", server_default="")
     # Exactly what was last posted, to edit the message only when the text changes.
     rendered_content: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

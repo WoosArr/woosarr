@@ -354,6 +354,10 @@ td .row { gap: 4px; }
 .discord-preview { white-space: pre-wrap; word-break: break-word; font-size: 0.92rem; padding: 10px 12px; margin-top: 6px;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .discord-preview .mention { font-weight: 600; border-radius: 3px; padding: 0 2px; }
+.discord-button-row { white-space: normal; margin-top: 8px; }
+.discord-button { display: inline-block; padding: 4px 14px; border-radius: 4px; font-size: 0.86rem; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text); }
+.discord-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 
 /* ---- Wizard steps ---- */
 .wizard-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0 0 12px; counter-reset: ws; }

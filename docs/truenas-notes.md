@@ -24,7 +24,7 @@ CI tests this start on every build (`scripts/smoke-test.sh` as 568 with `--cap-d
 
 ### Updating
 
-The YAML app uses `ghcr.io/woosarr/woosarr:latest`. *Apps* → *Installed* → WooSarr → **Update** (or *Pull image* and restart, depending on your TrueNAS version) fetches the newest release. To pin a version, edit the YAML and change `:latest` to e.g. `:1.2.0`.
+The YAML app uses `ghcr.io/woosarr/woosarr:latest`. *Apps* → *Installed* → WooSarr → **Update** (or *Pull image* and restart, depending on your TrueNAS version) fetches the newest release. To pin a version, edit the YAML and change `:latest` to e.g. `:1.2.1`.
 
 **Development builds:** change the image to `ghcr.io/woosarr/woosarr:develop`. Take a snapshot of the dataset first: a development build may migrate the database forward, and an older version can't read it afterwards. Change back to `:latest` once a release includes those changes.
 

@@ -1,7 +1,7 @@
 images:
   image:
     repository: ghcr.io/woosarr/woosarr
-    tag: "1.2.0@sha256:50964e26c9b50eb89794f0535d7131c5f3226b223063fb8d6b3eb941bc1b78ea"
+    tag: "1.2.1@sha256:ca237c847f9d929095f6568472460144f36b824136f759e1ea23cbfdffb97465"
   container_utils_image:
     repository: ghcr.io/truenas/containers/container-utils
     tag: "1.1.1@sha256:d1bdb3a3ed7fc158eca53cd78486c388345c603fe2bf42fb24a1e03e1068ff38"

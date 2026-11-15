@@ -92,6 +92,9 @@ class PlexApiGateway:
         self.parallel_reads = 6  # concurrent share reads against plex.tv
         self._roster: dict[str, PlexUser] = {}
         self._source_problems: dict[str, str | None] = {}
+        # False when the last list_users() couldn't read the friends or Home list: users missing from it
+        # may only be missing from the answer (inventory then doesn't mark them removed).
+        self.roster_complete = True
         self.state = ConnectionState()
 
     # ---- plumbing -----------------------------------------------------------
@@ -243,6 +246,7 @@ class PlexApiGateway:
         users, plus the owner (flagged; WooSarr never changes the owner's access)."""
         roster: dict[str, PlexUser] = {}
         counts: dict[str, int | str] = {}
+        complete = True
         for u in self._users():
             name = u.username or u.title or str(u.id)
             roster[str(u.id)] = PlexUser(str(u.id), name, u.email or None, is_managed=bool(u.home and not u.email))
@@ -263,6 +267,7 @@ class PlexApiGateway:
             friends, source = self._friends()
         except Exception as exc:  # noqa: BLE001 - shared list still works; say so once per change
             counts["friends"] = "unavailable"
+            complete = False
             self._note_source("friends", f"no friends list available ({exc}); friends without a share are missing")
         else:
             counts["friends"] = f"{len(friends)} via {source} (+{add(friends)} without a share)"
@@ -271,6 +276,7 @@ class PlexApiGateway:
             home = self._home_users()
         except Exception as exc:  # noqa: BLE001 - optional
             counts["home"] = "unavailable"
+            complete = False
             self._note_source("home", f"Home users list unavailable ({type(exc).__name__}: {exc})")
         else:
             counts["home"] = f"{len(home)} (+{add(home)})"
@@ -279,6 +285,7 @@ class PlexApiGateway:
         roster.pop(owner.plex_user_id, None)
         users = [owner, *roster.values()]
         self._roster = {u.plex_user_id: u for u in users}
+        self.roster_complete = complete
         log.info("plex users: %s merged=%s (incl. owner)", counts, len(users))
         return users
 
@@ -303,6 +310,8 @@ class PlexApiGateway:
         if plex_user_id not in self._roster:
             self.list_users()
         if plex_user_id not in self._roster:
+            if not self.roster_complete:
+                return None  # a friends/Home list didn't answer: treat as "no share" rather than "gone"
             raise NotFound(f"Plex user {plex_user_id} is not a friend or Home user of this account")
         return None
 

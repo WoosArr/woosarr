@@ -165,6 +165,8 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
             request.app.state.discord.schedule_command_sync()
         if "bot_status" in diff and request.app.state.discord is not None:
             request.app.state.discord.schedule_presence()
+        if diff.keys() & {"verified_role_id", "unverified_role_id", "linked_role_id"} and request.app.state.discord:
+            request.app.state.discord.schedule_role_sync()
     return after
 
 

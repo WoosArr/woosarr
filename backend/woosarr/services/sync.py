@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 
 from woosarr.core import app_settings
-from woosarr.db.models import ManualGrant, PlexInvite, utcnow
+from woosarr.db.models import Library, ManualGrant, PlexInvite, utcnow
 from woosarr.db.session import Database
 from woosarr.plex_gateway import PlexGateway
 from woosarr.services import audit, cleanup, impact, inventory, invites, self_resolve
@@ -396,11 +396,14 @@ class SyncService:
         try:
             with self._db.session() as s:
                 if only is None:
+                    # Libraries already missing at the last full sync: only those are forgotten now, so one
+                    # plex.tv answer that leaves a library out doesn't delete its mappings and grants.
+                    missing_before = set(s.scalars(select(Library.library_id).where(Library.removed.is_(True))))
                     inv = inventory.refresh_all(s, gateway)
                     log.info("inventory libraries=%s users=%s (removed libs=%s users=%s)",
                              inv.libraries, inv.users, inv.libraries_removed, inv.users_removed)
                     invites.match_pending(s)
-                    cleanup.forget_removed_libraries(s)
+                    cleanup.forget_removed_libraries(s, only=missing_before)
                     audit.prune(s, settings.audit_retention_days)
                 snap = load_snapshot(s)
         except Exception as exc:  # surface any Plex/DB failure in status, keep worker alive

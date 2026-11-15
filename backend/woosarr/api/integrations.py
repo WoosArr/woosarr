@@ -114,9 +114,11 @@ def plex_status(request: Request) -> PlexStatus:
 
 
 @router.post("/plex/login", response_model=PlexLoginStart)
-def plex_login_start(request: Request) -> PlexLoginStart:
-    # Plex sends the popup back here when sign-in finishes.
-    forward = str(request.base_url).rstrip("/") + "/setup?plex=signed-in"
+def plex_login_start(request: Request, db: DbDep) -> PlexLoginStart:
+    # Plex sends the popup back here when sign-in finishes: the public address (Settings → Single
+    # sign-on → Public URL) when set, as behind a reverse proxy, else the address the browser used.
+    base = app_settings.load(db).public_url.rstrip("/") or str(request.base_url).rstrip("/")
+    forward = base + "/setup?plex=signed-in"
     with plex_errors():
         pin_id, url = _plex(request).start_login(forward)
     return PlexLoginStart(pin_id=pin_id, auth_url=url)

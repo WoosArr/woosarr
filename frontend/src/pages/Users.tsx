@@ -295,17 +295,6 @@ function AddModal({ users, libraries, onClose, onDone }: { users: UserOut[]; lib
   );
 }
 
-interface RemoveResult {
-  plex_user_id: string;
-  username: string;
-  removed: string[];
-  kept_by_roles: string[];
-  manual_removed: string[];
-  not_shared: string[];
-  error: string | null;
-  dry_run: boolean;
-}
-
 interface PreviewRow {
   plex_user_id: string;
   username: string;

@@ -140,12 +140,11 @@ def change_password(body: PasswordChangeIn, request: Request, db: DbDep, princip
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "password login is not used for this account")
     if request.app.state.login_limiter.blocked(client_ip(request)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many attempts; try again later")
-    try:
-        auth.authenticate(db, user.username, body.current_password)
-    except auth.AuthError:
+    # Not authenticate(): wrong guesses here mustn't lock the signed-in admin's account (the per-IP
+    # limiter still counts them) or count as a sign-in.
+    if not auth.password_matches(user, body.current_password):
         request.app.state.login_limiter.record(client_ip(request))
-        db.commit()
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "current password is wrong") from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "current password is wrong")
     try:
         user.password_hash = auth.hash_password(body.new_password)
     except ValueError as exc:

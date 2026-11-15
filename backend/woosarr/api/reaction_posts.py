@@ -5,6 +5,7 @@ Libraries follow from the normal role -> library mappings (Roles page).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Annotated
 
@@ -312,12 +313,16 @@ def reaction_changes(post_id: int, body: ReactionPostIn, db: DbDep) -> ReactionC
 @router.delete("/{post_id}", status_code=204)
 async def delete_post(post_id: int, request: Request, principal: AdminDep) -> None:
     svc = request.app.state.discord
-    db_ = request.app.state.db
-    with db_.session() as s:
-        post = _get(s, post_id)
-        channel_id, message_id = post.channel_id, post.message_id
-        s.delete(post)
-        audit.record(s, principal.actor, "reaction_post_deleted", "reaction_post", str(post_id))
+
+    def work() -> tuple[str | None, str | None]:  # in a worker thread: this route runs on the event loop
+        with request.app.state.db.session() as s:
+            post = _get(s, post_id)
+            ids = post.channel_id, post.message_id
+            s.delete(post)
+            audit.record(s, principal.actor, "reaction_post_deleted", "reaction_post", str(post_id))
+            return ids
+
+    channel_id, message_id = await asyncio.to_thread(work)
     if svc is not None:
         # Roles members got from this post are left as they are.
         await svc.unpublish_post(channel_id, message_id)

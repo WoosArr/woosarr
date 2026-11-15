@@ -16,6 +16,8 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 | Icon | `https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/icon.png` | 256×256 PNG with transparent corners, rendered from `assets/brand/woosarr.svg` (`make icons`); must be on `main` to resolve. CA wants a square PNG. |
 | TemplateURL | raw URL of `unraid/woosarr.xml` | Lets Unraid offer template updates. |
 | Category | `MediaApp:Other Tools:Utilities` | CA browse categories. |
+| Overview | What WooSarr is and its features, following the README's introduction (Markdown; CA renders it) | The text on the Apps tab. |
+| Changes / Date | The newest release's summary and date, written by `make unraid-template` from `CHANGELOG.md` | How Community Applications shows that WooSarr was updated ([below](#update-date-in-community-applications)). |
 | ExtraParams | `--health-start-period=20s --security-opt no-new-privileges:true` | The start period matches the Dockerfile healthcheck (Unraid shows health in the Docker tab); `no-new-privileges` stops anything in the container gaining privileges after the entrypoint drops to `PUID`. |
 
 ## Behaviour Unraid relies on
@@ -34,6 +36,12 @@ How WooSarr fits Unraid's Docker manager and Community Applications (CA). The te
 3. Docker tab → WooSarr icon → **Logs** for the first-run setup code, then **WebUI**.
 
 Community Applications reads the template from this repo (`unraid/woosarr.xml` on `main`), so template changes reach new installs after CA's next catalog build. Image updates show on the Docker tab as usual.
+
+## Update date in Community Applications
+
+CA learns that an app was updated in one of two ways: a registry scan, which reads Docker Hub images' push dates, or the template's own `<Date>` and `<Changes>`. WooSarr's image is on GHCR, which CA's scan doesn't read (in CA's feed on 2026-11-14 WooSarr had no `LastUpdate` at all, only `FirstSeen`), so while the template had neither tag (until November 2026) the listing never showed a release as an update.
+
+So every release sets them: the release commit runs `make unraid-template` (`scripts/unraid_template.py`), which writes the newest `CHANGELOG.md` release's date into `<Date>` and its summary into `<Changes>`, and `tests/test_unraid_template.py` fails CI when the template doesn't match the newest release or that release isn't the package version. CA reads the template from `main`, so the listing updates with CA's next feed build after the release is merged.
 
 ## Installing without Community Applications
 

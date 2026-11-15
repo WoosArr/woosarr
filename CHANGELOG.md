@@ -19,6 +19,8 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - Starting as root, the container now changes ownership only of files in `/config` that don't already belong to `PUID`/`PGID` (it rewrote every file, including the emoji preview cache, on each start).
 
 ### Changed
+- **The Unraid Community Applications listing shows releases as updates.** CA can't read when a GHCR image was pushed, so the listing only knew when it was first seen; the template now carries each release's date and summary (`<Date>`, `<Changes>`), written from this changelog by `make unraid-template` and checked in CI. Its description now follows the README (what WooSarr is, then its features). The listing picks this up once it's on `main`.
+- The TrueNAS catalog app (not yet submitted) points at 1.2.0.
 - Logs: `Invalid HTTP request received` (something speaking HTTPS or junk to the plain-HTTP port) and a request cancelled at shutdown are INFO with an explanation instead of Alerts. A stall during a slow import names the code that asked for it, and a command's age is never negative.
 
 ## [1.2.0] - 2026-11-12

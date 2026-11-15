@@ -65,7 +65,7 @@ TrueNAS's [contribution guide](https://github.com/truenas/apps/blob/master/CONTR
 
    > WooSarr (https://github.com/WoosArr/woosarr, AGPL-3.0) gives Discord members access to Plex libraries based on their Discord roles, and keeps that access in step as roles change: members link their Plex account with a slash command, admins map roles to libraries in a web UI.
    >
-   > - Image: `ghcr.io/woosarr/woosarr`, amd64 and arm64, semver release tags (e.g. `1.1.1`).
+   > - Image: `ghcr.io/woosarr/woosarr`, amd64 and arm64, semver release tags (e.g. `1.2.0`).
    > - Runs as any non-root user (568 by default) with no capabilities; one port (31337, free in the catalog); one volume (`/config`); health endpoint `/api/health`.
    > - An app folder in the community-train layout is ready and passes `ci.py --test-file basic-values.yaml`: https://github.com/WoosArr/woosarr/tree/main/truenas/catalog/woosarr
    >

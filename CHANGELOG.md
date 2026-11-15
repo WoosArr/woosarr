@@ -4,6 +4,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-14
+
+Fixes from an audit and the live logs: a library or friend that briefly drops out of Plex's answers no longer loses its mappings, grants or share status, the Seerr status check skips one erroring request instead of stopping, the Discord bot no longer reads the database on its event loop, invite, password and settings fixes, quieter logs, and a dependency security update. The Unraid listing now shows releases as updates. Update by pulling `latest` (or `1.2.1`).
+
 ### Security
 - opentelemetry-api 1.45.2 (was 1.45.1; FastAPI depends on it): CVE-2026-126360, flagged by the dependency audit.
 

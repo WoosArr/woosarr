@@ -419,6 +419,25 @@ class PollTests(Base):
         with self.db.session() as s:
             self.assertEqual(s.scalars(select(MediaRequest)).one().status, "available")
 
+    def test_one_request_erroring_doesnt_stop_the_others(self):
+        # Live 2026-11-13: Seerr answered 502 for one request; the poll stopped there every time.
+        self.svc.submit("501", False, "movie", 157336)
+        second = max(self.seerr.requests)
+        self.seerr.broken_requests.add(self.rid)
+        self.seerr.set_request_status(second, status=2, media_status=3)
+        with self.assertLogs("woosarr.requests", "INFO") as logs:
+            notes = self.svc.poll()
+        self.assertEqual([n.state for n in notes], ["approved"])
+        self.assertTrue(any(f"request {self.rid} skipped this round" in line for line in logs.output))
+        self.assertTrue(any("1 skipped (Seerr error)" in line for line in logs.output))
+
+    def test_poll_stops_when_seerr_is_unreachable(self):
+        self.svc.submit("501", False, "movie", 157336)
+        self.seerr.down = True
+        with self.assertLogs("woosarr.requests", "WARNING") as logs:
+            self.assertEqual(self.svc.poll(), [])
+        self.assertEqual(len([line for line in logs.output if "request poll stopped" in line]), 1)
+
     def test_old_open_requests_are_still_checked_and_listed(self):
         from datetime import timedelta
 

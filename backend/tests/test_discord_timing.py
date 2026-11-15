@@ -76,6 +76,12 @@ class AcknowledgeTests(unittest.TestCase):
             self.assertTrue(asyncio.run(acknowledge(self.interaction(2.5), "/help", DiscordTiming())))
         self.assertIn("reached WooSarr 2.5 s after use", logs.output[0])
 
+    def test_age_is_never_negative(self):
+        # Live: the clock-offset estimate made an interaction "reach WooSarr -0.2 s after use".
+        with self.assertLogs("woosarr.discord", "INFO") as logs:
+            asyncio.run(acknowledge(self.interaction(-0.4), "/help", DiscordTiming()))
+        self.assertIn("reached WooSarr 0.0 s after use", logs.output[0])
+
     def test_already_answered_is_left_alone(self):
         it = self.interaction(0)
         it.log.append(("defer", {}))

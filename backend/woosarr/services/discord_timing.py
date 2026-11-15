@@ -140,6 +140,8 @@ async def acknowledge(interaction: discord.Interaction, what: str, timing: Disco
     if interaction.response.is_done():
         return True
     arrived = timing.age(getattr(interaction, "created_at", None)) if timing else None
+    if arrived is not None:
+        arrived = max(arrived, 0.0)  # the clock offset is an estimate; "-0.2 s after use" read as nonsense (live)
     t0 = time.monotonic()
     try:
         await interaction.response.defer(ephemeral=True, thinking=True)

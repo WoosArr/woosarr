@@ -381,6 +381,9 @@ remove_all       = target empty and current non-empty                # use the r
 - [ ] **P13-02** Ombi as a second request provider.
 - [ ] **P13-03** Audiobooks via Listenarr (research its API first).
 
+### Phase 14 — Maintenance (live logs, audits)
+- [x] **P14-01** Live log review 2026-11-15 (no open alerts; a week of `alerts.log`): (1) 29× uvicorn `Invalid HTTP request received` (HTTPS or junk on the plain-HTTP port, no source given) and the shutdown `Cancel N running task(s)` / `Exception in ASGI application` + `CancelledError` pair are INFO with an explanation (`core/logs.UvicornNoiseFilter` on `uvicorn.error`; real ASGI errors stay ERROR). (2) Seerr answered 502 for request 190 and the poll stopped there each time, so later requests weren't checked: one request's error now skips it (`request poll: request N skipped this round`), Seerr unreachable / 401 / two errors in a row still stop the round. (3) The stall watchdog's stack for a slow import was only `<frozen importlib…>` frames: those are left out and the stack says an import was in progress, so the caller shows. (4) Interaction age clamped at 0 (`reached WooSarr -0.2 s after use`). Not fixable here: host pauses, a Discord reconnect. *Verify:* `pytest tests/test_logs.py tests/test_requests.py tests/test_stall_watch.py tests/test_discord_timing.py`.
+
 ## 10. Risks and open questions
 
 - **R1** Plex share semantics (replace vs merge, last library, side effects, managed users) undocumented → P0-03 before any write code.

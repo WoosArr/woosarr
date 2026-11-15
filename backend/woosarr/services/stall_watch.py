@@ -122,8 +122,12 @@ class StallWatch:
         frame = sys._current_frames().get(self._loop_thread or -1)
         if frame is None:
             return "  (loop thread not found)"
-        lines = traceback.format_stack(frame)[-12:]
-        return "".join(lines).rstrip()
+        frames = traceback.extract_stack(frame)
+        # Python's import machinery is a dozen frames of <frozen importlib…>; shown alone they hide which
+        # code asked for the import (live 2026-11-12). Leave them out and say an import was in progress.
+        kept = [f for f in frames if not f.filename.startswith("<frozen importlib")]
+        note = "  (importing a module from disk, asked for by the code below)\n" if len(kept) < len(frames) else ""
+        return (note + "".join(traceback.format_list(kept[-12:]))).rstrip()
 
     # ---- for blaming late Discord commands ----------------------------------------------------
 

@@ -69,7 +69,8 @@ RULES: tuple[Rule, ...] = (
     # Over when something works again.
     _r("woosarr.stall", r"^WooSarr's event loop is blocked", "the event loop ran again", key="loop"),
     _r("woosarr.seerr", r".", "Seerr answered again", key="seerr"),
-    _r("woosarr.requests", r"^request poll stopped", "Seerr answered again", key="seerr"),
+    _r("woosarr.requests", r"^request poll stopped|^request poll: request \d+ skipped", "Seerr answered again",
+       key="seerr"),
     _r("discord.gateway", r"heartbeat blocked|Can't keep up", "the Discord connection is healthy again", key="discord"),
     _r("discord.client", r"^Attempting a reconnect", "the bot reconnected to Discord", key="discord"),
     _r("woosarr.discord", r"^discord connection problem: ", "the bot connected to Discord", key="discord"),

@@ -4,6 +4,9 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Security
+- opentelemetry-api 1.45.2 (was 1.45.1; FastAPI depends on it): CVE-2026-126360, flagged by the dependency audit.
+
 ### Fixed
 - **A library missing from one of Plex's answers no longer loses its role mappings and manual grants.** A library has to be missing at two full syncs in a row before WooSarr forgets what pointed at it; meanwhile it isn't granted to anyone.
 - **Friends without a share no longer disappear when Plex's friends list is briefly unavailable.** While the friends or Home list doesn't answer, nobody is marked *no longer shared*, and syncing a friend WooSarr can't see right then isn't an error.

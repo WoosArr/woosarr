@@ -416,6 +416,11 @@
             "title": "Public Url",
             "type": "string"
           },
+          "reaction_link_dm": {
+            "default": false,
+            "title": "Reaction Link Dm",
+            "type": "boolean"
+          },
           "reconcile_interval_minutes": {
             "default": 15,
             "maximum": 1440.0,
@@ -3432,6 +3437,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "invite_button": {
+            "default": false,
+            "title": "Invite Button",
+            "type": "boolean"
+          },
           "legend": {
             "default": true,
             "title": "Legend",
@@ -3449,6 +3459,11 @@
             "minLength": 1,
             "title": "Legend Template",
             "type": "string"
+          },
+          "link_button": {
+            "default": false,
+            "title": "Link Button",
+            "type": "boolean"
           },
           "options": {
             "default": [],
@@ -3511,6 +3526,11 @@
             "title": "Id",
             "type": "integer"
           },
+          "invite_button": {
+            "default": false,
+            "title": "Invite Button",
+            "type": "boolean"
+          },
           "legend": {
             "default": true,
             "title": "Legend",
@@ -3528,6 +3548,11 @@
             "minLength": 1,
             "title": "Legend Template",
             "type": "string"
+          },
+          "link_button": {
+            "default": false,
+            "title": "Link Button",
+            "type": "boolean"
           },
           "message_id": {
             "anyOf": [
@@ -3632,6 +3657,11 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "invite_button": {
+            "default": false,
+            "title": "Invite Button",
+            "type": "boolean"
+          },
           "keep_old_reactions": {
             "default": true,
             "title": "Keep Old Reactions",
@@ -3654,6 +3684,11 @@
             "minLength": 1,
             "title": "Legend Template",
             "type": "string"
+          },
+          "link_button": {
+            "default": false,
+            "title": "Link Button",
+            "type": "boolean"
           },
           "options": {
             "default": [],

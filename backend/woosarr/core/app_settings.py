@@ -45,6 +45,9 @@ class AppSettings(BaseModel):
     invite_welcome_verify_text: str = Field(welcome.DEFAULT_VERIFY, max_length=welcome.MAX_PART)
     invite_welcome_verify_needed_text: str = Field(welcome.DEFAULT_VERIFY_NEEDED, max_length=welcome.MAX_PART)
     invite_welcome_find_server_text: str = Field(welcome.DEFAULT_FIND_SERVER, max_length=welcome.MAX_PART)
+    # DM members without a linked Plex account when they react to a reaction post: how to link, or
+    # how to get an invite (services/link_help.py; at most once a week per member).
+    reaction_link_dm: bool = False
     # Roles the bot keeps in step with each member's Plex link (None = off).
     verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")

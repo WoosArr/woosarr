@@ -11,8 +11,11 @@ const NEW_ROLE = "__new__";
 
 const DEFAULT_LINE = "{emoji} {role} — {libraries}";
 
-/** Discord-ish preview: role mentions as coloured @chips, line breaks kept. */
-function MessagePreview({ text, roles }: { text: string; roles: Map<string, RoleOut> }) {
+const LINK_LABEL = "Link my Plex account";
+const INVITE_LABEL = "Get a Plex invite";
+
+/** Discord-ish preview: role mentions as coloured @chips, line breaks kept, buttons each on their own row. */
+function MessagePreview({ text, roles, link = false, invite = false }: { text: string; roles: Map<string, RoleOut>; link?: boolean; invite?: boolean }) {
   const parts = text.split(/(<@&\d+>)/g);
   return (
     <div className="discord-preview" aria-label="Message preview">
@@ -24,6 +27,8 @@ function MessagePreview({ text, roles }: { text: string; roles: Map<string, Role
         // Text stays in the theme colour (role colours can be low-contrast); the role colour tints it.
         return <span key={i} className="mention" style={{ borderBottom: `2px solid ${hex}`, background: `color-mix(in srgb, ${hex} 16%, transparent)` }}>@{role?.name ?? "role"}</span>;
       })}
+      {link ? <div className="discord-button-row"><span className="discord-button primary">{LINK_LABEL}</span></div> : null}
+      {invite ? <div className="discord-button-row"><span className="discord-button">{INVITE_LABEL}</span></div> : null}
     </div>
   );
 }
@@ -36,6 +41,8 @@ const BLANK: ReactionPostIn = {
   legend: true,
   legend_template: DEFAULT_LINE,
   legend_header: "",
+  link_button: false,
+  invite_button: false,
   options: [{ emoji: "🎬", role_id: "", label: "", text: "", former: [] }],
 };
 
@@ -112,6 +119,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
   const [draft, setDraft] = useState<ReactionPostIn>(post ? {
     title: post.title, content: post.content, channel_id: post.channel_id, pin: post.pin, enabled: post.enabled,
     options: post.options, legend: post.legend, legend_template: post.legend_template, legend_header: post.legend_header,
+    link_button: post.link_button, invite_button: post.invite_button,
   } : BLANK);
   const [preview, setPreview] = useState<{ text: string; length: number; max_length: number } | null>(null);
   const roleMap = new Map(roles.map((r) => [r.role_id, r]));
@@ -260,6 +268,14 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
           <span>Pin the post {!available("pin_posts") ? <span className="small muted">({why("pin_posts")})</span> : null}</span></label>
         <label className="check"><input type="checkbox" checked={!!draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
           <span>Enabled <span className="small muted">— off = reactions grant nothing</span></span></label>
+        <fieldset className="plain stack" style={{ gap: 4 }}>
+          <legend className="small" style={{ fontWeight: 600 }}>Buttons under the post</legend>
+          <label className="check"><input type="checkbox" checked={!!draft.link_button} onChange={(e) => setDraft({ ...draft, link_button: e.target.checked })} />
+            <span><strong>{LINK_LABEL}</strong> <span className="small muted">— the same choices as <code>/link</code>, shown only to the member who presses it</span></span></label>
+          <label className="check"><input type="checkbox" checked={!!draft.invite_button} onChange={(e) => setDraft({ ...draft, invite_button: e.target.checked })} />
+            <span><strong>{INVITE_LABEL}</strong>, on its own line <span className="small muted">— asks for their Plex email or username if they may invite
+              themselves (<em>Settings → Linking → Plex Invites</em>); others are told to ask an admin</span></span></label>
+        </fieldset>
         <fieldset style={{ border: 0, padding: 0, margin: 0 }} className="stack">
           <legend className="small" style={{ fontWeight: 600 }}>Reactions (up to 20)</legend>
           {options.map((o, i) => (
@@ -339,7 +355,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
               </span>
             ) : null}
           </div>
-          {preview ? <MessagePreview text={preview.text} roles={roleMap} /> : <Spinner label="Rendering" />}
+          {preview ? <MessagePreview text={preview.text} roles={roleMap} link={!!draft.link_button} invite={!!draft.invite_button} /> : <Spinner label="Rendering" />}
         </div>
       </div>
     </Modal>

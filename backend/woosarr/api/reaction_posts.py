@@ -24,6 +24,7 @@ from woosarr.services.discord_bot import (
     option_emojis,
     option_role_ids,
 )
+from woosarr.services.link_help import buttons_key
 
 router = APIRouter(prefix="/reaction-posts", tags=["reaction-posts"], dependencies=[Depends(require_admin)])
 
@@ -57,6 +58,10 @@ class ReactionPostIn(BaseModel):
     legend: bool = True
     legend_template: Annotated[str, Field(min_length=1, max_length=300)] = reaction_text.DEFAULT_LINE
     legend_header: Annotated[str, Field(max_length=200)] = ""
+    # Buttons under the post, each on its own row (services/link_help.py): "Link my Plex account"
+    # and "Get a Plex invite". Members get a private answer.
+    link_button: bool = False
+    invite_button: bool = False
 
 
 class ReactionPostOut(ReactionPostIn):
@@ -130,7 +135,9 @@ def _out(db, post: ReactionPost) -> ReactionPostOut:
                            options=[_option_out(db, o) for o in post.options],
                            message_id=post.message_id, published_at=post.published_at, reactions=counts,
                            preview=text, preview_length=len(text),
-                           outdated=bool(post.message_id) and post.rendered_content != text,
+                           link_button=post.link_button, invite_button=post.invite_button,
+                           outdated=bool(post.message_id) and (post.rendered_content != text
+                                                               or post.buttons_posted != buttons_key(post)),
                            clear_old_reactions=post.clear_old_reactions)
 
 
@@ -217,7 +224,8 @@ def list_posts(db: DbDep) -> list[ReactionPostOut]:
 def create_post(body: ReactionPostIn, request: Request, db: DbDep, principal: AdminDep) -> ReactionPostOut:
     post = ReactionPost(title=body.title, content=body.content, channel_id=body.channel_id, pin=body.pin,
                         enabled=body.enabled, options=_validate(db, body), legend=body.legend,
-                        legend_template=body.legend_template, legend_header=body.legend_header)
+                        legend_template=body.legend_template, legend_header=body.legend_header,
+                        link_button=body.link_button, invite_button=body.invite_button)
     db.add(post)
     db.flush()
     audit.record(db, principal.actor, "reaction_post_created", "reaction_post", str(post.id), title=body.title)
@@ -234,6 +242,7 @@ def update_post(post_id: int, body: ReactionPostUpdate, request: Request, db: Db
     same_message = had_message and body.channel_id == post.channel_id
     post.title, post.content, post.pin, post.enabled = body.title, body.content, body.pin, body.enabled
     post.legend, post.legend_template, post.legend_header = body.legend, body.legend_template, body.legend_header
+    post.link_button, post.invite_button = body.link_button, body.invite_button
     if body.channel_id != post.channel_id:
         post.channel_id, post.message_id = body.channel_id, None  # moves to a new message on publish
     old = post.options or []
@@ -249,7 +258,7 @@ def update_post(post_id: int, body: ReactionPostUpdate, request: Request, db: Db
     post.clear_old_reactions = same_message and not body.keep_old_reactions
     db.flush()
     audit.record(db, principal.actor, "reaction_post_updated", "reaction_post", str(post_id),
-                 options=post.options, enabled=post.enabled,
+                 options=post.options, enabled=post.enabled, buttons=buttons_key(post) or "none",
                  **({"retired_emoji": [r["emoji"] for r in post.retired_options],
                      "old_reactions": "keep" if body.keep_old_reactions else "clear"} if post.retired_options else {}))
     return _out(db, post)

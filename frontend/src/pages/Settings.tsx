@@ -247,6 +247,17 @@ function Linking() {
         all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.invite_role_ids ?? []}
         onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
+      <fieldset className="plain stack" style={{ gap: 4 }}>
+        <legend className="small" style={{ fontWeight: 600 }}>Unlinked members who react</legend>
+        <Switch checked={!!v.reaction_link_dm} onChange={(x) => f.set({ reaction_link_dm: x })}
+          label={<><strong>DM members without a linked Plex account when they react to a reaction post</strong></>} />
+        <span className="hint small muted" style={{ display: "block" }}>
+          The DM explains that roles only unlock libraries once they're linked, with a <strong>Link my Plex account</strong> button,
+          and a <strong>Get a Plex invite</strong> button for members who may invite themselves (<em>Plex Invites</em>, above);
+          others are told to ask an admin. At most once a week per member; they still get the role.
+          Members who don't accept DMs from server members won't get it.
+        </span>
+      </fieldset>
       <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Shared Plex accounts (families)</legend>
         <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>

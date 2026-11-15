@@ -4,6 +4,11 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 
 ## [Unreleased]
 
+### Added
+- **Help for members who react but aren't linked** (both off by default):
+  - *Settings → Linking → Unlinked members who react*: the bot DMs a member without a linked Plex account who reacts to a reaction post, with a **Link my Plex account** button and, if they may invite themselves, a **Get a Plex invite** button. At most once a week per member.
+  - Reaction posts can show the same two buttons under the message, each on its own line. Members get a private answer: the `/link` choices, or the invite form (or a note to ask an admin).
+
 ### Changed
 - `develop` builds carry the next patch version (after 1.2.1: `1.2.2-dev.N`, was `1.3.0-dev.N`). Whether a release is a minor or major one instead is decided when it's made.
 

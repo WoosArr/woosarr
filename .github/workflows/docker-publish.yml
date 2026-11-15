@@ -67,7 +67,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
 
-      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      # Version (1.2.3 / 1.2.4-dev.N), channel, commit and commit date, baked into the image.
       - name: Build info
         id: build
         run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"
@@ -158,7 +158,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0  # all history and tags: the build's version counts commits since the last release
 
-      # Version (1.2.3 / 1.3.0-dev.N), channel, commit and commit date, baked into the image.
+      # Version (1.2.3 / 1.2.4-dev.N), channel, commit and commit date, baked into the image.
       - name: Build info
         id: build
         run: sh scripts/build-info.sh | tee -a "$GITHUB_OUTPUT"

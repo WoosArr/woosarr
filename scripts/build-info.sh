@@ -2,8 +2,11 @@
 # What an image is, for CI: prints version=, channel=, commit=, date=, day= (append to $GITHUB_OUTPUT).
 #
 #   v1.2.3 tag      -> version 1.2.3,            channel release
-#   develop branch  -> version 1.3.0-dev.N,      channel develop   (N = commits since v1.2.3)
-#   anything else   -> version 1.3.0-dev.N,      channel dev       (main pushes are tested, not published)
+#   develop branch  -> version 1.2.4-dev.N,      channel develop   (N = commits since v1.2.3)
+#   anything else   -> version 1.2.4-dev.N,      channel dev       (main pushes are tested, not published)
+#
+# Develop builds take the next patch version. Whether a release is a minor or major bump instead
+# is the owner's decision at release time; the release tag then sets the number.
 #
 # N counts develop's commits that the newest release doesn't contain, so a higher number is
 # always a newer build. Releases are merge commits on main, so the newest release tag is found by
@@ -26,7 +29,7 @@ else
   # shellcheck disable=SC2046
   set -- $(echo "${last#v}" | tr . ' ')
   if [ "$last" = v0.0.0 ]; then n=$(git rev-list --count HEAD); else n=$(git rev-list --count HEAD "^$last"); fi
-  version="$1.$(( $2 + 1 )).0-dev.$n"
+  version="$1.$2.$(( $3 + 1 ))-dev.$n"
 fi
 
 echo "version=$version"

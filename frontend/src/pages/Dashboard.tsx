@@ -315,7 +315,7 @@ function emojiSlots(ins: Insights | null, id: WidgetId): { used: number; limit: 
   return { used: id === "stat_emoji" ? e.static : e.animated, limit: e.limit };
 }
 
-/** "WooSarr 1.3.0-dev.14 · develop · ba15809 · 25 Oct 2026" and whether it's the newest build of its channel. */
+/** "WooSarr 1.2.1-dev.14 · develop · ba15809 · 25 Oct 2026" and whether it's the newest build of its channel. */
 function VersionLine({ status }: { status: StatusOut }) {
   const b = status.build;
   const u = status.update;

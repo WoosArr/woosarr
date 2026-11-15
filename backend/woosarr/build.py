@@ -1,7 +1,7 @@
 """What this build is: version, channel (release / develop / dev / local), commit and commit date.
 
 CI bakes them into the image (scripts/build-info.sh -> WOOSARR_BUILD_* in docker/Dockerfile). A
-release reads like 1.2.0; a develop build like 1.3.0-dev.14, where 14 counts the commits since the
+release reads like 1.2.0; a develop build like 1.2.1-dev.14 (the next patch version), where 14 counts the commits since the
 last release, so a higher number is always newer. Anything else (make dev, tests) is a local build
 of __version__.
 """
@@ -27,7 +27,7 @@ class Build:
         return self.commit[:7]
 
     def label(self) -> str:
-        """"1.3.0-dev.14 (develop, ba15809, 25 Oct 2026)" / "1.2.0 (release)" / "1.1.1 (local build)"."""
+        """"1.2.1-dev.14 (develop, ba15809, 25 Oct 2026)" / "1.2.0 (release)" / "1.1.1 (local build)"."""
         if self.channel == "local":
             return f"{self.version} (local build)"
         bits = [self.channel] + ([self.short_commit] if self.short_commit else [])

@@ -1,4 +1,4 @@
-"""Build versions (1.2.0 / 1.3.0-dev.N), and the check for a newer build in the same channel."""
+"""Build versions (1.2.0 / 1.2.1-dev.N), and the check for a newer build in the same channel."""
 
 import os
 import subprocess
@@ -47,17 +47,18 @@ class BuildInfoScriptTests(unittest.TestCase):
 
     def test_versions_by_channel(self):
         self.commit(2)
-        self.assertEqual(self.info("refs/heads/develop")["version"], "0.1.0-dev.2")  # no release yet
+        self.assertEqual(self.info("refs/heads/develop")["version"], "0.0.1-dev.2")  # no release yet
         self.git("tag", "v1.4.2")
         self.git("tag", "v1.4.10")  # sorted by version, not as text
         self.git("tag", "v2.0.0-rc1")  # pre-releases don't count
         self.commit(3)
         info = self.info("refs/heads/develop")
-        self.assertEqual((info["version"], info["channel"]), ("1.5.0-dev.3", "develop"))
+        # develop builds take the next patch version; a minor or major bump is the owner's call at release
+        self.assertEqual((info["version"], info["channel"]), ("1.4.11-dev.3", "develop"))
         self.assertEqual(len(info["commit"]), 40)
         self.assertRegex(info["date"], r"^\d{4}-\d\d-\d\dT")
         self.commit()
-        self.assertEqual(self.info("refs/heads/develop")["version"], "1.5.0-dev.4")  # newer = higher
+        self.assertEqual(self.info("refs/heads/develop")["version"], "1.4.11-dev.4")  # newer = higher
         self.assertEqual(self.info("refs/tags/v1.5.0")["version"], "1.5.0")
         self.assertEqual(self.info("refs/tags/v1.5.0")["channel"], "release")
         self.assertEqual(self.info("refs/heads/main")["channel"], "dev")

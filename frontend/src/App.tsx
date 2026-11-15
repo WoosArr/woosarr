@@ -44,7 +44,7 @@ function Shell() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
-  // The build, for the footer: "1.3.0-dev.14 · ba15809" (public health endpoint).
+  // The build, for the footer: "1.2.1-dev.14 · ba15809" (public health endpoint).
   const [build, setBuild] = useState<{ version: string; channel: string; commit: string } | null>(null);
   useEffect(() => {
     fetch("/api/health").then((r) => (r.ok ? r.json() : null)).then(setBuild, () => setBuild(null));

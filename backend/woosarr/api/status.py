@@ -38,11 +38,11 @@ class IntegrationStatus(BaseModel):
 
 
 class BuildOut(BaseModel):
-    version: str  # 1.2.0 / 1.3.0-dev.14
+    version: str  # 1.2.0 / 1.2.1-dev.14
     channel: str  # release | develop | dev | local
     commit: str
     date: str
-    label: str  # "1.3.0-dev.14 (develop, ba15809, 25 Oct 2026)"
+    label: str  # "1.2.1-dev.14 (develop, ba15809, 25 Oct 2026)"
 
 
 class UpdateOut(BaseModel):

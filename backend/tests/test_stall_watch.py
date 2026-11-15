@@ -37,6 +37,23 @@ class StallWatchTests(unittest.TestCase):
         self.assertRegex(logs.output[-1], r"was blocked for [01]\.\d s")
         self.assertEqual([s.kind for s in watch.stalls], ["blocked"])
 
+    def test_stack_leaves_out_import_machinery(self):
+        # Live 2026-11-12: a slow import's stack was only <frozen importlib…> frames, hiding the caller.
+        import threading
+        import traceback as tb
+        watch = StallWatch()
+        watch._loop_thread = threading.get_ident()
+        stack = tb.StackSummary.from_list([
+            ("/app/woosarr/main.py", 10, "serve", "import_module(name)"),
+            ("<frozen importlib._bootstrap>", 1, "_gcd_import", None),
+            ("<frozen importlib._bootstrap_external>", 2, "get_data", None),
+        ])
+        with mock.patch.object(stall_watch.traceback, "extract_stack", lambda _frame: stack):
+            text = watch.loop_stack()
+        self.assertIn("importing a module", text)
+        self.assertIn("woosarr/main.py", text)
+        self.assertNotIn("frozen importlib", text)
+
     def test_paused_process_is_told_apart(self):
         watch = StallWatch(check=0.5, stall=3.0)
         watch.tick(100.0, 1000.0)

@@ -83,6 +83,7 @@ curl -H "Authorization: Bearer $KEY" "http://<host>:31337/api/v1/logs?q=request&
 | `request suggestions … unavailable: timed out` | Seerr didn't answer within Discord's 3 s autocomplete limit; members can still send the text and pick from the menu. |
 | `request notice for … not sent: member doesn't accept DMs` | The member has DMs from server members turned off. |
 | `request poll: N checked, M changed, K to notify, R retried` | Periodic status check (every 30 minutes). |
+| `request poll: request <id> skipped this round: …` | Seerr answered an error for that one request; the others are still checked. Two errors in a row, Seerr unreachable or the key rejected stop the round (`request poll stopped at …`). |
 | `request <id> posted in #channel` / `request notice for … posted in #channel` | Public request post and status reply. |
 | `bot can't post requests in #… missing …` | Give the bot those permissions in the requests channel. |
 | `request by … refused: used in channel …` | *Only in this channel* is on and the member used another channel. |

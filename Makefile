@@ -6,13 +6,14 @@ PORT    ?= 31337
 IMAGE   ?= woosarr:dev
 DEVCONF ?= $(CURDIR)/config
 
-.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs icons screenshots
+.PHONY: help install lint test check ui dev image smoke openapi e2e contrast demo lock audit sso-docs icons screenshots unraid-template
 
 help:
 	@echo "install  create backend/.venv, install backend + frontend deps"
 	@echo "check    lint + tests, backend and frontend (what CI runs)"
 	@echo "openapi  refresh frontend/openapi.json after changing API models"
 	@echo "icons    render favicons, app and Unraid icons from assets/brand/woosarr.svg"
+	@echo "unraid-template  set the Unraid template's <Date>/<Changes> from the newest CHANGELOG release"
 	@echo "e2e      Playwright UI tests against a demo backend"
 	@echo "screenshots  documentation images in docs/images (demo backend, fake data)"
 	@echo "demo     run on :$(PORT) with fake Plex/Discord data (WOOSARR_DEMO)"
@@ -73,6 +74,9 @@ lock:
 
 icons:
 	node scripts/build_icons.mjs
+
+unraid-template:
+	python3 scripts/unraid_template.py
 
 audit:
 	cd backend && .venv/bin/pip-audit --skip-editable

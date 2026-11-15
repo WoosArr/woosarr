@@ -250,7 +250,10 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
     security = {
         "failed_logins_24h": db.scalar(select(func.count()).select_from(AuditLog).where(
             AuditLog.action == "login_failed", AuditLog.ts >= now - timedelta(hours=24))) or 0,
-        "sessions": db.scalar(select(func.count()).select_from(Session).where(Session.expires_at > now)) or 0,
+        # Sessions still usable: not expired, and used within the idle limit.
+        "sessions": db.scalar(select(func.count()).select_from(Session).where(
+            Session.expires_at > now,
+            Session.last_seen_at > now - timedelta(hours=request.app.state.settings.session_idle_hours))) or 0,
         "api_keys": db.scalar(select(func.count()).select_from(ApiKey).where(ApiKey.revoked_at.is_(None))) or 0,
     }
 

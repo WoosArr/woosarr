@@ -82,7 +82,7 @@ def create(
         if not everyone and (not allowed or member is None or not allowed & set(member.role_ids)):
             return _fail(session, actor, target_discord_id, "role_not_allowed",
                          "Your roles don't allow inviting yourself to the Plex server.")
-    wait = link_service.cooldown_remaining(session, actor_discord_id)
+    wait = 0 if actor_is_admin else link_service.cooldown_remaining(session, actor_discord_id)
     if wait:
         return InviteResult(False, f"Please wait {wait} s before trying again.")
     if session.scalar(select(DiscordLink).where(DiscordLink.discord_user_id == target_discord_id)):

@@ -12,6 +12,7 @@ installed earlier instead of stacking duplicates.
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import collections
 import copy
@@ -186,12 +187,48 @@ class DiscordLagFilter(logging.Filter):
 _LAG_FILTER = DiscordLagFilter()
 
 
+class UvicornNoiseFilter(logging.Filter):
+    """uvicorn lines that are Alerts nobody can act on, logged as INFO with what they mean:
+
+    - "Invalid HTTP request received.": something sent the plain-HTTP port bytes that aren't HTTP,
+      almost always a browser, proxy or scanner trying HTTPS (live: 29 in a week). uvicorn doesn't
+      say who, so there's nothing to look up.
+    - At shutdown (docker stop, an update), a request still running when the 5 s grace period ends is
+      cancelled: "Cancel N running task(s), timeout graceful shutdown exceeded" plus "Exception in ASGI
+      application" with a CancelledError traceback (live 2026-11-12). Expected, not an error.
+    """
+
+    INVALID = "Invalid HTTP request received."
+    INVALID_TEXT = ("invalid HTTP request received on the plain-HTTP port (usually a browser, proxy or scanner "
+                    "trying HTTPS; harmless)")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = str(record.msg)
+        if record.levelno == logging.WARNING and msg == self.INVALID:
+            record.msg, record.args = self.INVALID_TEXT, None
+            record.levelno, record.levelname = logging.INFO, "INFO"
+        elif record.levelno >= logging.ERROR and msg.startswith("Cancel ") and "graceful shutdown" in msg:
+            record.levelno, record.levelname = logging.INFO, "INFO"
+        elif (record.levelno >= logging.ERROR and msg.startswith("Exception in ASGI application") and record.exc_info
+              and isinstance(record.exc_info[1], asyncio.CancelledError)):
+            record.msg, record.args = "a request still running at shutdown was cancelled", None
+            record.levelno, record.levelname = logging.INFO, "INFO"
+            record.exc_info, record.exc_text = None, None
+        return True
+
+
+_UVICORN_FILTER = UvicornNoiseFilter()
+
+
 def cap_library_loggers() -> None:
     for name in CAPPED_LOGGERS:
         logging.getLogger(name).setLevel(logging.INFO)
     gateway = logging.getLogger("discord.gateway")
     if _LAG_FILTER not in gateway.filters:
         gateway.addFilter(_LAG_FILTER)
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    if _UVICORN_FILTER not in uvicorn_error.filters:
+        uvicorn_error.addFilter(_UVICORN_FILTER)
 
 
 _PROBLEM_LEVELS = ('"level": "WARNING"', '"level": "ERROR"', '"level": "CRITICAL"')

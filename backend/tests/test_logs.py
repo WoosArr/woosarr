@@ -62,6 +62,26 @@ class LoggingTests(unittest.TestCase):
         self.assertEqual([e.message for e in self.ring.query(min_level=logging.WARNING, contains="keep up")[0]],
                          ["Can't keep up, shard ID None websocket is 75.0s behind."])
 
+    def test_uvicorn_noise_is_info_with_an_explanation(self):
+        import asyncio
+        uv = logging.getLogger("uvicorn.error")
+        uv.warning("Invalid HTTP request received.")
+        uv.error("Cancel %s running task(s), timeout graceful shutdown exceeded", 1)
+        try:
+            raise asyncio.CancelledError()
+        except asyncio.CancelledError:
+            uv.exception("Exception in ASGI application\n")
+        uv.error("Exception in ASGI application\n", exc_info=(ValueError, ValueError("real"), None))
+        entries = self.ring.query(min_level=logging.INFO, contains="")[0]
+        mine = [(e.level, e.message.splitlines()[0], e.exc) for e in entries if e.logger == "uvicorn.error"]
+        self.assertEqual([m[:2] for m in mine], [
+            ("INFO", logs.UvicornNoiseFilter.INVALID_TEXT),
+            ("INFO", "Cancel 1 running task(s), timeout graceful shutdown exceeded"),
+            ("INFO", "a request still running at shutdown was cancelled"),
+            ("ERROR", "Exception in ASGI application"),  # anything else stays an error
+        ])
+        self.assertIsNone(mine[2][2])
+
     def test_file_writes_happen_off_the_calling_thread(self):
         # Live 2026-10-21: a slow disk blocked the event loop inside a log flush. Writing
         # is now done by a background thread; a stalled sink must not stall the caller.

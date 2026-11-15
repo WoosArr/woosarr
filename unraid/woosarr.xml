@@ -10,7 +10,26 @@
   <Project>https://github.com/WoosArr/woosarr</Project>
   <TemplateURL>https://raw.githubusercontent.com/WoosArr/woosarr/main/unraid/woosarr.xml</TemplateURL>
   <ReadMe>https://raw.githubusercontent.com/WoosArr/woosarr/main/README.md</ReadMe>
-  <Overview>Grants and removes Plex library access based on Discord roles. Map each Discord role to Plex libraries; linked members get every library their roles give, and losing a role only removes a library if nothing else keeps it. Members link their own Plex account with the Discord bot (/link, verified by signing in with Plex); families can share one Plex account. Per-library exemptions, manual grants, impact previews, dry-run until you turn it off, and a full audit trail. The bot also sends Plex invites (/invite), runs reaction posts that give roles, and takes movie and TV requests through Seerr (/request). Web UI on port 31337 with alerts, logs and optional single sign-on.</Overview>
+  <Overview>WooSarr is a Plex user and library management system with Seerr integration for media requests, driven by your Discord server.
+
+**Features**
+- **Discord roles → Plex libraries.** Map roles to one or more libraries; members get every library their roles give. Grants are additive: losing one role only removes a library if nothing else keeps it.
+- **Link Discord users to Plex accounts.** Members link themselves with /link (Sign in with Plex = verified, or by typing their username); admins link anyone from the web UI or with /link.
+- **Invite Discord users to Plex.** Admins (and, optionally, members) send Plex invites with /invite; the libraries come from the member's roles and the account links itself when accepted.
+- **Shared Plex accounts.** Several Discord members can share one Plex account, which gets the libraries all their roles give.
+- **Mass actions and manual grants.** Add or remove libraries for many Plex users at once, or add and remove Discord roles for many members.
+- **Exemptions.** Exempt libraries are never touched by roles.
+- **Reaction posts and custom emoji.** Members react to a post to get a role; add emoji to your server from emoji.gg, OpenMoji and slackmojis.
+- **Requests through Seerr.** Members request movies and shows with /request (or a pasted IMDb, TMDB or TVDB link) as their own Seerr user, hear back when it's available, and failed requests are retried.
+- **Starts in dry-run.** See exactly what would change before anything does, with impact previews before every change and a full audit trail.
+- **Web UI on port 31337:** customizable dashboard, alerts, live logs, light/dark themes and colour-vision palettes, admin sign-in with a password or single sign-on (Okta, Entra ID, Google, ADFS, any OIDC provider).
+
+Setup: open the WebUI with the first-run setup code from the container log. Documentation: https://github.com/WoosArr/woosarr</Overview>
+  <Changes>### 1.2.0 (2026-11-12)
+Admins can link members and choose admin roles from Discord, accepted invites link within a minute and get a welcome DM, `/request` takes pasted IMDb, TMDB and TVDB links and retries failed requests, a Custom Emoji page, deleted libraries and roles are cleaned up, TrueNAS and Proxmox install guides, many dashboard additions, and security fixes (no username enumeration at sign-in, no link text on the login page, secrets kept out of logs, Debian security updates in the image). Update by pulling `latest` (or `1.2.0`).
+
+Full changelog: https://github.com/WoosArr/woosarr/blob/main/CHANGELOG.md</Changes>
+  <Date>2026-11-12</Date>
   <Requires>A Plex server you own (WooSarr signs in as the owner) and a Discord bot application with the Server Members Intent turned on. Seerr is optional (for /request).</Requires>
   <ExtraSearchTerms>plex discord roles libraries sharing access bot seerr overseerr jellyseerr invite</ExtraSearchTerms>
   <License>AGPL-3.0</License>

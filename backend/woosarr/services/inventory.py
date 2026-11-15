@@ -130,6 +130,13 @@ def refresh_users(session: Session, gateway: PlexGateway) -> tuple[int, int]:
         row.is_owner = user.is_owner
         row.synced_at = utcnow()
     removed = 0
+    if not getattr(gateway, "roster_complete", True):
+        # Plex's friends or Home list didn't answer (logged by the gateway): a user missing from this
+        # answer may only be missing from it. Mark nobody removed until a complete list arrives.
+        missing = sum(1 for uid, row in existing.items() if uid not in live and not row.removed)
+        if missing:
+            log.info("plex users: list incomplete; not marking %d missing user(s) removed this time", missing)
+        return len(live), 0
     for uid, row in existing.items():
         if uid not in live and not row.removed:
             row.removed = True

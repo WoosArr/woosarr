@@ -452,7 +452,7 @@ class RequestService:
             notify, auto_retry = settings.request_notify, settings.request_auto_retry
             rows = [(r.id, r.seerr_request_id) for r in s.scalars(select(MediaRequest).where(checked()))]
         out: list[Notice] = []
-        changed = 0
+        changed = skipped = failures = 0
         due: list[int] = []
         for row_id, request_id in rows:
             try:
@@ -462,8 +462,17 @@ class RequestService:
                     state = "deleted"
                 else:
                     self._failed(exc)
-                    log.warning("request poll stopped at %s: %s", request_id, exc)
-                    break
+                    failures += 1
+                    # Seerr unreachable, the key rejected, or failing twice in a row: stop for this round.
+                    # One request answering an error (live: Seerr answered 502 for one request while the
+                    # others worked) mustn't keep the requests after it from being checked.
+                    if exc.status is None or exc.status == 401 or failures >= 2:
+                        log.warning("request poll stopped at %s: %s", request_id, exc)
+                        break
+                    log.warning("request poll: request %s skipped this round: %s", request_id, exc)
+                    skipped += 1
+                    continue
+            failures = 0
             self._ok()
             with self._db.session() as s:
                 row = s.get(MediaRequest, row_id)
@@ -489,8 +498,8 @@ class RequestService:
             for row_id in due:
                 self._retry(client, row_id, "system", automatic=True)
         if rows:
-            log.info("request poll: %s checked, %s changed, %s to notify, %s retried", len(rows), changed, len(out),
-                     len(due))
+            log.info("request poll: %s checked, %s changed, %s to notify, %s retried%s", len(rows), changed, len(out),
+                     len(due), f", {skipped} skipped (Seerr error)" if skipped else "")
         return out
 
 

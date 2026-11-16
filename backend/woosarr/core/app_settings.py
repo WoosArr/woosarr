@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from woosarr.db.models import Setting
 from woosarr.services import invite_welcome as welcome
+from woosarr.services import link_help_text as help_text
 
 KEY = "app"
 # Slash commands WooSarr always registers; the request command can't reuse these names.
@@ -48,6 +49,17 @@ class AppSettings(BaseModel):
     # DM members without a linked Plex account when they react to a reaction post: how to link, or
     # how to get an invite (services/link_help.py; at most once a week per member).
     reaction_link_dm: bool = False
+    # Its parts (services/link_help_text.py): main text always, then the invite or no-invite part
+    # (whether they may invite themselves), then the closing; an empty part is left out.
+    reaction_link_dm_text: str = Field(help_text.DEFAULT_TEXT, min_length=1, max_length=help_text.MAX_PART)
+    reaction_link_dm_invite_text: str = Field(help_text.DEFAULT_INVITE, max_length=help_text.MAX_PART)
+    reaction_link_dm_no_invite_text: str = Field(help_text.DEFAULT_NO_INVITE, max_length=help_text.MAX_PART)
+    reaction_link_dm_closing_text: str = Field(help_text.DEFAULT_CLOSING, max_length=help_text.MAX_PART)
+    # The link / invite buttons (in that DM and under reaction posts): label and Discord colour.
+    link_button_label: str = Field(help_text.DEFAULT_LINK_LABEL, min_length=1, max_length=help_text.MAX_LABEL)
+    link_button_style: Literal["primary", "secondary", "success", "danger"] = "primary"
+    invite_button_label: str = Field(help_text.DEFAULT_INVITE_LABEL, min_length=1, max_length=help_text.MAX_LABEL)
+    invite_button_style: Literal["primary", "secondary", "success", "danger"] = "success"
     # Roles the bot keeps in step with each member's Plex link (None = off).
     verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
@@ -120,6 +132,23 @@ class AppSettings(BaseModel):
             raise ValueError(f"unknown placeholder {', '.join('{' + b + '}' for b in bad)}; use "
                              + ", ".join("{" + p + "}" for p in welcome.PLACEHOLDERS))
         return v.strip()
+
+    @field_validator("reaction_link_dm_text", "reaction_link_dm_invite_text", "reaction_link_dm_no_invite_text",
+                     "reaction_link_dm_closing_text")
+    @classmethod
+    def _known_help_placeholders(cls, v: str) -> str:
+        if bad := help_text.unknown_placeholders(v):
+            raise ValueError(f"unknown placeholder {', '.join('{' + b + '}' for b in bad)}; use "
+                             + ", ".join("{" + p + "}" for p in help_text.PLACEHOLDERS))
+        return v.strip()
+
+    @field_validator("link_button_label", "invite_button_label")
+    @classmethod
+    def _label(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("a button needs a label")
+        return v
 
     @field_validator("request_command_name")
     @classmethod

@@ -321,6 +321,24 @@
             "title": "Invite All Members",
             "type": "boolean"
           },
+          "invite_button_label": {
+            "default": "Get a Plex invite",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Invite Button Label",
+            "type": "string"
+          },
+          "invite_button_style": {
+            "default": "success",
+            "enum": [
+              "primary",
+              "secondary",
+              "success",
+              "danger"
+            ],
+            "title": "Invite Button Style",
+            "type": "string"
+          },
           "invite_role_ids": {
             "items": {
               "type": "string"
@@ -366,6 +384,24 @@
               "keep_all"
             ],
             "title": "Leave Policy",
+            "type": "string"
+          },
+          "link_button_label": {
+            "default": "Link my Plex account",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Link Button Label",
+            "type": "string"
+          },
+          "link_button_style": {
+            "default": "primary",
+            "enum": [
+              "primary",
+              "secondary",
+              "success",
+              "danger"
+            ],
+            "title": "Link Button Style",
             "type": "string"
           },
           "link_cooldown_seconds": {
@@ -420,6 +456,31 @@
             "default": false,
             "title": "Reaction Link Dm",
             "type": "boolean"
+          },
+          "reaction_link_dm_closing_text": {
+            "default": "You can also use `/link` and `/invite` in the server.",
+            "maxLength": 1500,
+            "title": "Reaction Link Dm Closing Text",
+            "type": "string"
+          },
+          "reaction_link_dm_invite_text": {
+            "default": "\u2022 New to the Plex server? Press **{invite_button}** and enter your Plex email or username.",
+            "maxLength": 1500,
+            "title": "Reaction Link Dm Invite Text",
+            "type": "string"
+          },
+          "reaction_link_dm_no_invite_text": {
+            "default": "\u2022 New to the Plex server? Ask a server admin for an invite.",
+            "maxLength": 1500,
+            "title": "Reaction Link Dm No Invite Text",
+            "type": "string"
+          },
+          "reaction_link_dm_text": {
+            "default": "You reacted to get {roles} in **{server}**. Roles only unlock Plex libraries once your Discord account is linked to your Plex account.\n\u2022 Already on the Plex server? Press **{link_button}**.",
+            "maxLength": 1500,
+            "minLength": 1,
+            "title": "Reaction Link Dm Text",
+            "type": "string"
           },
           "reconcile_interval_minutes": {
             "default": 15,
@@ -1998,6 +2059,48 @@
           "is_exempt"
         ],
         "title": "LibraryPatchIn",
+        "type": "object"
+      },
+      "LinkHelpPreview": {
+        "properties": {
+          "defaults": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Defaults",
+            "type": "object"
+          },
+          "invite": {
+            "title": "Invite",
+            "type": "string"
+          },
+          "no_invite": {
+            "title": "No Invite",
+            "type": "string"
+          },
+          "placeholders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Placeholders",
+            "type": "object"
+          },
+          "styles": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Styles",
+            "type": "object"
+          }
+        },
+        "required": [
+          "defaults",
+          "placeholders",
+          "styles",
+          "invite",
+          "no_invite"
+        ],
+        "title": "LinkHelpPreview",
         "type": "object"
       },
       "LinkOut": {
@@ -8652,6 +8755,50 @@
           }
         },
         "summary": "Preview Invite Welcome",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/api/v1/settings/link-help/preview": {
+      "post": {
+        "description": "The DM to an unlinked member who reacted, with these (unsaved) texts, both ways.",
+        "operationId": "preview_link_help_api_v1_settings_link_help_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Changes",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkHelpPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Link Help",
         "tags": [
           "status"
         ]

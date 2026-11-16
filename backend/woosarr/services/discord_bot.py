@@ -38,6 +38,7 @@ from woosarr.services import (
 )
 from woosarr.services import discord_cache as cache
 from woosarr.services import discord_features as features
+from woosarr.services import link_help_text as help_texts
 from woosarr.services.discord_text import safe
 from woosarr.services.discord_timing import DiscordTiming, acknowledge
 from woosarr.services.tvdb_pages import TvdbPages
@@ -426,20 +427,24 @@ class _HelpView(discord.ui.View):
     and in the DM to unlinked members who react (link_help.py). Persistent: fixed custom ids and no
     timeout, registered once at startup, so buttons on old messages keep working."""
 
-    def __init__(self, service: DiscordService, link: bool = True, invite: bool = True) -> None:
+    def __init__(self, service: DiscordService, link: bool = True, invite: bool = True,
+                 st: app_settings.AppSettings | None = None) -> None:
         super().__init__(timeout=None)
         self.service = service
+        if st is not None:  # labels and colours from Settings → Linking (clicks only need the custom ids)
+            self.link.label, self.link.style = st.link_button_label, discord.ButtonStyle[st.link_button_style]
+            self.invite.label, self.invite.style = st.invite_button_label, discord.ButtonStyle[st.invite_button_style]
         if not link:
             self.remove_item(self.link)
         if not invite:
             self.remove_item(self.invite)
 
-    @discord.ui.button(label=link_help.LINK_LABEL, style=discord.ButtonStyle.primary, row=0,
+    @discord.ui.button(label=help_texts.DEFAULT_LINK_LABEL, style=discord.ButtonStyle.primary, row=0,
                        custom_id="woosarr:help:link")
     async def link(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await self.service.handle_help_link(interaction)
 
-    @discord.ui.button(label=link_help.INVITE_LABEL, style=discord.ButtonStyle.secondary, row=1,
+    @discord.ui.button(label=help_texts.DEFAULT_INVITE_LABEL, style=discord.ButtonStyle.success, row=1,
                        custom_id="woosarr:help:invite")
     async def invite(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await self.service.handle_help_invite(interaction)
@@ -723,11 +728,12 @@ class _GuildFeatures:
             post = s.get(ReactionPost, post_id)
             if post is None:
                 raise DiscordConfigError("reaction post not found")
-            return {"channel_id": post.channel_id, "message_id": post.message_id,
+            st = app_settings.load(s)
+            return {"settings": st, "channel_id": post.channel_id, "message_id": post.message_id,
                     "content": reaction_text.render_post(s, post),
                     "pin": post.pin, "options": list(post.options or []), "title": post.title,
                     "clear": post.clear_old_reactions, "link": post.link_button, "invite": post.invite_button,
-                    "buttons": link_help.buttons_key(post), "buttons_before": post.buttons_posted}
+                    "buttons": link_help.buttons_key(post, st), "buttons_before": post.buttons_posted}
 
         post = await self.run_db(load)
         if not post["options"]:
@@ -759,7 +765,7 @@ class _GuildFeatures:
         # posts that never had buttons are sent and edited without touching them.
         buttons: dict[str, Any] = {}
         if post["buttons"]:
-            buttons["view"] = _HelpView(self, link=post["link"], invite=post["invite"])
+            buttons["view"] = _HelpView(self, link=post["link"], invite=post["invite"], st=post["settings"])
         elif post["buttons_before"]:
             buttons["view"] = None
         try:
@@ -1047,33 +1053,48 @@ class _GuildFeatures:
                 return edited
 
             def due(s):
+                st = app_settings.load(s)
                 out = []
                 for p in s.scalars(select(ReactionPost).where(ReactionPost.message_id.is_not(None))):
                     text = reaction_text.render_post(s, p)
-                    if text != p.rendered_content and len(text) <= reaction_text.MAX_MESSAGE:
-                        out.append((p.id, p.channel_id, p.message_id, text))
+                    if len(text) > reaction_text.MAX_MESSAGE:
+                        continue
+                    # Buttons: only once posted with them (turning them on or off waits for Save & update),
+                    # but a new label or colour (Settings → Linking) is applied here.
+                    key = link_help.buttons_key(p, st)
+                    relabel = bool(p.buttons_posted) and bool(key) and key != p.buttons_posted
+                    if text != p.rendered_content or relabel:
+                        out.append((p.id, p.channel_id, p.message_id, text,
+                                    (key, p.link_button, p.invite_button, st) if relabel else None))
                 return out
 
-            for post_id, channel_id, message_id, text in await self.run_db(due):
+            for post_id, channel_id, message_id, text, relabel in await self.run_db(due):
                 channel = guild.get_channel(int(channel_id)) if channel_id else None
                 if not isinstance(channel, discord.TextChannel):
                     continue
+                extra: dict[str, Any] = {}
+                if relabel:
+                    _key, link, invite, st = relabel
+                    extra["view"] = _HelpView(self, link=link, invite=invite, st=st)
                 try:
                     msg = await channel.fetch_message(int(message_id))
-                    await msg.edit(content=text, allowed_mentions=discord.AllowedMentions.none())
+                    await msg.edit(content=text, allowed_mentions=discord.AllowedMentions.none(), **extra)
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
                     log.warning("reaction post %s not updated: %s", post_id, exc)
                     continue
 
-                def save(s, post_id=post_id, text=text):
+                def save(s, post_id=post_id, text=text, relabel=relabel):
                     row = s.get(ReactionPost, post_id)
                     if row is not None:
                         row.rendered_content = text
-                        audit.record(s, "system", "reaction_post_updated_text", "reaction_post", str(post_id))
+                        if relabel:
+                            row.buttons_posted = relabel[0]
+                        audit.record(s, "system", "reaction_post_updated_text", "reaction_post", str(post_id),
+                                     **({"buttons": relabel[0]} if relabel else {}))
 
                 await self.run_db(save)
                 edited += 1
-                log.info("reaction post %s text updated in Discord", post_id)
+                log.info("reaction post %s %s updated in Discord", post_id, "text and buttons" if relabel else "text")
             if not self._post_again:
                 return edited
 
@@ -1449,9 +1470,9 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         st = await self.run_db(app_settings.load)
         can_invite = (member is not None and discord_requests.is_admin(member, st.admin_role_ids)) or \
             await self.run_db(link_help.may_invite_self, discord_user_id)
-        text = link_help.dm_text(guild.name, names, can_invite)
+        text = link_help.dm_text(st, guild.name, names, can_invite)
         ok = await self.send_dm(discord_user_id, text, what=f"link help after a reaction on {post_message}",
-                                view=_HelpView(self, link=True, invite=can_invite))
+                                view=_HelpView(self, link=True, invite=can_invite, st=st))
         await self.run_db(lambda s: audit.record(s, "system", "link_help_dm", "discord_user", discord_user_id,
                                                  sent=ok, invite_offered=can_invite, roles=sorted(role_ids)))
 
@@ -1473,11 +1494,11 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         member = self.guild_member(interaction.user)
         uid = str(interaction.user.id)
 
-        def check(s) -> tuple[bool, bool, list[str]]:
-            return link_help.is_linked(s, uid), link_help.may_invite_self(s, uid), app_settings.load(s).admin_role_ids
+        def check(s) -> tuple[bool, bool, app_settings.AppSettings]:
+            return link_help.is_linked(s, uid), link_help.may_invite_self(s, uid), app_settings.load(s)
 
-        linked, allowed, admin_roles = await self.run_db(check)
-        admin = discord_requests.is_admin(member, admin_roles)
+        linked, allowed, st = await self.run_db(check)
+        admin = discord_requests.is_admin(member, st.admin_role_ids)
         where = "DM" if interaction.guild is None else "reaction post"
         try:
             if linked:
@@ -1488,7 +1509,7 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
                 await interaction.response.send_modal(_InviteModal(self))
             else:
                 log.info("invite button pressed by discord %s (%s): roles don't allow self-invites", uid, where)
-                await interaction.response.send_message(link_help.not_allowed_to_invite(), ephemeral=True)
+                await interaction.response.send_message(link_help.not_allowed_to_invite(st), ephemeral=True)
         except discord.NotFound as exc:
             if exc.code != 10062:
                 raise

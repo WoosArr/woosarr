@@ -355,9 +355,13 @@ td .row { gap: 4px; }
   background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .discord-preview .mention { font-weight: 600; border-radius: 3px; padding: 0 2px; }
 .discord-button-row { white-space: normal; margin-top: 8px; }
+/* Discord's four button colours, a shade darker so white text keeps 4.5:1 */
 .discord-button { display: inline-block; padding: 4px 14px; border-radius: 4px; font-size: 0.86rem; font-weight: 600;
-  background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-.discord-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  color: #ffffff; background: #4e5058; }
+.discord-button.primary { background: #4752c4; }
+.discord-button.secondary { background: #4e5058; }
+.discord-button.success { background: #1f7a3d; }
+.discord-button.danger { background: #b3262b; }
 
 /* ---- Wizard steps ---- */
 .wizard-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 0 0 12px; counter-reset: ws; }

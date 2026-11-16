@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 
 from woosarr.api.deps import AdminDep, DbDep, require_admin
 from woosarr.api.users import RoleImpactOut
+from woosarr.core import app_settings
 from woosarr.db.models import DiscordMember, DiscordRole, Reaction, ReactionPost
 from woosarr.services import audit, impact, reaction_text
 from woosarr.services.discord_bot import (
@@ -137,7 +138,7 @@ def _out(db, post: ReactionPost) -> ReactionPostOut:
                            preview=text, preview_length=len(text),
                            link_button=post.link_button, invite_button=post.invite_button,
                            outdated=bool(post.message_id) and (post.rendered_content != text
-                                                               or post.buttons_posted != buttons_key(post)),
+                                                               or post.buttons_posted != buttons_key(post, app_settings.load(db))),
                            clear_old_reactions=post.clear_old_reactions)
 
 
@@ -258,7 +259,7 @@ def update_post(post_id: int, body: ReactionPostUpdate, request: Request, db: Db
     post.clear_old_reactions = same_message and not body.keep_old_reactions
     db.flush()
     audit.record(db, principal.actor, "reaction_post_updated", "reaction_post", str(post_id),
-                 options=post.options, enabled=post.enabled, buttons=buttons_key(post) or "none",
+                 options=post.options, enabled=post.enabled, buttons=buttons_key(post, app_settings.load(db)) or "none",
                  **({"retired_emoji": [r["emoji"] for r in post.retired_options],
                      "old_reactions": "keep" if body.keep_old_reactions else "clear"} if post.retired_options else {}))
     return _out(db, post)

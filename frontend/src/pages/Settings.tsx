@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, type AdminOut, type ApiKeyCreated, type ApiKeyOut, type AppSettings, type LibraryOut, type RoleOut } from "../api";
 import { useAuth } from "../auth";
+import { DiscordButtonRow } from "../DiscordButton";
 import { Icon } from "../icons";
 import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
@@ -247,17 +248,7 @@ function Linking() {
         all={!!v.invite_all_members} allHint="anyone in the Discord server" roles={roles.data ?? []}
         value={v.invite_role_ids ?? []}
         onAll={(x) => f.set({ invite_all_members: x })} onChange={(ids) => f.set({ invite_role_ids: ids })} />
-      <fieldset className="plain stack" style={{ gap: 4 }}>
-        <legend className="small" style={{ fontWeight: 600 }}>Unlinked members who react</legend>
-        <Switch checked={!!v.reaction_link_dm} onChange={(x) => f.set({ reaction_link_dm: x })}
-          label={<><strong>DM members without a linked Plex account when they react to a reaction post</strong></>} />
-        <span className="hint small muted" style={{ display: "block" }}>
-          The DM explains that roles only unlock libraries once they're linked, with a <strong>Link my Plex account</strong> button,
-          and a <strong>Get a Plex invite</strong> button for members who may invite themselves (<em>Plex Invites</em>, above);
-          others are told to ask an admin. At most once a week per member; they still get the role.
-          Members who don't accept DMs from server members won't get it.
-        </span>
-      </fieldset>
+      <LinkHelpDm value={v} set={f.set} />
       <fieldset className="plain">
         <legend className="small" style={{ fontWeight: 600 }}>Shared Plex accounts (families)</legend>
         <span className="hint small muted" style={{ display: "block", marginBottom: 6 }}>
@@ -608,7 +599,7 @@ interface WelcomePreview {
 type WelcomeKey = "invite_welcome_text" | "invite_welcome_verify_text" | "invite_welcome_verify_needed_text" | "invite_welcome_find_server_text";
 
 /** Discord-ish rendering of a DM: **bold**, `code`, backslash escapes removed, line breaks kept. No HTML. */
-function DmPreview({ text, label }: { text: string; label: string }) {
+function DmPreview({ text, label, children }: { text: string; label: string; children?: ReactNode }) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
   const plain = (s: string) => s.replace(/\\([\\`*_{}[\]()#+\-.!|~<>@])/g, "$1");
   return (
@@ -618,7 +609,132 @@ function DmPreview({ text, label }: { text: string; label: string }) {
         if (/^`[^`]+`$/.test(part)) return <code key={i}>{part.slice(1, -1)}</code>;
         return <span key={i}>{plain(part)}</span>;
       })}
+      {children}
     </div>
+  );
+}
+
+interface LinkHelpPreview {
+  defaults: Record<string, string>;
+  placeholders: Record<string, string>;
+  styles: Record<string, string>;
+  invite: string;
+  no_invite: string;
+}
+
+type HelpKey = "reaction_link_dm_text" | "reaction_link_dm_invite_text" | "reaction_link_dm_no_invite_text" | "reaction_link_dm_closing_text";
+
+/** Settings → Linking: the DM to unlinked members who react (four editable parts), and the two buttons'
+ * labels and colours (also used under reaction posts). */
+function LinkHelpDm({ value, set }: { value: AppSettings; set: (p: Partial<AppSettings>) => void }) {
+  const [preview, setPreview] = useState<LinkHelpPreview | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [which, setWhich] = useState<"invite" | "no_invite">("invite");
+  const texts = {
+    reaction_link_dm_text: value.reaction_link_dm_text,
+    reaction_link_dm_invite_text: value.reaction_link_dm_invite_text,
+    reaction_link_dm_no_invite_text: value.reaction_link_dm_no_invite_text,
+    reaction_link_dm_closing_text: value.reaction_link_dm_closing_text,
+  };
+  const buttons = {
+    link_button_label: value.link_button_label, link_button_style: value.link_button_style,
+    invite_button_label: value.invite_button_label, invite_button_style: value.invite_button_style,
+  };
+  const key = JSON.stringify({ ...texts, ...buttons });
+  const known = preview ? Object.keys(preview.placeholders) : null;
+  const unknown = known ? [...new Set(Object.values(texts).flatMap((x) => [...(x ?? "").matchAll(/\{([A-Za-z_]+)\}/g)].map((m) => m[1])))]
+    .filter((n) => !known.includes(n)) : [];
+  const typo = unknown.length ? `unknown placeholder ${unknown.map((n) => `{${n}}`).join(", ")}; use ${known!.map((n) => `{${n}}`).join(", ")}` : null;
+  const blankLabel = !(value.link_button_label ?? "x").trim() || !(value.invite_button_label ?? "x").trim();
+  useEffect(() => {
+    if (typo || blankLabel) return;
+    let live = true;
+    const t = setTimeout(() => {
+      api.post<LinkHelpPreview>("/api/v1/settings/link-help/preview", JSON.parse(key))
+        .then((r) => { if (live) { setPreview(r); setError(null); } }, (e) => live && setError(e));
+    }, 300);
+    return () => { live = false; clearTimeout(t); };
+  }, [key, typo, blankLabel]);
+  const on = !!value.reaction_link_dm;
+  const parts: { key: HelpKey; label: string; hint: ReactNode; rows: number }[] = [
+    { key: "reaction_link_dm_text", label: "Message", rows: 4, hint: "Always sent." },
+    { key: "reaction_link_dm_invite_text", label: "When they may invite themselves", rows: 2,
+      hint: <>Added for members allowed to invite themselves (<em>Plex Invites</em>, above) and admins; the invite button is shown too. Leave empty to leave it out.</> },
+    { key: "reaction_link_dm_no_invite_text", label: "When they may not", rows: 2,
+      hint: "Added instead for everyone else; there's no invite button. Leave empty to leave it out." },
+    { key: "reaction_link_dm_closing_text", label: "Closing", rows: 2, hint: "Added last. Leave empty to leave it out." },
+  ];
+  const styles = preview?.styles ?? { primary: "Blurple", secondary: "Grey", success: "Green", danger: "Red" };
+  const buttonFields: { label: "link_button_label" | "invite_button_label"; style: "link_button_style" | "invite_button_style"; name: string }[] = [
+    { label: "link_button_label", style: "link_button_style", name: "Link button" },
+    { label: "invite_button_label", style: "invite_button_style", name: "Invite button" },
+  ];
+  return (
+    <fieldset className="plain stack">
+      <legend className="small" style={{ fontWeight: 600 }}>Unlinked members who react</legend>
+      <Switch checked={on} onChange={(x) => set({ reaction_link_dm: x })}
+        label={<><strong>DM members without a linked Plex account when they react to a reaction post</strong> <span className="muted small">— at most once a week per member; they still get the role. Members who don't accept DMs from server members won't get it</span></>} />
+      {preview ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Placeholders: {Object.entries(preview.placeholders).map(([k, d], i) => (
+            <span key={k}>{i ? " · " : ""}<code>{`{${k}}`}</code> {d}</span>
+          ))}. Discord formatting works: <code>**bold**</code>, <code>`code`</code>.
+        </p>
+      ) : null}
+      {parts.map((p) => {
+        const dflt = preview?.defaults[p.key];
+        const current = texts[p.key] ?? "";
+        return (
+          <div key={p.key} className="stack" style={{ gap: 4 }}>
+            <Field label={p.label} hint={p.hint}>
+              <textarea rows={p.rows} maxLength={1500} value={current}
+                onChange={(e) => set({ [p.key]: e.target.value } as Partial<AppSettings>)} />
+            </Field>
+            <div>
+              <button type="button" className="btn sm" disabled={dflt === undefined || current === dflt}
+                onClick={() => set({ [p.key]: dflt } as Partial<AppSettings>)}>Reset to default</button>
+            </div>
+          </div>
+        );
+      })}
+      <span className="hint small muted" style={{ display: "block" }}>
+        The buttons below are used in this DM and under reaction posts that show them (<em>Reaction Posts</em> → <em>Buttons under the post</em>).
+        Posted buttons are updated to new labels and colours by themselves. Grey is hard to see when hovered in Discord's dark theme.
+      </span>
+      {buttonFields.map((b) => {
+        const dflt = preview?.defaults[b.label];
+        const current = value[b.label] ?? "";
+        return (
+          <div key={b.label} className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <Field label={`${b.name} label`}>
+              <input type="text" maxLength={80} value={current} onChange={(e) => set({ [b.label]: e.target.value } as Partial<AppSettings>)} />
+            </Field>
+            <Field label={`${b.name} colour`}>
+              <select value={value[b.style] ?? "primary"} onChange={(e) => set({ [b.style]: e.target.value } as Partial<AppSettings>)}>
+                {Object.entries(styles).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+              </select>
+            </Field>
+            <button type="button" className="btn sm" disabled={dflt === undefined || current === dflt}
+              onClick={() => set({ [b.label]: dflt } as Partial<AppSettings>)}>Reset label</button>
+          </div>
+        );
+      })}
+      {blankLabel ? <div className="banner warn small" role="alert"><span>A button needs a label.</span></div> : null}
+      {typo ? <div className="banner warn small" role="alert"><span>{typo}</span></div> : <ErrorBanner error={error} />}
+      {preview && !typo && !blankLabel ? (
+        <div>
+          <div className="segmented" role="group" aria-label="Preview for">
+            <button type="button" aria-pressed={which === "invite"} onClick={() => setWhich("invite")}>May invite themselves</button>
+            <button type="button" aria-pressed={which === "no_invite"} onClick={() => setWhich("no_invite")}>May not</button>
+          </div>
+          <DmPreview text={preview[which]} label="Link help message preview">
+            <DiscordButtonRow label={value.link_button_label ?? ""} style={value.link_button_style ?? "primary"} />
+            {which === "invite" ? <DiscordButtonRow label={value.invite_button_label ?? ""} style={value.invite_button_style ?? "success"} /> : null}
+          </DmPreview>
+          <p className="small muted" style={{ marginTop: 6 }}>Preview with your server's name and one of its roles.</p>
+        </div>
+      ) : null}
+    </fieldset>
   );
 }
 

@@ -167,6 +167,10 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
             request.app.state.discord.schedule_presence()
         if diff.keys() & {"verified_role_id", "unverified_role_id", "linked_role_id"} and request.app.state.discord:
             request.app.state.discord.schedule_role_sync()
+        # New button labels or colours: reaction posts that show the buttons are edited to match.
+        if diff.keys() & {"link_button_label", "link_button_style", "invite_button_label", "invite_button_style"} \
+                and request.app.state.discord:
+            request.app.state.discord.schedule_post_refresh()
     return after
 
 
@@ -204,6 +208,40 @@ def preview_invite_welcome(changes: dict[str, Any], request: Request, db: DbDep)
         placeholders=welcome.PLACEHOLDERS, needs_verified=needs,
         unverified=welcome.compose(st, values, verified=False, has_libraries=True, features=needs),
         verified=welcome.compose(st, values, verified=True, has_libraries=True, features=needs))
+
+
+class LinkHelpPreview(BaseModel):
+    defaults: dict[str, str]  # the texts and labels "Reset to default" puts back
+    placeholders: dict[str, str]  # {name} → what it becomes
+    styles: dict[str, str]  # button colour value → its name in Discord
+    invite: str  # the DM to a member who may invite themselves
+    no_invite: str  # the DM to a member who may not
+
+
+@router.post("/settings/link-help/preview", response_model=LinkHelpPreview)
+def preview_link_help(changes: dict[str, Any], request: Request, db: DbDep) -> LinkHelpPreview:
+    """The DM to an unlinked member who reacted, with these (unsaved) texts, both ways."""
+    from woosarr.services import link_help
+    from woosarr.services import link_help_text as texts
+
+    try:
+        st = AppSettings.model_validate(app_settings.load(db).model_dump() | changes)
+    except ValidationError as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, exc.errors(include_url=False, include_context=False)
+        ) from None
+    guild = (request.app.state.discord.config()[1] if request.app.state.discord else None) or {}
+    server = guild.get("name") or "Demo server"
+    role = db.scalar(select(DiscordRole.name).where(DiscordRole.deleted.is_(False), DiscordRole.managed.is_(False))
+                     .order_by(DiscordRole.name).limit(1)) or "Movie Night"
+    return LinkHelpPreview(
+        defaults={"reaction_link_dm_text": texts.DEFAULT_TEXT, "reaction_link_dm_invite_text": texts.DEFAULT_INVITE,
+                  "reaction_link_dm_no_invite_text": texts.DEFAULT_NO_INVITE,
+                  "reaction_link_dm_closing_text": texts.DEFAULT_CLOSING,
+                  "link_button_label": texts.DEFAULT_LINK_LABEL, "invite_button_label": texts.DEFAULT_INVITE_LABEL},
+        placeholders=texts.PLACEHOLDERS, styles=texts.STYLE_NAMES,
+        invite=link_help.dm_text(st, server, [role], can_invite=True),
+        no_invite=link_help.dm_text(st, server, [role], can_invite=False))
 
 
 def apply_runtime_settings(app, settings: AppSettings) -> None:

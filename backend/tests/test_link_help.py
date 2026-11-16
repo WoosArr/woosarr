@@ -20,6 +20,7 @@ from woosarr.core import app_settings
 from woosarr.db.models import DiscordMember, ReactionPost, utcnow
 from woosarr.dev.demo import MOVIE_NIGHT
 from woosarr.services import link_help
+from woosarr.services import link_help_text as texts
 from woosarr.services.discord_bot import _HelpView, _InviteModal
 
 
@@ -65,13 +66,38 @@ class RulesTests(Base):
             self.assertTrue(link_help.may_invite_self(s, "503"))
 
     def test_dm_text(self):
-        text = link_help.dm_text("Bragi", ["Movie *Night*"], can_invite=True)
+        st = app_settings.AppSettings()
+        text = link_help.dm_text(st, "Bragi", ["Movie *Night*"], can_invite=True)
         self.assertIn("**Movie \\*Night\\***", text)  # role names are escaped
         self.assertIn("in **Bragi**", text)
-        self.assertIn(link_help.LINK_LABEL, text)
-        self.assertIn(link_help.INVITE_LABEL, text)
-        self.assertIn("Ask a server admin", link_help.dm_text(None, [], can_invite=False))
-        self.assertNotIn(link_help.INVITE_LABEL, link_help.dm_text(None, [], can_invite=False))
+        self.assertIn(texts.DEFAULT_LINK_LABEL, text)
+        self.assertIn(texts.DEFAULT_INVITE_LABEL, text)
+        self.assertIn("Ask a server admin", link_help.dm_text(st, None, [], can_invite=False))
+        self.assertNotIn(texts.DEFAULT_INVITE_LABEL, link_help.dm_text(st, None, [], can_invite=False))
+
+    def test_dm_text_and_labels_are_editable(self):
+        st = app_settings.AppSettings(reaction_link_dm_text="Hi from {server}: {roles}. Press {link_button}.",
+                                      reaction_link_dm_invite_text="Or {invite_button}.",
+                                      reaction_link_dm_closing_text="", link_button_label="Link *me*",
+                                      invite_button_label="Invite me")
+        self.assertEqual(link_help.dm_text(st, "Bragi", ["Movies"], can_invite=True),
+                         "Hi from Bragi: **Movies**. Press Link \\*me\\*.\nOr Invite me.")  # empty closing left out
+        with self.assertRaises(ValueError):
+            app_settings.AppSettings(reaction_link_dm_text="Hi {member}")  # unknown placeholder
+        with self.assertRaises(ValueError):
+            app_settings.AppSettings(link_button_label="   ")
+        with self.assertRaises(ValueError):
+            app_settings.AppSettings(invite_button_style="blue")
+        self.assertEqual(app_settings.AppSettings(link_button_label="  Link   me ").link_button_label, "Link me")
+
+    def test_buttons_key_changes_with_labels_and_colours(self):
+        post = SimpleNamespace(link_button=True, invite_button=False)
+        st = app_settings.AppSettings()
+        key = link_help.buttons_key(post, st)
+        self.assertTrue(key.startswith("link:"))
+        self.assertLessEqual(len(link_help.buttons_key(SimpleNamespace(link_button=True, invite_button=True), st)), 32)
+        self.assertNotEqual(key, link_help.buttons_key(post, st.model_copy(update={"link_button_style": "danger"})))
+        self.assertEqual(link_help.buttons_key(SimpleNamespace(link_button=False, invite_button=False), st), "")
 
 
 class NamedGuild(FakeGuild):
@@ -132,14 +158,14 @@ class BotTests(GuildMixin, Base):
         self.assertEqual(uid, "503")
         self.assertIn("**Role 8001** in **Bragi**", text)
         self.assertIn("Ask a server admin", text)  # nobody may invite themselves by default
-        self.assertEqual(buttons, [(link_help.LINK_LABEL, 0, "woosarr:help:link")])
+        self.assertEqual(buttons, [(texts.DEFAULT_LINK_LABEL, 0, "woosarr:help:link")])
         self.assertIn("8001", {str(r.id) for r in self.guild.get_member(503).roles})  # the role is still given
 
     def test_dm_offers_the_invite_button_to_members_allowed_to_invite_themselves(self):
         settings(self.db, reaction_link_dm=True, invite_all_members=True)
         member_row(self.db, "503")
         self.fire(self.svc.reaction_changed("7001", "503", "🎬", added=True))
-        self.assertEqual([b[:2] for b in self.dms[0][2]], [(link_help.LINK_LABEL, 0), (link_help.INVITE_LABEL, 1)])
+        self.assertEqual([b[:2] for b in self.dms[0][2]], [(texts.DEFAULT_LINK_LABEL, 0), (texts.DEFAULT_INVITE_LABEL, 1)])
 
     def test_linked_members_get_no_dm(self):
         settings(self.db, reaction_link_dm=True)
@@ -155,10 +181,10 @@ class BotTests(GuildMixin, Base):
             post.link_button = post.invite_button = True
         self.fire(self.svc.publish_post(1))
         self.assertEqual([(lbl, row) for lbl, row, _ in labels(msg.view)],
-                         [(link_help.LINK_LABEL, 0), (link_help.INVITE_LABEL, 1)])
+                         [(texts.DEFAULT_LINK_LABEL, 0), (texts.DEFAULT_INVITE_LABEL, 1)])
         with self.db.session() as s:
             post = s.get(ReactionPost, 1)
-            self.assertEqual(post.buttons_posted, "link,invite")
+            self.assertTrue(post.buttons_posted.startswith("link,invite:"))
             post.link_button = post.invite_button = False
         self.fire(self.svc.publish_post(1))
         self.assertIsNone(msg.view)  # taken off
@@ -170,7 +196,34 @@ class BotTests(GuildMixin, Base):
             post = s.get(ReactionPost, 1)
             post.message_id, post.invite_button = None, True
         self.fire(self.svc.publish_post(1))
-        self.assertEqual([lbl for lbl, _, _ in labels(self.guild.channel.sent[0].view)], [link_help.INVITE_LABEL])
+        self.assertEqual([lbl for lbl, _, _ in labels(self.guild.channel.sent[0].view)], [texts.DEFAULT_INVITE_LABEL])
+
+    def test_buttons_use_the_labels_and_colours_from_settings(self):
+        settings(self.db, reaction_link_dm=True, invite_all_members=True, link_button_label="Link up",
+                 link_button_style="danger", invite_button_label="Join", invite_button_style="secondary")
+        member_row(self.db, "503")
+        self.fire(self.svc.reaction_changed("7001", "503", "🎬", added=True))
+        self.assertEqual([b[:2] for b in self.dms[0][2]], [("Link up", 0), ("Join", 1)])
+        self.assertIn("Press **Link up**", self.dms[0][1])
+        self.guild.channel.messages[7001] = msg = ButtonMessage(7001)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).link_button = True
+        self.fire(self.svc.publish_post(1))
+        (button,) = msg.view.children
+        self.assertEqual((button.label, button.style.name), ("Link up", "danger"))
+
+    def test_new_labels_are_applied_to_posted_buttons(self):
+        self.guild.channel.messages[7001] = msg = ButtonMessage(7001)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).link_button = True
+        self.fire(self.svc.publish_post(1))
+        msg.view = None
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 0)  # nothing changed
+        settings(self.db, link_button_label="Link up", link_button_style="success")
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 1)
+        (button,) = msg.view.children
+        self.assertEqual((button.label, button.style.name), ("Link up", "success"))
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 0)  # remembered
 
     # ---- the invite button ------------------------------------------------------------
 
@@ -193,7 +246,7 @@ class BotTests(GuildMixin, Base):
         r = self.press_invite(501)
         self.assertEqual((r.sent, r.modal), ([link_help.already_linked()], None))
         r = self.press_invite(503, guild=False)  # from the DM
-        self.assertEqual((r.sent, r.modal), ([link_help.not_allowed_to_invite()], None))
+        self.assertEqual((r.sent, r.modal), ([link_help.not_allowed_to_invite(app_settings.AppSettings())], None))
         settings(self.db, invite_all_members=True)
         member_row(self.db, "503")
         r = self.press_invite(503)
@@ -229,7 +282,7 @@ class BotTests(GuildMixin, Base):
         self.assertIsNone(view.timeout)
         self.assertTrue(view.is_persistent())
         self.assertEqual([(lbl, row) for lbl, row, _ in labels(view)],
-                         [(link_help.LINK_LABEL, 0), (link_help.INVITE_LABEL, 1)])
+                         [(texts.DEFAULT_LINK_LABEL, 0), (texts.DEFAULT_INVITE_LABEL, 1)])
 
 
 class ApiTests(unittest.TestCase):
@@ -254,8 +307,19 @@ class ApiTests(unittest.TestCase):
         out = self.c.get("/api/v1/reaction-posts").json()[0]
         self.assertTrue(out["outdated"])  # the posted message doesn't have the button yet
         with self.h.app.state.db.session() as s:
-            s.get(ReactionPost, pid).buttons_posted = "link"
+            post = s.get(ReactionPost, pid)
+            post.buttons_posted = link_help.buttons_key(post, app_settings.load(s))
         self.assertFalse(self.c.get("/api/v1/reaction-posts").json()[0]["outdated"])
+
+    def test_preview(self):
+        r = self.c.post("/api/v1/settings/link-help/preview", json={"invite_button_label": "Join us"}).json()
+        self.assertIn("**Join us**", r["invite"])
+        self.assertNotIn("Join us", r["no_invite"])
+        self.assertIn("Ask a server admin", r["no_invite"])
+        self.assertEqual(r["styles"]["success"], "Green")
+        self.assertEqual(r["defaults"]["link_button_label"], texts.DEFAULT_LINK_LABEL)
+        self.assertEqual(self.c.post("/api/v1/settings/link-help/preview",
+                                     json={"reaction_link_dm_text": "{nope}"}).status_code, 422)
 
     def test_setting(self):
         self.assertFalse(self.c.get("/api/v1/settings").json()["reaction_link_dm"])

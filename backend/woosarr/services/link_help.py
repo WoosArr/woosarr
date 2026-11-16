@@ -12,25 +12,34 @@ without Discord.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from woosarr.core import app_settings, kv
 from woosarr.db.models import DiscordLink, DiscordMember, utcnow
+from woosarr.services import link_help_text as texts
 from woosarr.services.discord_text import safe
+
+if TYPE_CHECKING:
+    from woosarr.core.app_settings import AppSettings
 
 K_SENT = "link_help.dm_sent"  # {discord_user_id: ISO time of the last DM}
 DM_EVERY_DAYS = 7
 
-LINK_LABEL = "Link my Plex account"
-INVITE_LABEL = "Get a Plex invite"
 
 
-def buttons_key(post) -> str:
-    """Which buttons a reaction post shows, as stored in buttons_posted ("link,invite", "" for none)."""
-    return ",".join(name for name, on in (("link", post.link_button), ("invite", post.invite_button)) if on)
+def buttons_key(post, st: AppSettings) -> str:
+    """Which buttons a reaction post shows and how they look, as stored in buttons_posted:
+    "link,invite:<hash of labels and colours>", "" for none. A change means the message needs editing."""
+    names = ",".join(name for name, on in (("link", post.link_button), ("invite", post.invite_button)) if on)
+    if not names:
+        return ""
+    look = f"{st.link_button_label}|{st.link_button_style}|{st.invite_button_label}|{st.invite_button_style}"
+    return f"{names}:{hashlib.sha256(look.encode()).hexdigest()[:8]}"
 
 
 def is_linked(session: Session, discord_user_id: str) -> bool:
@@ -69,22 +78,22 @@ def claim_dm(session: Session, discord_user_id: str, now: datetime | None = None
     return True
 
 
-def dm_text(server: str | None, role_names: list[str], can_invite: bool) -> str:
-    """The DM to an unlinked member who just reacted for a role."""
-    roles = ", ".join(f"**{safe(n, 100)}**" for n in role_names) or "a role"
-    where = f" in **{safe(server, 100)}**" if server else ""
-    invite = (f"• New to the Plex server? Press **{INVITE_LABEL}** and enter your Plex email or username."
-              if can_invite else "• New to the Plex server? Ask a server admin for an invite.")
-    return (f"You reacted to get {roles}{where}. Roles only unlock Plex libraries once your Discord account is "
-            "linked to your Plex account.\n"
-            f"• Already on the Plex server? Press **{LINK_LABEL}**.\n"
-            f"{invite}\n"
-            "You can also use `/link` and `/invite` in the server.")
+def dm_text(st: AppSettings, server: str | None, role_names: list[str], can_invite: bool) -> str:
+    """The DM to an unlinked member who just reacted for a role: the main text, the invite or no-invite
+    part, then the closing (link_help_text.py); empty parts are left out."""
+    values = {"roles": ", ".join(f"**{safe(n, 100)}**" for n in role_names) or "a role",
+              "server": safe(server or "the server", 100),
+              "link_button": safe(st.link_button_label, 100), "invite_button": safe(st.invite_button_label, 100)}
+    parts = [st.reaction_link_dm_text,
+             st.reaction_link_dm_invite_text if can_invite else st.reaction_link_dm_no_invite_text,
+             st.reaction_link_dm_closing_text]
+    text = "\n".join(p for p in (texts.render(x, values) for x in parts) if p)
+    return text if len(text) <= texts.MAX_MESSAGE else text[:texts.MAX_MESSAGE - 1] + "…"
 
 
-def not_allowed_to_invite() -> str:
+def not_allowed_to_invite(st: AppSettings) -> str:
     return ("Your roles don't allow inviting yourself to the Plex server. Ask a server admin for an invite. "
-            f"Already on the Plex server? Press **{LINK_LABEL}** instead.")
+            f"Already on the Plex server? Press **{safe(st.link_button_label, 100)}** instead.")
 
 
 def already_linked() -> str:

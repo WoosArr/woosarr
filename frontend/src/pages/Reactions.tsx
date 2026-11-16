@@ -13,8 +13,8 @@ const NEW_ROLE = "__new__";
 const DEFAULT_LINE = "{emoji} {role} — {libraries}";
 
 /** The link / invite buttons' look, from Settings → Linking. */
-interface ButtonLook { link: string; linkStyle: ButtonStyle; invite: string; inviteStyle: ButtonStyle }
-const DEFAULT_LOOK: ButtonLook = { link: "Link my Plex account", linkStyle: "primary", invite: "Get a Plex invite", inviteStyle: "success" };
+interface ButtonLook { link: string; linkStyle: ButtonStyle; invite: string; inviteStyle: ButtonStyle; inviteFirst: boolean }
+const DEFAULT_LOOK: ButtonLook = { link: "Link my Plex account", linkStyle: "primary", invite: "Get a Plex invite", inviteStyle: "success", inviteFirst: false };
 
 /** Discord-ish preview: role mentions as coloured @chips, line breaks kept, buttons each on their own row. */
 function MessagePreview({ text, roles, link = false, invite = false, look = DEFAULT_LOOK }: { text: string; roles: Map<string, RoleOut>; link?: boolean; invite?: boolean; look?: ButtonLook }) {
@@ -29,8 +29,9 @@ function MessagePreview({ text, roles, link = false, invite = false, look = DEFA
         // Text stays in the theme colour (role colours can be low-contrast); the role colour tints it.
         return <span key={i} className="mention" style={{ borderBottom: `2px solid ${hex}`, background: `color-mix(in srgb, ${hex} 16%, transparent)` }}>@{role?.name ?? "role"}</span>;
       })}
+      {invite && look.inviteFirst ? <DiscordButtonRow label={look.invite} style={look.inviteStyle} /> : null}
       {link ? <DiscordButtonRow label={look.link} style={look.linkStyle} /> : null}
-      {invite ? <DiscordButtonRow label={look.invite} style={look.inviteStyle} /> : null}
+      {invite && !look.inviteFirst ? <DiscordButtonRow label={look.invite} style={look.inviteStyle} /> : null}
     </div>
   );
 }
@@ -128,6 +129,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
   const look: ButtonLook = settings.data ? {
     link: settings.data.link_button_label ?? DEFAULT_LOOK.link, linkStyle: settings.data.link_button_style ?? DEFAULT_LOOK.linkStyle,
     invite: settings.data.invite_button_label ?? DEFAULT_LOOK.invite, inviteStyle: settings.data.invite_button_style ?? DEFAULT_LOOK.inviteStyle,
+    inviteFirst: settings.data.button_order === "invite_first",
   } : DEFAULT_LOOK;
   const roleMap = new Map(roles.map((r) => [r.role_id, r]));
   const draftKey = JSON.stringify([draft.content, draft.legend, draft.legend_template, draft.legend_header,
@@ -277,7 +279,7 @@ function PostEditor({ post, roles, libraryTitles, onRolesChanged, onClose, onSav
           <span>Enabled <span className="small muted">— off = reactions grant nothing</span></span></label>
         <fieldset className="plain stack" style={{ gap: 4 }}>
           <legend className="small" style={{ fontWeight: 600 }}>Buttons under the post</legend>
-          <span className="hint small muted">Labels and colours: <em>Settings → Linking → Unlinked members who react</em>.</span>
+          <span className="hint small muted">Labels, colours and order: <em>Settings → Linking → Unlinked members who react</em>.</span>
           <label className="check"><input type="checkbox" checked={!!draft.link_button} onChange={(e) => setDraft({ ...draft, link_button: e.target.checked })} />
             <span><strong>{look.link}</strong> <span className="small muted">— the same choices as <code>/link</code>, shown only to the member who presses it</span></span></label>
           <label className="check"><input type="checkbox" checked={!!draft.invite_button} onChange={(e) => setDraft({ ...draft, invite_button: e.target.checked })} />

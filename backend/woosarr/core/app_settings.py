@@ -60,6 +60,8 @@ class AppSettings(BaseModel):
     link_button_style: Literal["primary", "secondary", "success", "danger"] = "primary"
     invite_button_label: str = Field(help_text.DEFAULT_INVITE_LABEL, min_length=1, max_length=help_text.MAX_LABEL)
     invite_button_style: Literal["primary", "secondary", "success", "danger"] = "success"
+    # Which button comes first (each is on its own row).
+    button_order: Literal["link_first", "invite_first"] = "link_first"
     # Roles the bot keeps in step with each member's Plex link (None = off).
     verified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")
     unverified_role_id: str | None = Field(None, pattern=r"^\d{5,25}$")

@@ -292,6 +292,15 @@
             "title": "Bot Status",
             "type": "string"
           },
+          "button_order": {
+            "default": "link_first",
+            "enum": [
+              "link_first",
+              "invite_first"
+            ],
+            "title": "Button Order",
+            "type": "string"
+          },
           "dry_run": {
             "default": true,
             "title": "Dry Run",

@@ -168,7 +168,8 @@ def patch_settings(changes: dict[str, Any], request: Request, db: DbDep, princip
         if diff.keys() & {"verified_role_id", "unverified_role_id", "linked_role_id"} and request.app.state.discord:
             request.app.state.discord.schedule_role_sync()
         # New button labels or colours: reaction posts that show the buttons are edited to match.
-        if diff.keys() & {"link_button_label", "link_button_style", "invite_button_label", "invite_button_style"} \
+        if diff.keys() & {"link_button_label", "link_button_style", "invite_button_label", "invite_button_style",
+                          "button_order"} \
                 and request.app.state.discord:
             request.app.state.discord.schedule_post_refresh()
     return after

@@ -639,7 +639,9 @@ function LinkHelpDm({ value, set }: { value: AppSettings; set: (p: Partial<AppSe
   const buttons = {
     link_button_label: value.link_button_label, link_button_style: value.link_button_style,
     invite_button_label: value.invite_button_label, invite_button_style: value.invite_button_style,
+    button_order: value.button_order,
   };
+  const inviteFirst = value.button_order === "invite_first";
   const key = JSON.stringify({ ...texts, ...buttons });
   const known = preview ? Object.keys(preview.placeholders) : null;
   const unknown = known ? [...new Set(Object.values(texts).flatMap((x) => [...(x ?? "").matchAll(/\{([A-Za-z_]+)\}/g)].map((m) => m[1])))]
@@ -719,6 +721,12 @@ function LinkHelpDm({ value, set }: { value: AppSettings; set: (p: Partial<AppSe
           </div>
         );
       })}
+      <Field label="Button order" hint="Each button is on its own row.">
+        <select value={value.button_order ?? "link_first"} onChange={(e) => set({ button_order: e.target.value as AppSettings["button_order"] })}>
+          <option value="link_first">Link button first</option>
+          <option value="invite_first">Invite button first</option>
+        </select>
+      </Field>
       {blankLabel ? <div className="banner warn small" role="alert"><span>A button needs a label.</span></div> : null}
       {typo ? <div className="banner warn small" role="alert"><span>{typo}</span></div> : <ErrorBanner error={error} />}
       {preview && !typo && !blankLabel ? (
@@ -728,8 +736,9 @@ function LinkHelpDm({ value, set }: { value: AppSettings; set: (p: Partial<AppSe
             <button type="button" aria-pressed={which === "no_invite"} onClick={() => setWhich("no_invite")}>May not</button>
           </div>
           <DmPreview text={preview[which]} label="Link help message preview">
+            {which === "invite" && inviteFirst ? <DiscordButtonRow label={value.invite_button_label ?? ""} style={value.invite_button_style ?? "success"} /> : null}
             <DiscordButtonRow label={value.link_button_label ?? ""} style={value.link_button_style ?? "primary"} />
-            {which === "invite" ? <DiscordButtonRow label={value.invite_button_label ?? ""} style={value.invite_button_style ?? "success"} /> : null}
+            {which === "invite" && !inviteFirst ? <DiscordButtonRow label={value.invite_button_label ?? ""} style={value.invite_button_style ?? "success"} /> : null}
           </DmPreview>
           <p className="small muted" style={{ marginTop: 6 }}>Preview with your server's name and one of its roles.</p>
         </div>

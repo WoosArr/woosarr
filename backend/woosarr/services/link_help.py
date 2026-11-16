@@ -38,7 +38,8 @@ def buttons_key(post, st: AppSettings) -> str:
     names = ",".join(name for name, on in (("link", post.link_button), ("invite", post.invite_button)) if on)
     if not names:
         return ""
-    look = f"{st.link_button_label}|{st.link_button_style}|{st.invite_button_label}|{st.invite_button_style}"
+    look = (f"{st.link_button_label}|{st.link_button_style}|{st.invite_button_label}|{st.invite_button_style}"
+            f"|{st.button_order}")
     return f"{names}:{hashlib.sha256(look.encode()).hexdigest()[:8]}"
 
 

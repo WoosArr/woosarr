@@ -97,5 +97,12 @@ def not_allowed_to_invite(st: AppSettings) -> str:
             f"Already on the Plex server? Press **{safe(st.link_button_label, 100)}** instead.")
 
 
+def choose_libraries_first(st: AppSettings, in_dm: bool) -> str:
+    """Invite button pressed before any role that gives a library: the invite would have none."""
+    where = "on the reaction post in the server" if in_dm else "above"
+    return (f"Your roles don't give access to any Plex library yet. React {where} to choose your libraries, "
+            f"then press **{safe(st.invite_button_label, 100)}** again.")
+
+
 def already_linked() -> str:
     return "Your Discord account is already linked to a Plex account. Use `/unlink` first to change it."

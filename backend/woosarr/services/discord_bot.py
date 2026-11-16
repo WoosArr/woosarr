@@ -434,10 +434,14 @@ class _HelpView(discord.ui.View):
         if st is not None:  # labels and colours from Settings → Linking (clicks only need the custom ids)
             self.link.label, self.link.style = st.link_button_label, discord.ButtonStyle[st.link_button_style]
             self.invite.label, self.invite.style = st.invite_button_label, discord.ButtonStyle[st.invite_button_style]
-        if not link:
-            self.remove_item(self.link)
-        if not invite:
-            self.remove_item(self.invite)
+        order = [self.link, self.invite]
+        if st is not None and st.button_order == "invite_first":
+            order.reverse()
+        self.clear_items()
+        shown = [b for b in order if (link if b is self.link else invite)]
+        for row, button in enumerate(shown):  # each button on its own row, in the chosen order
+            button.row = row
+            self.add_item(button)
 
     @discord.ui.button(label=help_texts.DEFAULT_LINK_LABEL, style=discord.ButtonStyle.primary, row=0,
                        custom_id="woosarr:help:link")

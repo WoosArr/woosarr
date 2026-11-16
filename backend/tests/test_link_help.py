@@ -212,6 +212,28 @@ class BotTests(GuildMixin, Base):
         (button,) = msg.view.children
         self.assertEqual((button.label, button.style.name), ("Link up", "danger"))
 
+    def test_button_order(self):
+        settings(self.db, reaction_link_dm=True, invite_all_members=True, button_order="invite_first")
+        member_row(self.db, "503")
+        self.fire(self.svc.reaction_changed("7001", "503", "🎬", added=True))
+        self.assertEqual([b[:2] for b in self.dms[0][2]],
+                         [(texts.DEFAULT_INVITE_LABEL, 0), (texts.DEFAULT_LINK_LABEL, 1)])
+        self.guild.channel.messages[7001] = msg = ButtonMessage(7001)
+        with self.db.session() as s:
+            s.get(ReactionPost, 1).link_button = True  # only one button: first row either way
+        self.fire(self.svc.publish_post(1))
+        self.assertEqual([(lbl, row) for lbl, row, _ in labels(msg.view)], [(texts.DEFAULT_LINK_LABEL, 0)])
+        settings(self.db, button_order="link_first")  # a change reaches posted buttons
+        with self.db.session() as s:
+            post = s.get(ReactionPost, 1)
+            post.invite_button = True
+        self.fire(self.svc.publish_post(1))
+        self.assertEqual([lbl for lbl, _, _ in labels(msg.view)], [texts.DEFAULT_LINK_LABEL, texts.DEFAULT_INVITE_LABEL])
+        settings(self.db, button_order="invite_first")
+        self.assertEqual(self.fire(self.svc.refresh_posts()), 1)
+        self.assertEqual([(lbl, row) for lbl, row, _ in labels(msg.view)],
+                         [(texts.DEFAULT_INVITE_LABEL, 0), (texts.DEFAULT_LINK_LABEL, 1)])
+
     def test_new_labels_are_applied_to_posted_buttons(self):
         self.guild.channel.messages[7001] = msg = ButtonMessage(7001)
         with self.db.session() as s:

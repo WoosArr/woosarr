@@ -233,7 +233,7 @@ Changes take effect when you **Save**; settings that change access show an impac
 | Admin roles | none (owner, Manage Server, Administrator) | Roles whose members count as admins in Discord (`/link` and `/invite` for others, requests without a request role). Once roles are chosen, only they (and the server owner) count. |
 | Who may link by typing a Plex username | anyone | Or only members with chosen roles; everyone else only sees *Sign in with Plex*. |
 | Plex Invites | nobody (admins only) | Roles whose members may `/invite` themselves, or anyone in the server. |
-| Unlinked members who react | off | DM members without a linked Plex account when they react to a reaction post: how to link, and an invite button if they may invite themselves; at most once a week each. The DM's four parts, and both buttons' labels and colours (also used under reaction posts), are editable with a preview ([Discord notes](discord-notes.md#dm-to-unlinked-members-who-react)). |
+| Unlinked members who react | off | DM members without a linked Plex account when they react to a reaction post: how to link, and an invite button if they may invite themselves; at most once a week each. The DM's four parts, and both buttons' labels, colours and order (also used under reaction posts), are editable with a preview ([Discord notes](discord-notes.md#dm-to-unlinked-members-who-react)). |
 | Shared Plex accounts (families) | Admins only | Or *Admins, or members who sign in with that Plex account* ([Shared Plex accounts](#shared-plex-accounts-families)). |
 | `/link` cooldown (seconds) | 300 | Wait between a member's link attempts; 0 = none. |
 | When a linked member leaves the Discord server | Remove role-granted libraries | Or *Leave their access as it is*. |

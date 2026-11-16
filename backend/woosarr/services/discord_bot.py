@@ -1498,16 +1498,24 @@ class DiscordService(_GuildFeatures, discord_requests.RequestCommands):
         member = self.guild_member(interaction.user)
         uid = str(interaction.user.id)
 
-        def check(s) -> tuple[bool, bool, app_settings.AppSettings]:
-            return link_help.is_linked(s, uid), link_help.may_invite_self(s, uid), app_settings.load(s)
+        def check(s) -> tuple[bool, bool, app_settings.AppSettings, bool]:
+            if isinstance(member, discord.Member):  # roles they just reacted for may not be cached yet
+                cache.member_changed(s, _member(member))
+            return (link_help.is_linked(s, uid), link_help.may_invite_self(s, uid), app_settings.load(s),
+                    bool(invites.libraries_for_member(s, uid)))
 
-        linked, allowed, st = await self.run_db(check)
+        linked, allowed, st, has_libraries = await self.run_db(check)
         admin = discord_requests.is_admin(member, st.admin_role_ids)
         where = "DM" if interaction.guild is None else "reaction post"
         try:
             if linked:
                 log.info("invite button pressed by discord %s (%s): already linked", uid, where)
                 await interaction.response.send_message(link_help.already_linked(), ephemeral=True)
+            elif (allowed or admin) and not has_libraries:
+                # Pick libraries first: an invite needs at least one (Billhedrick, live 2026-11-16).
+                log.info("invite button pressed by discord %s (%s): no roles that give libraries yet", uid, where)
+                await interaction.response.send_message(link_help.choose_libraries_first(st, in_dm=interaction.guild is None),
+                                                        ephemeral=True)
             elif allowed or admin:
                 log.info("invite button pressed by discord %s (%s): invite form shown", uid, where)
                 await interaction.response.send_modal(_InviteModal(self))

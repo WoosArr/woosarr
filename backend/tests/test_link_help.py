@@ -271,7 +271,14 @@ class BotTests(GuildMixin, Base):
         self.assertEqual((r.sent, r.modal), ([link_help.not_allowed_to_invite(app_settings.AppSettings())], None))
         settings(self.db, invite_all_members=True)
         member_row(self.db, "503")
-        r = self.press_invite(503)
+        st = app_settings.AppSettings(invite_all_members=True)
+        r = self.press_invite(503)  # no roles yet: nothing to invite to
+        self.assertEqual((r.sent, r.modal), ([link_help.choose_libraries_first(st, in_dm=False)], None))
+        self.assertIn("React above", r.sent[0])
+        self.assertIn("on the reaction post", self.press_invite(503, guild=False).sent[0])
+        member_row(self.db, "503", ["8001"])
+        with mock.patch("woosarr.services.invites.libraries_for_member", return_value=frozenset({"1"})):
+            r = self.press_invite(503)
         self.assertEqual(r.sent, [])
         self.assertIsInstance(r.modal, _InviteModal)
 

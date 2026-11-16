@@ -8,6 +8,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **Help for members who react but aren't linked** (both off by default):
   - *Settings → Linking → Unlinked members who react*: the bot DMs a member without a linked Plex account who reacts to a reaction post, with a **Link my Plex account** button and, if they may invite themselves, a **Get a Plex invite** button. At most once a week per member.
   - Reaction posts can show the same two buttons under the message, each on its own line. Members get a private answer: the `/link` choices, or the invite form (or a note to ask an admin).
+  - Pressing **Get a Plex invite** before reacting for any role says to react first, instead of opening the form and then refusing the invite.
   - The DM's text (four parts, with placeholders and a preview) and both buttons' labels, colours (Blurple, Grey, Green or Red) and order are editable in the same place. Posted buttons follow a change by themselves.
 
 ### Changed

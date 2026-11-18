@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import exc as sa_exc
 
 from woosarr import __version__, build
 from woosarr.api import admins as admins_api
@@ -36,6 +37,7 @@ from woosarr.core.config import Settings
 from woosarr.core.logs import configure_logging
 from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
+from woosarr.db import busy as db_busy
 from woosarr.db.session import Database, make_engine, migrate
 from woosarr.plex_gateway import PlexGateway
 from woosarr.services import (
@@ -205,6 +207,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=500,
             headers={"X-Request-ID": rid},
         )
+
+    # A locked database or a full connection pool is a wait, not a bug: 503 and a retry hint, one
+    # warning a minute (db/busy.py). Registered per class, so uvicorn doesn't log it a second time.
+    async def database_error(request: Request, exc: Exception) -> JSONResponse:
+        why = db_busy.reason(exc)
+        if why is None:
+            return await unhandled(request, exc)
+        rid = getattr(request.state, "request_id", "-")
+        db_busy.refused(request.method, request.url.path, why, rid)
+        return JSONResponse(
+            {"error": "database_busy", "detail": "The database is busy; try again in a few seconds.", "request_id": rid},
+            status_code=503,
+            headers={"X-Request-ID": rid, "Retry-After": "5"},
+        )
+
+    app.add_exception_handler(sa_exc.OperationalError, database_error)
+    app.add_exception_handler(sa_exc.TimeoutError, database_error)
 
     # Unversioned alias kept for the container healthcheck and uptime monitors.
     app.add_api_route("/api/health", _health, methods=["GET"], tags=["health"])

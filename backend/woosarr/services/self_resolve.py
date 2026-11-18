@@ -25,6 +25,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import ErrorResolution, utcnow
+from woosarr.db.session import try_write
 
 log = logging.getLogger("woosarr.alerts")
 
@@ -74,6 +75,8 @@ RULES: tuple[Rule, ...] = (
     _r("discord.gateway", r"heartbeat blocked|Can't keep up", "the Discord connection is healthy again", key="discord"),
     _r("discord.client", r"^Attempting a reconnect", "the bot reconnected to Discord", key="discord"),
     _r("woosarr.discord", r"^discord connection problem: ", "the bot connected to Discord", key="discord"),
+    _r("woosarr.discord", r"^discord gateway still disconnected", "the bot reconnected to Discord", key="discord"),
+    _r("woosarr.app", r"^database busy: ", "database writes work again", key="db"),
     # A sync finished while the bot was still connecting; connecting applies the roles (on_ready).
     _r("woosarr.discord", r"^link-status roles not applied: .*\(bot not connected\)",
        "the bot connected to Discord and applied them", key="discord"),
@@ -133,9 +136,11 @@ def apply(session: Session, groups: list) -> int:
         # same group (a plain insert made the second request fail on the primary key).
         values = {"fingerprint": g.fingerprint, "level": g.level, "logger": g.logger[:100], "message": g.message[:300],
                   "resolved_at": when, "until": when, "resolved_by": f"{ACTOR}: {rule.reason}"[:100]}
-        session.execute(sqlite_insert(ErrorResolution).values(**values).on_conflict_do_update(
+        stmt = sqlite_insert(ErrorResolution).values(**values).on_conflict_do_update(
             index_elements=[ErrorResolution.fingerprint],
-            set_={k: v for k, v in values.items() if k != "fingerprint"}))
+            set_={k: v for k, v in values.items() if k != "fingerprint"})
+        if not try_write(session, stmt, "alert resolution"):
+            break  # the database is locked; the next look at the alerts resolves them
         log.info("alert resolved by WooSarr (%s): %s", rule.reason, g.message.splitlines()[0][:200])
         done += 1
     return done

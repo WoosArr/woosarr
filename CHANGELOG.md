@@ -11,6 +11,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
   - Pressing **Get a Plex invite** before reacting for any role says to react first, instead of opening the form and then refusing the invite.
   - The DM's text (four parts, with placeholders and a preview) and both buttons' labels, colours (Blurple, Grey, Green or Red) and order are editable in the same place. Posted buttons follow a change by themselves.
 
+### Fixed
+- **A stalled disk no longer makes every page fail.** While another write holds the database lock, pages skip saving the session's "last seen" time and alert auto-resolutions (a later request saves them) instead of each waiting 30 s until the connection pool ran out (live 2026-11-18: about 60 errors in two bursts). A write that still can't get through is answered "database busy" (503, retry in 5 s) instead of a crash, logged as one warning a minute that clears itself once a write works again.
+- The "discord gateway still disconnected" warning clears itself when the bot reconnects.
+
 ### Changed
 - `develop` builds carry the next patch version (after 1.2.1: `1.2.2-dev.N`, was `1.3.0-dev.N`). Whether a release is a minor or major one instead is decided when it's made.
 

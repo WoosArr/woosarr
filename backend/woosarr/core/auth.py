@@ -21,11 +21,12 @@ from datetime import datetime, timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from woosarr.db.models import AdminUser, ApiKey, utcnow
 from woosarr.db.models import Session as DbSession
+from woosarr.db.session import try_write
 
 SESSION_COOKIE = "woosarr_session"
 CSRF_HEADER = "X-CSRF-Token"
@@ -162,7 +163,9 @@ def resolve_session(
         return None
     # Write at most once a minute to keep reads cheap.
     if now - row.last_seen_at > timedelta(minutes=1):
-        row.last_seen_at = now
+        # Best effort (db/session.py try_write): not worth failing or holding up a page for.
+        try_write(session, update(DbSession).where(DbSession.id_hash == row.id_hash).values(last_seen_at=now),
+                  "session last-seen time")
     return row, user
 
 
@@ -216,8 +219,9 @@ def resolve_api_key(session: Session, raw: str) -> tuple[ApiKey, AdminUser] | No
         return None
     now = utcnow()
     if row.last_used_at is None or now - row.last_used_at > timedelta(minutes=1):
-        row.last_used_at = now
+        try_write(session, update(ApiKey).where(ApiKey.id == row.id).values(last_used_at=now), "API key last-used time")
     return row, user
+
 
 
 # ---- Rate limiting ----------------------------------------------------------

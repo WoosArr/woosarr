@@ -159,6 +159,8 @@ def _named(kind: str, ident: str, names: dict[str, str]) -> str:
 def actor_label(actor: str, names: dict[str, str]) -> str:
     if actor == "system":
         return "WooSarr"
+    if actor == "console":  # python -m woosarr.admin inside the container (docker exec)
+        return "Console (container)"
     if actor.startswith("admin:"):
         return actor[6:]
     if ref := _actor_ref(actor):

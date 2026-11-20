@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 
 REDACTED = "[REDACTED]"
@@ -76,8 +77,59 @@ def redact(text: str) -> str:
     return _DISCORD_TOKEN.sub(REDACTED, text)
 
 
+# Control characters in a logged value (CodeQL py/log-injection): a username, a URL segment or an
+# error text from outside could otherwise start what looks like a new log line in `docker logs` or
+# carry terminal escapes. Logs are stored as one JSON object per line, so this is about readability
+# and the console, not the stored entries. Tab stays; everything else is shown escaped.
+_CONTROL = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7F) if c != 0x09}
+_CONTROL |= {0x0A: "\\n", 0x0D: "\\r", 0x85: "\\x85", 0x2028: "\\u2028", 0x2029: "\\u2029"}
+
+
+def escape_controls(text: str) -> str:
+    return text.translate(_CONTROL)
+
+
+class Multiline(str):
+    """A logged value WooSarr built itself whose line breaks are wanted (a stack trace)."""
+
+    __slots__ = ()
+
+
+class _Escaped:
+    """A log argument shown with its control characters escaped, whether formatted with %s or %r."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: object) -> None:
+        self.value = value
+
+    def __str__(self) -> str:
+        return escape_controls(str(self.value))
+
+    def __repr__(self) -> str:
+        return escape_controls(repr(self.value))
+
+
+def _escape_arg(value: object) -> object:
+    if value is None or isinstance(value, (int, float, Multiline)):  # numbers keep %d / %.1f working
+        return value
+    return _Escaped(value)
+
+
+def escape_args(record: logging.LogRecord) -> None:
+    """Escape control characters in the values of WooSarr's own log calls (not the message text,
+    which is ours, and not libraries' records, whose tracebacks are passed as values)."""
+    if not record.args or not record.name.startswith("woosarr"):
+        return
+    if isinstance(record.args, Mapping):
+        record.args = {k: _escape_arg(v) for k, v in record.args.items()}
+    else:
+        record.args = tuple(_escape_arg(v) for v in record.args)
+
+
 class RedactingFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
+        escape_args(record)
         try:
             message = record.getMessage()
         # Deliberately broad: a malformed log call (bad format args, odd __str__)

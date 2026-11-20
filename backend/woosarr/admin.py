@@ -54,8 +54,10 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
             print(f"no admin named {args.username!r}", file=sys.stderr)
             return 1
         if args.cmd == "unlock":
+            was_locked = bool(user.locked_until and user.locked_until > auth.utcnow())
             user.locked_until, user.failed_logins = None, 0
-            audit.record(s, "console", "admin_unlocked", "admin", str(user.id))
+            audit.record(s, "console", "admin_unlocked", "admin", str(user.id), username=user.username,
+                         was_locked=was_locked)
             print(f"{user.username} unlocked")
             return 0
         if args.generate:
@@ -70,9 +72,15 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        # What the reset changed besides the password, for the audit trail (the password never goes there).
+        details = {"username": user.username, "generated": bool(args.generate),
+                   "was_locked": bool(user.locked_until and user.locked_until > auth.utcnow()),
+                   "was_disabled": not user.is_active}
+        if user.auth_source != "local":
+            details["sign_in_was"] = user.auth_source
         user.auth_source, user.is_active, user.locked_until, user.failed_logins = "local", True, None, 0
-        auth.end_all_sessions(s, user.id)
-        audit.record(s, "console", "admin_password_reset", "admin", str(user.id))
+        details["sessions_ended"] = auth.end_all_sessions(s, user.id)
+        audit.record(s, "console", "admin_password_reset", "admin", str(user.id), **details)
         print(f"password for {user.username} reset; all its sessions were signed out")
         if args.generate:
             print(f"new password: {password}")

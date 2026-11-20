@@ -194,6 +194,8 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
   python -m woosarr.admin unlock admin
   ```
 
+  Both show on *Logs → Audit trail* with actor **Console (container)**. A reset records whether the password was generated, whether the account was locked or disabled, whether it used single sign-on before, and how many sessions were signed out (never the password).
+
 ## Backup and restore (P12-03)
 
 Everything WooSarr needs is in `/config` (`/mnt/user/appdata/woosarr` on Unraid):

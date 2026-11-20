@@ -15,6 +15,11 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - **A stalled disk no longer makes every page fail.** While another write holds the database lock, pages skip saving the session's "last seen" time and alert auto-resolutions (a later request saves them) instead of each waiting 30 s until the connection pool ran out (live 2026-11-18: about 60 errors in two bursts). A write that still can't get through is answered "database busy" (503, retry in 5 s) instead of a crash, logged as one warning a minute that clears itself once a write works again.
 - The "discord gateway still disconnected" warning clears itself when the bot reconnects.
 
+### Security
+- Values in WooSarr's log lines (a typed username, an SSO provider name in the URL, an error text) have line breaks and other control characters shown escaped (`\n`), so they can't look like a new log line in `docker logs` or carry terminal escapes. Flagged by the new CodeQL scan (log injection).
+- CodeQL code scanning for the Python and TypeScript code and the workflows, on every push and pull request and weekly.
+- A console password reset or unlock (`python -m woosarr.admin`) shows as **Console (container)** on the audit trail, and a reset records what else it changed: generated or typed, unlocked, re-enabled, single sign-on turned off, sessions signed out.
+
 ### Changed
 - `develop` builds carry the next patch version (after 1.2.1: `1.2.2-dev.N`, was `1.3.0-dev.N`). Whether a release is a minor or major one instead is decided when it's made.
 

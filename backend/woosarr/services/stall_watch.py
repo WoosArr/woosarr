@@ -25,6 +25,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from woosarr.core.redaction import Multiline
 from woosarr.services import self_resolve
 
 log = logging.getLogger("woosarr.stall")
@@ -107,7 +108,7 @@ class StallWatch:
         if behind > self.stall and self._blocked_since is None:
             self._blocked_since, self._blocked_wall = self._beat, wall - behind
             log.warning("WooSarr's event loop is blocked (%.1f s so far): Discord commands and the web UI wait "
-                        "until it's free. It's running:\n%s", behind, self.loop_stack())
+                        "until it's free. It's running:\n%s", behind, Multiline(self.loop_stack()))
         elif behind <= self.check * 2 and self._blocked_since is not None:
             took = now - self._blocked_since
             self._record(Stall("blocked", self._blocked_wall or wall - took, wall))

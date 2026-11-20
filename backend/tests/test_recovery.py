@@ -36,7 +36,25 @@ class RecoveryTests(unittest.TestCase):
         new_password = out.strip().splitlines()[-1].split(": ", 1)[1]
         self.assertEqual(self.h.client.get("/api/v1/admins").status_code, 401)  # old session ended
         self.h.app.state.login_limiter.reset()
-        self.h.login(ADMIN, new_password)
+        c = self.h.login(ADMIN, new_password)
+        entry = next(e for e in c.get("/api/v1/audit").json()["entries"] if e["action"] == "admin_password_reset")
+        self.assertEqual(entry["actor"], "console")
+        self.assertEqual(entry["actor_label"], "Console (container)")
+        d = entry["details"]
+        self.assertEqual((d["username"], d["generated"], d["was_locked"], d["was_disabled"]), (ADMIN, True, True, False))
+        self.assertGreaterEqual(d["sessions_ended"], 1)
+        self.assertNotIn(new_password, str(entry))
+
+    def test_unlock_is_audited(self):
+        anon = self.h.new_client()
+        for _ in range(5):
+            anon.post("/api/v1/auth/login", json={"username": ADMIN, "password": "wrong-password-x"})
+        code, out = self.run_cli("unlock", ADMIN)
+        self.assertEqual(code, 0, out)
+        self.h.app.state.login_limiter.reset()
+        c = self.h.login(ADMIN, PASSWORD)
+        entry = next(e for e in c.get("/api/v1/audit").json()["entries"] if e["action"] == "admin_unlocked")
+        self.assertEqual((entry["actor_label"], entry["details"]["was_locked"]), ("Console (container)", True))
 
     def test_unknown_user(self):
         code, _ = self.run_cli("unlock", "ghost")

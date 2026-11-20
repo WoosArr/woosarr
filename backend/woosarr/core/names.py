@@ -12,6 +12,8 @@ import logging
 import re
 import threading
 
+from woosarr.core.redaction import escape_args
+
 _lock = threading.Lock()
 _discord: dict[str, str] = {}  # snowflake -> "@member", "role X", "#channel", "server X"
 _plex: dict[str, str] = {}  # Plex user id -> "Plex username"
@@ -54,6 +56,7 @@ class NamesFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if record.levelno < logging.INFO:
             return True
+        escape_args(record)  # before the values are folded into the message (core/redaction.py)
         try:
             message = record.getMessage()
         except Exception:  # noqa: BLE001 - a malformed log call must never break logging

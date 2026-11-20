@@ -173,11 +173,12 @@ def end_session(session: Session, cookie_value: str) -> None:
     session.execute(delete(DbSession).where(DbSession.id_hash == sha256(cookie_value)))
 
 
-def end_all_sessions(session: Session, admin_user_id: int, keep_hash: str | None = None) -> None:
+def end_all_sessions(session: Session, admin_user_id: int, keep_hash: str | None = None) -> int:
+    """Signs the admin out everywhere (but keep_hash); returns how many sessions ended."""
     stmt = delete(DbSession).where(DbSession.admin_user_id == admin_user_id)
     if keep_hash:
         stmt = stmt.where(DbSession.id_hash != keep_hash)
-    session.execute(stmt)
+    return session.execute(stmt).rowcount or 0
 
 
 def prune_sessions(session: Session) -> int:

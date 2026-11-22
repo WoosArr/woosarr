@@ -177,6 +177,14 @@ class DashboardApiTests(unittest.TestCase):
         s = self.c.get("/api/v1/status").json()
         self.assertEqual((s["recent_errors"], s["open_errors"]), (5, 1))  # one problem, five times
 
+    def test_resolved_problems_are_not_counted_as_open(self):
+        self.log.error("boom-old resolved problem")
+        old = next(g for g in self.c.get("/api/v1/errors").json() if g["message"].startswith("boom-old"))
+        self.assertEqual(self.c.put(f"/api/v1/errors/{old['fingerprint']}/resolved").status_code, 200)
+        self.log.error("boom-new open problem")
+        s = self.c.get("/api/v1/status").json()
+        self.assertEqual((s["recent_errors"], s["open_errors"]), (1, 1))  # live: "11 unresolved" with 1 open
+
     def errors(self, level="WARNING"):
         return {g["message"].split(" ", 1)[0]: g for g in self.c.get(f"/api/v1/errors?level={level}").json()}
 

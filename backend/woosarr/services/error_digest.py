@@ -236,6 +236,8 @@ def visible_counts(session: Session) -> tuple[int, int, int, int]:
     error problems). A problem is one Alerts entry, however many times it happened."""
     warnings = errors = warning_groups = error_groups = 0
     for g in groups(session):
+        if g.count <= 0:
+            continue  # resolved: still listed under Alerts (count 0), but not a problem
         if g.level == "WARNING":
             warnings, warning_groups = warnings + g.count, warning_groups + 1
         else:

@@ -22,6 +22,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 - A console password reset or unlock (`python -m woosarr.admin`) shows as **Console (container)** on the audit trail, and a reset records what else it changed: generated or typed, unlocked, re-enabled, single sign-on turned off, sessions signed out.
 
 ### Changed
+- Dashboard request tiles (*Requests*, *Requests by status*) leave out requests removed from Seerr more than 7 days ago, as the Requests page already did.
 - `develop` builds carry the next patch version (after 1.2.1: `1.2.2-dev.N`, was `1.3.0-dev.N`). Whether a release is a minor or major one instead is decided when it's made.
 
 ## [1.2.1] - 2026-11-14

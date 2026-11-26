@@ -174,9 +174,12 @@ def insights(request: Request, db: DbDep) -> InsightsOut:
                    PlexInvite.status == "accepted", PlexInvite.resolved_at >= now - timedelta(days=7))) or 0,
                "recent": [{"identifier": i.identifier, "created_at": i.created_at} for i in pending[:5]]}
 
-    by_status = dict(db.execute(select(MediaRequest.status, func.count()).group_by(MediaRequest.status)).all())
+    shown = media_requests.on_dashboard()  # not requests removed from Seerr over a week ago
+    by_status = dict(db.execute(select(MediaRequest.status, func.count()).where(shown)
+                                .group_by(MediaRequest.status)).all())
     # More than the widget shows (5), so a copy filtered by status still has enough to list.
-    recent_rows = list(db.scalars(select(MediaRequest).order_by(MediaRequest.created_at.desc()).limit(RECENT_REQUESTS)))
+    recent_rows = list(db.scalars(select(MediaRequest).where(shown).order_by(MediaRequest.created_at.desc())
+                                  .limit(RECENT_REQUESTS)))
     open_rows = list(db.scalars(select(MediaRequest).where(MediaRequest.status.in_(media_requests.OPEN_STATES))
                                 .order_by(MediaRequest.created_at.desc())))
     shown_open = open_rows[:OPEN_REQUESTS_SHOWN]

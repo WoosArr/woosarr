@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from woosarr.core import app_settings, auth, kv
@@ -507,6 +507,14 @@ def checked():
     """The requests poll() re-reads: open ones, and failed or declined ones for RECHECK_DAYS."""
     return or_(MediaRequest.status.in_(OPEN_STATES),
                MediaRequest.status.in_(RECHECK_STATES) & (MediaRequest.status_at >= utcnow() - timedelta(days=RECHECK_DAYS)))
+
+
+def on_dashboard():
+    """Dashboard tiles leave out requests removed from Seerr more than CLOSED_VISIBLE_DAYS ago, as the
+    Requests page does; every other request still counts there, however old."""
+    cutoff = utcnow() - timedelta(days=CLOSED_VISIBLE_DAYS)
+    return or_(MediaRequest.status != "deleted",
+               func.coalesce(MediaRequest.status_at, MediaRequest.updated_at) >= cutoff)
 
 
 def next_retry_at(row: MediaRequest, auto_retry: bool = True) -> Any:

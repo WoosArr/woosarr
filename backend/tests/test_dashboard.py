@@ -66,6 +66,21 @@ class DashboardApiTests(unittest.TestCase):
         self.assertIn("open_requests", ids)
         self.assertIn("role_libraries", ids)
 
+    def test_requests_removed_from_seerr_over_a_week_ago_leave_the_tiles(self):
+        from datetime import timedelta
+
+        from woosarr.db.models import MediaRequest, utcnow
+        now = utcnow()
+        rows = [("Old removed", "deleted", 8), ("New removed", "deleted", 2), ("Old available", "available", 30),
+                ("Old pending", "pending", 30)]
+        with self.h.app.state.db.session() as s:
+            s.add_all([MediaRequest(seerr_request_id=i, discord_user_id="5", seerr_user_id=1, media_type="movie",
+                                    tmdb_id=i, title=title, status=st, status_at=now - timedelta(days=days))
+                       for i, (title, st, days) in enumerate(rows)])
+        r = self.c.get("/api/v1/dashboard/insights").json()["requests"]
+        self.assertEqual(r["by_status"], {"deleted": 1, "available": 1, "pending": 1})
+        self.assertEqual({x["title"] for x in r["recent"]}, {"New removed", "Old available", "Old pending"})
+
     def test_widgets_can_be_copied_and_renamed(self):
         base = self.c.get("/api/v1/dashboard/layout").json()["widgets"]
         mine = [{"id": "libraries", "size": "m", "title": "  All   libraries "},

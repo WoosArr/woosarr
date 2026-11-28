@@ -179,7 +179,7 @@ def _import(settings: Settings, args: argparse.Namespace) -> int:
             audit.record(s, "console", "config_imported", None, None,
                          parts={p.name: p.counts for p in result.parts}, source_plex=doc.source.plex_server,
                          source_discord=doc.source.discord_guild, exported_at=doc.exported_at,
-                         encrypted=result.secrets_imported, warnings=len(result.warnings))
+                         encrypted=result.encrypted_count, warnings=len(result.warnings))
     except config_transfer.TransferError as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -156,7 +156,7 @@ async def import_config(request: Request, db: DbDep, principal: AdminDep, tasks:
     audit.record(db, principal.actor, "config_imported", None, None,
                  parts={p.name: p.counts for p in result.parts}, source_plex=doc.source.plex_server,
                  source_discord=doc.source.discord_guild, exported_at=doc.exported_at,
-                 encrypted=result.secrets_imported, warnings=len(result.warnings))
+                 encrypted=result.encrypted_count, warnings=len(result.warnings))
     reconnecting = [name for name, on in (("plex", result.plex_token), ("discord", result.discord_token)) if on]
     # After the response, so the transaction above has committed.
     tasks.add_task(_after_import, request.app, result)

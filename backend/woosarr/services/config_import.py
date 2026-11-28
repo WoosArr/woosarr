@@ -287,7 +287,7 @@ class Result:
     warnings: list[str] = field(default_factory=list)
     secrets_found: list[str] = field(default_factory=list)  # names (what), never values
     secrets_readable: bool | None = None  # None: no passphrase given
-    secrets_imported: int = 0
+    encrypted_count: int = 0
     plex_token: bool = False  # a Plex token was imported: rebuild the Plex connection
     discord_token: bool = False  # a bot token was imported: restart the bot
 
@@ -296,6 +296,8 @@ class Result:
 
 
 SECRET_LABELS = {"plex_token": "Plex token", "discord_bot_token": "Discord bot token", "seerr_api_key": "Seerr API key"}
+TOKEN_NAMES = {"plex_token": names.PLEX_TOKEN, "discord_bot_token": names.DISCORD_BOT_TOKEN,
+               "seerr_api_key": names.SEERR_API_KEY}
 
 
 def _secret_label(key: str) -> str:
@@ -682,35 +684,35 @@ class _Run:
                    added=len(new), skipped=len(rows) - len(new))
 
     def secrets(self) -> None:
-        tokens = {k: v for k, v in self.values.items() if k in SECRET_LABELS}
+        # Fixed labels and store names; the decrypted values only go to the secret store.
+        present = [key for key in TOKEN_NAMES if self.values.get(key)]
         src = self.doc.source
         if self.apply:
-            for key, value in tokens.items():
-                name = {"plex_token": names.PLEX_TOKEN, "discord_bot_token": names.DISCORD_BOT_TOKEN,
-                        "seerr_api_key": names.SEERR_API_KEY}[key]
-                self.store.set(self.s, name, value)
+            for key in present:
+                self.store.set(self.s, TOKEN_NAMES[key], self.values[key])
             # A fresh server learns which Plex server and Discord server the tokens are for.
-            if "plex_token" in tokens:
+            if "plex_token" in present:
                 self.r.plex_token = True
                 if not self.here_machine and src.plex_machine_id:
                     kv.put(self.s, K_PLEX_SERVER, {"machine_id": src.plex_machine_id, "name": src.plex_server})
                 if src.plex_account and not kv.get(self.s, K_PLEX_ACCOUNT):
                     kv.put(self.s, K_PLEX_ACCOUNT, src.plex_account)
-            if "discord_bot_token" in tokens:
+            if "discord_bot_token" in present:
                 self.r.discord_token = True
                 if not self.here_guild and src.discord_guild_id:
                     kv.put(self.s, K_DISCORD_GUILD, {"id": src.discord_guild_id, "name": src.discord_guild})
                 if src.discord_bot and not kv.get(self.s, K_DISCORD_BOT):
                     kv.put(self.s, K_DISCORD_BOT, src.discord_bot)
-        if self.here_machine and not self.same_plex and "plex_token" in tokens:
+        if self.here_machine and not self.same_plex and "plex_token" in present:
             self.warn("The Plex token in the file belongs to another Plex server's owner; importing it replaces this "
                       "server's Plex sign-in.")
-        if self.here_guild and not self.same_guild and "discord_bot_token" in tokens:
+        if self.here_guild and not self.same_guild and "discord_bot_token" in present:
             self.warn("The bot token in the file is for a bot on another Discord server; importing it replaces this "
                       "server's bot.")
-        extra = sum(1 for k in self.values if k not in SECRET_LABELS)
-        self.r.secrets_imported = len(tokens) + (extra if self.apply else 0)
-        self.r.add(SECRETS, ", ".join(SECRET_LABELS[k] for k in tokens) or "no tokens", tokens=len(tokens))
+        others = sum(1 for k in self.values if k not in TOKEN_NAMES)
+        self.r.encrypted_count = len(present) + (others if self.apply else 0)
+        labels = [label for key, label in SECRET_LABELS.items() if key in present]
+        self.r.add(SECRETS, ", ".join(labels) or "no tokens", tokens=len(present))
 
     def run(self) -> Result:
         # Admins before single sign-on (identities name admins); settings last but one, secrets last.
@@ -738,5 +740,5 @@ def run(s: Session, store: SecretStore, doc: ExportFile, parts: list[str] | None
         s.flush()
         log.info("config imported by %s from %s / %s: %s; %d secret(s)%s", actor, doc.source.plex_server or "?",
                  doc.source.discord_guild or "?", ", ".join(f"{p.name} {p.counts}" for p in result.parts),
-                 result.secrets_imported, f"; {len(result.warnings)} warning(s)" if result.warnings else "")
+                 result.encrypted_count, f"; {len(result.warnings)} warning(s)" if result.warnings else "")
     return result

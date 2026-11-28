@@ -1660,6 +1660,238 @@
         "title": "ImpactOut",
         "type": "object"
       },
+      "ImportPartOut": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "summary",
+          "counts"
+        ],
+        "title": "ImportPartOut",
+        "type": "object"
+      },
+      "ImportPreview": {
+        "properties": {
+          "available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "exported_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exported At"
+          },
+          "format": {
+            "title": "Format",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ImportPartOut"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "secrets_found": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Secrets Found",
+            "type": "array"
+          },
+          "secrets_in_file": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secrets In File"
+          },
+          "secrets_readable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secrets Readable"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "woosarr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Woosarr"
+          }
+        },
+        "required": [
+          "format",
+          "woosarr",
+          "exported_at",
+          "source",
+          "available",
+          "parts",
+          "warnings",
+          "secrets_in_file",
+          "secrets_found",
+          "secrets_readable"
+        ],
+        "title": "ImportPreview",
+        "type": "object"
+      },
+      "ImportResult": {
+        "properties": {
+          "available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "exported_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exported At"
+          },
+          "format": {
+            "title": "Format",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ImportPartOut"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "reconnecting": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reconnecting",
+            "type": "array"
+          },
+          "secrets_found": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Secrets Found",
+            "type": "array"
+          },
+          "secrets_in_file": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secrets In File"
+          },
+          "secrets_readable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secrets Readable"
+          },
+          "source": {
+            "additionalProperties": true,
+            "title": "Source",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "woosarr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Woosarr"
+          }
+        },
+        "required": [
+          "format",
+          "woosarr",
+          "exported_at",
+          "source",
+          "available",
+          "parts",
+          "warnings",
+          "secrets_in_file",
+          "secrets_found",
+          "secrets_readable",
+          "reconnecting"
+        ],
+        "title": "ImportResult",
+        "type": "object"
+      },
       "InsightsOut": {
         "properties": {
           "access_by_day": {
@@ -6019,6 +6251,138 @@
           }
         },
         "summary": "Export Parts",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/v1/config/import": {
+      "post": {
+        "description": "Apply the chosen parts in one transaction; dry-run is on afterwards.",
+        "operationId": "import_config_api_v1_config_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "additionalProperties": true,
+                    "description": "The export file, as downloaded",
+                    "title": "File",
+                    "type": "object"
+                  },
+                  "parts": {
+                    "description": "Parts to import (incl. 'secrets'); empty = everything in the file",
+                    "items": {
+                      "pattern": "^[a-z_]{1,32}$",
+                      "type": "string"
+                    },
+                    "maxItems": 10,
+                    "title": "Parts",
+                    "type": "array"
+                  },
+                  "passphrase": {
+                    "anyOf": [
+                      {
+                        "maxLength": 1024,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Passphrase"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "title": "ImportIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Import Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/v1/config/import/preview": {
+      "post": {
+        "description": "What importing the file would change here. Writes nothing.",
+        "operationId": "import_preview_api_v1_config_import_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "additionalProperties": true,
+                    "description": "The export file, as downloaded",
+                    "title": "File",
+                    "type": "object"
+                  },
+                  "parts": {
+                    "description": "Parts to import (incl. 'secrets'); empty = everything in the file",
+                    "items": {
+                      "pattern": "^[a-z_]{1,32}$",
+                      "type": "string"
+                    },
+                    "maxItems": 10,
+                    "title": "Parts",
+                    "type": "array"
+                  },
+                  "passphrase": {
+                    "anyOf": [
+                      {
+                        "maxLength": 1024,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Passphrase"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "title": "ImportIn",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Import Preview",
         "tags": [
           "config"
         ]

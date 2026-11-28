@@ -4,6 +4,7 @@
     docker exec -it woosarr python -m woosarr.admin reset-password <username>
     docker exec -it woosarr python -m woosarr.admin unlock <username>
     docker exec -i woosarr python -m woosarr.admin export [--parts settings,libraries] [--secrets] > woosarr-config.json
+    docker exec -i woosarr python -m woosarr.admin import - --yes < woosarr-config.json
 
 On Unraid: Docker tab → WooSarr icon → Console, then run the command without
 the `docker exec -it woosarr` prefix.
@@ -16,6 +17,7 @@ import getpass
 import json
 import secrets
 import sys
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -25,7 +27,7 @@ from woosarr.core.secret_store import SecretStore
 from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.models import AdminUser
 from woosarr.db.session import Database, make_engine, migrate
-from woosarr.services import audit, config_transfer
+from woosarr.services import audit, config_import, config_transfer
 
 
 def _db(settings: Settings) -> Database:
@@ -47,11 +49,19 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
     export.add_argument("--parts", default="", help=f"comma-separated, default all: {','.join(config_transfer.PARTS)}")
     export.add_argument("--secrets", action="store_true",
                         help="include tokens and secrets, encrypted with a passphrase (asked for)")
+    imp = sub.add_parser("import", help="import an export file (preview, then apply after confirming)")
+    imp.add_argument("file", help="path inside the container, or - to read it from standard input")
+    imp.add_argument("--parts", default="", help=f"comma-separated, default everything in the file: "
+                                                 f"{','.join(config_import.IMPORT_PARTS)}")
+    imp.add_argument("--secrets", action="store_true", help="import tokens and secrets (asks for the passphrase)")
+    imp.add_argument("--yes", action="store_true", help="apply without asking (required when the file is -)")
     args = parser.parse_args(argv)
 
     settings = settings or Settings()
     if args.cmd == "export":
         return _export(settings, args)
+    if args.cmd == "import":
+        return _import(settings, args)
     db = _db(settings)
     with db.session() as s:
         if args.cmd == "list":
@@ -137,3 +147,53 @@ def _export(settings: Settings, args: argparse.Namespace) -> int:
     for name in summary["unreadable"]:
         print(f"warning: {name} couldn't be decrypted with this server's master key and was left out", file=sys.stderr)
     return 0
+
+
+def _import(settings: Settings, args: argparse.Namespace) -> int:
+    if args.file == "-" and not args.yes:
+        print("reading the file from standard input needs --yes (there's no way to ask for confirmation)",
+              file=sys.stderr)
+        return 1
+    try:
+        raw = json.load(sys.stdin) if args.file == "-" else json.loads(Path(args.file).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"can't read {args.file}: {exc}", file=sys.stderr)
+        return 1
+    parts = [p.strip() for p in args.parts.split(",") if p.strip()]
+    if not args.secrets:
+        parts = [p for p in (parts or config_import.IMPORT_PARTS) if p != config_import.SECRETS]
+    passphrase = getpass.getpass("Passphrase for the secrets: ") if args.secrets else None
+    store = SecretStore(SecretBox(load_or_create_key(settings.config_dir)))
+    db = _db(settings)
+    try:
+        doc = config_import.parse(raw)
+        with db.session() as s:
+            preview = config_import.run(s, store, doc, parts, passphrase, apply=False)
+            s.rollback()
+        _print_result(doc, preview, "would import")
+        if not args.yes and input("Import this? Type yes: ").strip().lower() != "yes":
+            print("nothing imported", file=sys.stderr)
+            return 1
+        with db.session() as s:
+            result = config_import.run(s, store, doc, parts, passphrase, apply=True, actor="console")
+            audit.record(s, "console", "config_imported", None, None,
+                         parts={p.name: p.counts for p in result.parts}, source_plex=doc.source.plex_server,
+                         source_discord=doc.source.discord_guild, exported_at=doc.exported_at,
+                         encrypted=result.secrets_imported, warnings=len(result.warnings))
+    except config_transfer.TransferError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    _print_result(doc, result, "imported")
+    print("dry-run is on. Restart the container so the running app picks up the import, review the planned "
+          "changes, then turn dry-run off under Settings → General.", file=sys.stderr)
+    return 0
+
+
+def _print_result(doc: config_import.ExportFile, result: config_import.Result, verb: str) -> None:
+    src = doc.source
+    print(f"{verb} from {src.plex_server or '?'} / {src.discord_guild or '?'} (exported {doc.exported_at or '?'}):",
+          file=sys.stderr)
+    for part in result.parts:
+        print(f"  {part.name}: {part.summary}", file=sys.stderr)
+    for warning in result.warnings:
+        print(f"  warning: {warning}", file=sys.stderr)

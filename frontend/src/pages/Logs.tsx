@@ -192,6 +192,7 @@ const ACTION_LABEL: Record<string, string> = {
   admin_password_reset: "Admin password reset",
   admin_unlocked: "Admin unlocked",
   config_exported: "Configuration exported",
+  config_imported: "Configuration imported",
   password_changed: "Password changed",
   api_key_created: "API key created",
   api_key_revoked: "API key revoked",

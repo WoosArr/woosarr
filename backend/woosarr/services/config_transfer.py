@@ -61,6 +61,8 @@ _AAD = b"woosarr-config-secrets-v1"
 K_SEERR = "seerr.config"
 K_PLEX_SERVER = "plex.server"
 K_DISCORD_GUILD = "discord.guild"
+K_PLEX_ACCOUNT = "plex.account"
+K_DISCORD_BOT = "discord.bot"
 
 
 class TransferError(ValueError):
@@ -275,11 +277,15 @@ def export(s: Session, store: SecretStore, parts: list[str] | None = None, passp
         check_passphrase(passphrase)
     server = kv.get(s, K_PLEX_SERVER) or {}
     guild = kv.get(s, K_DISCORD_GUILD) or {}
+    account = kv.get(s, K_PLEX_ACCOUNT) or {}
+    bot = kv.get(s, K_DISCORD_BOT) or {}
     doc: dict[str, Any] = {
         "kind": KIND, "format": FORMAT, "woosarr": build.current().version,
         "exported_at": utcnow().isoformat(),
         "source": {"plex_machine_id": server.get("machine_id"), "plex_server": server.get("name"),
-                   "discord_guild_id": guild.get("id"), "discord_guild": guild.get("name")},
+                   "discord_guild_id": guild.get("id"), "discord_guild": guild.get("name"),
+                   # Which accounts the tokens belong to, so an import can connect a fresh server with them.
+                   "plex_account": account or None, "discord_bot": bot or None},
         "parts": {p: _BUILDERS[p](s) for p in chosen},
         "secrets": None,
     }

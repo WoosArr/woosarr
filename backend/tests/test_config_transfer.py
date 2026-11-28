@@ -80,7 +80,7 @@ class ExportTests(unittest.TestCase):
         self.assertEqual((doc["kind"], doc["format"]), ("woosarr-config", 1))
         self.assertEqual(list(doc["parts"]), list(config_transfer.PARTS))
         self.assertEqual(doc["source"], {"plex_machine_id": "m1", "plex_server": "Bragi", "discord_guild_id": "g1",
-                                         "discord_guild": "Woos"})
+                                         "discord_guild": "Woos", "plex_account": None, "discord_bot": None})
         self.assertIsNone(doc["secrets"])
         for secret in (PLEX_TOKEN, BOT_TOKEN, SEERR_KEY, OIDC_SECRET):
             self.assertNotIn(secret, r.text)

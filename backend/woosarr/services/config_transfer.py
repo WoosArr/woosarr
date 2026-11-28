@@ -278,17 +278,18 @@ def export(s: Session, store: SecretStore, parts: list[str] | None = None, passp
         "secrets": None,
     }
     counts = {p: (len(v) if isinstance(v, list) else None) for p, v in doc["parts"].items()}
-    unreadable: list[str] = []
+    # Only how many values were encrypted and which names couldn't be read go to the log and audit.
+    encrypted, unreadable = 0, []
     if include_secrets:
         values, unreadable = _collect_secrets(s, store, chosen)
+        encrypted = len(values)
         doc["secrets"] = encrypt_secrets(values, passphrase or "")
         if unreadable:
-            doc["secrets_missing"] = unreadable  # names only: couldn't be decrypted with this server's key
-    log.info("config exported: parts=%s secrets=%s%s", ",".join(chosen),
-             doc["secrets"]["count"] if doc["secrets"] else "no",
+            doc["unreadable"] = unreadable  # names only: couldn't be decrypted with this server's key
+    log.info("config exported: parts=%s encrypted values=%d%s", ",".join(chosen), encrypted,
              f" (unreadable: {', '.join(unreadable)})" if unreadable else "")
     doc["summary"] = {"parts": chosen, "counts": {k: v for k, v in counts.items() if v is not None},
-                      "secrets": doc["secrets"]["count"] if doc["secrets"] else 0}
+                      "encrypted": encrypted, "unreadable": unreadable}
     return doc
 
 

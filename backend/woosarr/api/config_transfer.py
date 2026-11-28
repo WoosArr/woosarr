@@ -53,7 +53,7 @@ def export_config(body: ExportIn, request: Request, db: DbDep, principal: AdminD
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
     summary = doc["summary"]
     audit.record(db, principal.actor, "config_exported", None, None, parts=summary["parts"],
-                 counts=summary["counts"], secrets=summary["secrets"])
+                 counts=summary["counts"], encrypted=summary["encrypted"])
     return Response(json.dumps(doc, indent=2, ensure_ascii=False), media_type="application/json",
                     headers={"Content-Disposition": f'attachment; filename="{config_transfer.filename()}"',
                              "Cache-Control": "no-store"})

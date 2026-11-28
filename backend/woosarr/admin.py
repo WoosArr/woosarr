@@ -120,7 +120,7 @@ def _export(settings: Settings, args: argparse.Namespace) -> int:
             doc = config_transfer.export(s, store, parts, passphrase, args.secrets)
             summary = doc["summary"]
             audit.record(s, "console", "config_exported", None, None, parts=summary["parts"],
-                         counts=summary["counts"], secrets=summary["secrets"])
+                         counts=summary["counts"], encrypted=summary["encrypted"])
     except config_transfer.TransferError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -131,7 +131,7 @@ def _export(settings: Settings, args: argparse.Namespace) -> int:
         json.dump(doc, out, indent=2, ensure_ascii=False)
     counts = ", ".join(f"{k} {v}" for k, v in summary["counts"].items())
     print(f"wrote {path}: {', '.join(summary['parts'])}" + (f" ({counts})" if counts else "")
-          + (f"; {summary['secrets']} secret(s), encrypted" if args.secrets else "; no secrets"))
-    for name in doc.get("secrets_missing", []):
+          + (f"; {summary['encrypted']} value(s) encrypted with the passphrase" if args.secrets else "; no tokens"))
+    for name in summary["unreadable"]:
         print(f"warning: {name} couldn't be decrypted with this server's master key and was left out", file=sys.stderr)
     return 0

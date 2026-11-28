@@ -158,7 +158,7 @@ class ExportTests(unittest.TestCase):
         self.export(parts=["settings", "links"], include_secrets=True, passphrase=PASSPHRASE)
         with self.h.app.state.db.session() as s:
             entry = s.query(AuditLog).filter_by(action="config_exported").one()
-            self.assertEqual((entry.actor, entry.details["parts"], entry.details["counts"], entry.details["secrets"]),
+            self.assertEqual((entry.actor, entry.details["parts"], entry.details["counts"], entry.details["encrypted"]),
                              ("admin:admin", ["settings", "links"], {"links": 1}, 3))
             self.assertNotIn(PASSPHRASE, json.dumps(entry.details))
 
@@ -167,7 +167,7 @@ class ExportTests(unittest.TestCase):
             from woosarr.db.models import Secret
             s.get(Secret, names.SEERR_API_KEY).ciphertext = "not-a-fernet-token"
         doc = self.export(parts=["settings"], include_secrets=True, passphrase=PASSPHRASE).json()
-        self.assertEqual(doc["secrets_missing"], ["seerr_api_key"])
+        self.assertEqual(doc["unreadable"], ["seerr_api_key"])
         self.assertNotIn("seerr_api_key", config_transfer.decrypt_secrets(doc["secrets"], PASSPHRASE))
 
     def run_cli(self, *argv):

@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, type PublicProvider } from "../api";
 import { useAuth } from "../auth";
 import { Icon } from "../icons";
 import { ErrorBanner, Field } from "../ui";
 import { ssoErrorMessage } from "../ssoErrors";
+import { readExportFile, setPendingImport } from "./ConfigTransfer";
 
 function Brand() {
   return (
@@ -87,16 +88,38 @@ export function SetupScreen() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [restore, setRestore] = useState<{ name: string; doc: unknown } | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const mismatch = confirm.length > 0 && confirm !== password;
+
+  const pickRestore = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    setRestore(null);
+    setRestoreError(null);
+    if (!file) return;
+    const read = await readExportFile(file);
+    if ("error" in read) setRestoreError(read.error); else setRestore({ name: file.name, doc: read.doc });
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (mismatch) return;
+    if (mismatch || restoreError) return;
     setBusy(true);
     setError(null);
+    const from = window.location.pathname + window.location.search;
+    if (restore) {
+      // The router mounts once the admin exists and opens wherever the address points: review and
+      // import the file on Settings → Export / Import.
+      setPendingImport(restore);
+      window.history.replaceState(null, "", "/settings?tab=transfer");
+    }
     try {
       await setupAdmin(username, password, code);
     } catch (err) {
+      if (restore) {
+        setPendingImport(null);
+        window.history.replaceState(null, "", from);
+      }
       setError(err);
     } finally {
       setBusy(false);
@@ -131,8 +154,20 @@ export function SetupScreen() {
         <Field label="Confirm password" error={mismatch ? "Passwords don't match." : null}>
           <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
         </Field>
-        <button className="btn primary" type="submit" disabled={busy || mismatch} style={{ width: "100%" }}>
-          {busy ? "Creating…" : "Create admin and sign in"}
+        <details>
+          <summary className="small">Moving from another WooSarr server? Restore from an export</summary>
+          <div className="stack" style={{ marginTop: 8 }}>
+            <p className="muted small" style={{ margin: 0 }}>
+              Choose a file made with Settings → Export / Import. After the admin above is created you'll see what it would
+              change, and choose what to import.
+            </p>
+            <Field label="Export file" error={restoreError}>
+              <input type="file" accept=".json,application/json" onChange={pickRestore} />
+            </Field>
+          </div>
+        </details>
+        <button className="btn primary" type="submit" disabled={busy || mismatch || Boolean(restoreError)} style={{ width: "100%" }}>
+          {busy ? "Creating…" : restore ? "Create admin and review the import" : "Create admin and sign in"}
         </button>
       </form>
     </main>

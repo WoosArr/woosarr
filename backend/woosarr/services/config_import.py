@@ -309,7 +309,10 @@ def _secret_label(key: str) -> str:
 
 
 def _plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
+    if n == 1:
+        return f"{n} {word}"
+    many = word[:-1] + "ies" if word.endswith("y") and word[-2:-1] not in "aeiou" else word + "s"
+    return f"{n} {many}"
 
 
 class _Run:

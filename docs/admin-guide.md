@@ -210,6 +210,8 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
 2. Untick what you don't want, then *Import* and confirm. The chosen parts are written in one step.
 3. **Dry-run is on afterwards.** Look at the planned changes on the Dashboard, then turn dry-run off under *Settings → General*.
 
+**Moving to a new server:** on the new server's first-run screen, open *Moving from another WooSarr server? Restore from an export*, choose the file, and create the admin as usual (the setup code is still needed). WooSarr then opens *Settings → Export / Import* with the file already checked, so you can review it and import.
+
 How an import fits the file to this server:
 
 - **Libraries**: the same Plex server (or Plex not connected yet) matches by id; another Plex server matches by title and type. Libraries that don't match are left out, with their role mappings and grants.

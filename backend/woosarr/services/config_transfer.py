@@ -180,7 +180,7 @@ def part_counts(s: Session) -> dict[str, int]:
 # ---- Secrets -----------------------------------------------------------------------------------
 
 
-def _secret_names(s: Session, parts: list[str]) -> list[tuple[str, str]]:
+def _stored_keys(s: Session, parts: list[str]) -> list[tuple[str, str]]:
     """(key in the file, stored secret name) for the secrets the chosen parts carry."""
     found = [("plex_token", names.PLEX_TOKEN), ("discord_bot_token", names.DISCORD_BOT_TOKEN),
              ("seerr_api_key", names.SEERR_API_KEY)]
@@ -191,16 +191,16 @@ def _secret_names(s: Session, parts: list[str]) -> list[tuple[str, str]]:
     return found
 
 
-def unreadable_secrets(s: Session, store: SecretStore, parts: list[str]) -> list[str]:
+def _unreadable_keys(s: Session, store: SecretStore, parts: list[str]) -> list[str]:
     """Keys of stored secrets this server can't decrypt (lost or changed master key): left out."""
-    return [key for key, name in _secret_names(s, parts)
+    return [key for key, name in _stored_keys(s, parts)
             if store.is_set(s, name) and not store.readable(s, name)]
 
 
 def _collect_secrets(s: Session, store: SecretStore, parts: list[str]) -> dict[str, str]:
     """Plain secrets for the encrypted block (unreadable ones skipped)."""
     found: dict[str, str] = {}
-    for key, name in _secret_names(s, parts):
+    for key, name in _stored_keys(s, parts):
         try:
             value = store.get(s, name)
         except SecretError:
@@ -290,7 +290,7 @@ def export(s: Session, store: SecretStore, parts: list[str] | None = None, passp
         values = _collect_secrets(s, store, chosen)
         encrypted = len(values)
         doc["secrets"] = encrypt_secrets(values, passphrase or "")
-        unreadable = unreadable_secrets(s, store, chosen)
+        unreadable = _unreadable_keys(s, store, chosen)
         if unreadable:
             doc["unreadable"] = unreadable  # names only: couldn't be decrypted with this server's key
     log.info("config exported: parts=%s encrypted values=%d%s", ",".join(chosen), encrypted,

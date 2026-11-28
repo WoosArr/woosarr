@@ -21,10 +21,10 @@ const TABS = [
   ["admins", "Admins"],
   ["sso", "Single sign-on"],
   ["keys", "API keys"],
-  ["export", "Export"],
+  ["transfer", "Export / Import"],
 ] as const;
 // Tabs that were merged into others; old links still land in the right place.
-const MOVED: Record<string, string> = { invites: "linking", logging: "general" };
+const MOVED: Record<string, string> = { invites: "linking", logging: "general", export: "transfer" };
 
 export default function SettingsPage() {
   const [params, setParams] = useSearchParams();
@@ -46,7 +46,7 @@ export default function SettingsPage() {
       {tab === "admins" ? <Admins /> : null}
       {tab === "sso" ? <SsoSettings /> : null}
       {tab === "keys" ? <ApiKeys /> : null}
-      {tab === "export" ? <ConfigTransfer /> : null}
+      {tab === "transfer" ? <ConfigTransfer /> : null}
     </>
   );
 }

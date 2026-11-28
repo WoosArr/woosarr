@@ -28,6 +28,8 @@ const paths: Record<string, ReactNode> = {
   minus: <path d="M5 12h14" />,
   trash: <><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" /></>,
   download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>,
+  upload: <><path d="M12 15V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>,
+  search: <><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></>,
   key: <><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M17 6l3 3M15 8l2 2" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c1-4.5 4.2-7 8-7s7 2.5 8 7" /></>,
   play: <path d="M7 4l13 8-13 8z" />,

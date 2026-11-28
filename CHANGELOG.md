@@ -5,8 +5,10 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
-- **Config export** (first part of export/import): *Settings → Export* downloads a JSON file with any of settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history and audit history, straight to the browser (nothing is kept on the server). Tokens and secrets only on request, encrypted with a passphrase. Also `POST /api/v1/config/export` (admin keys) and `python -m woosarr.admin export > file`. Import follows.
-- **Config import** (API and console for now; the Settings page follows): `POST /api/v1/config/import/preview` shows what an export file would change here (libraries matched by title on another Plex server, roles by name on another Discord server, posts that need publishing again, secrets the passphrase opens), `POST /api/v1/config/import` applies the chosen parts in one step and turns dry-run on. `python -m woosarr.admin import FILE`.
+- **Config export and import**: *Settings → Export / Import*.
+  - Export downloads a JSON file, straight to the browser (nothing is kept on the server), with any of settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history and audit history. Tokens and secrets only on request, encrypted with a passphrase.
+  - Import shows what a file would change before anything is written: libraries matched by title on another Plex server, roles by name on another Discord server, posts that need publishing again. Then it applies the parts you choose in one step and turns dry-run on.
+  - Also `POST /api/v1/config/export`, `/config/import/preview`, `/config/import` (admin keys) and `python -m woosarr.admin export` / `import` from the host.
 - **Help for members who react but aren't linked** (both off by default):
   - *Settings → Linking → Unlinked members who react*: the bot DMs a member without a linked Plex account who reacts to a reaction post, with a **Link my Plex account** button and, if they may invite themselves, a **Get a Plex invite** button. At most once a week per member.
   - Reaction posts can show the same two buttons under the message, each on its own line. Members get a private answer: the `/link` choices, or the invite form (or a note to ask an admin).

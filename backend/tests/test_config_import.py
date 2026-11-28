@@ -202,7 +202,7 @@ class ImportTests(unittest.TestCase):
     def test_wrong_passphrase(self):
         p = self.post("/preview", passphrase=PASSPHRASE + "x").json()
         self.assertFalse(p["secrets_readable"])
-        self.assertTrue(any("wrong passphrase" in w for w in p["warnings"]))
+        self.assertTrue(any("wrong passphrase" in w for w in p["warnings"]))  # fixed text
         r = self.post("", passphrase=PASSPHRASE + "x")
         self.assertEqual(r.status_code, 422)
         with self.db() as s:

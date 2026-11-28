@@ -346,21 +346,18 @@ class _Run:
             if SECRETS in self.chosen:
                 self.warn("The file has no tokens or secrets; enter them again on the Setup page.")
             return
-        count = block.get("count") if isinstance(block.get("count"), int) else None
         if not passphrase:
-            self.r.secrets_found = []
             if SECRETS in self.chosen:
-                self.warn(f"The file has {count if count is not None else 'some'} encrypted token(s) and secret(s); "
-                          "enter the passphrase to import them.")
+                self.warn("The file has encrypted tokens and secrets; enter the passphrase to import them.")
             return
         try:
             self.values = decrypt_secrets(block, passphrase)
             self.r.secrets_readable = True
-        except TransferError as exc:
+        except TransferError:
             self.r.secrets_readable = False
             if self.apply and SECRETS in self.chosen:
                 raise
-            self.warn(f"Secrets not readable: {exc}.")
+            self.warn("The tokens and secrets couldn't be opened: wrong passphrase, or the file was damaged.")
             return
         self.r.secrets_found = [_secret_label(k) for k in sorted(self.values)]
 

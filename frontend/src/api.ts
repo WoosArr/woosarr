@@ -7,6 +7,7 @@ export type Schemas = components["schemas"];
 export type AuthStatus = Schemas["AuthStatus"];
 export type StatusOut = Schemas["StatusOut"];
 export type AppSettings = Schemas["AppSettings"];
+export type ExportParts = Schemas["ExportParts"];
 export type UserOut = Schemas["UserOut"];
 export type RoleOut = Schemas["RoleOut"];
 export type DiscordMemberRow = Schemas["DiscordMemberRow"];

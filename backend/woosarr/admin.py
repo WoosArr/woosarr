@@ -3,7 +3,7 @@
     docker exec -it woosarr python -m woosarr.admin list
     docker exec -it woosarr python -m woosarr.admin reset-password <username>
     docker exec -it woosarr python -m woosarr.admin unlock <username>
-    docker exec -it woosarr python -m woosarr.admin export [--parts settings,libraries] [--secrets] [-o FILE]
+    docker exec -i woosarr python -m woosarr.admin export [--parts settings,libraries] [--secrets] > woosarr-config.json
 
 On Unraid: Docker tab → WooSarr icon → Console, then run the command without
 the `docker exec -it woosarr` prefix.
@@ -14,10 +14,8 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
-import os
 import secrets
 import sys
-from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -45,11 +43,10 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
     reset.add_argument("--generate", action="store_true", help="generate a random password and print it")
     unlock = sub.add_parser("unlock", help="clear a failed-login lockout")
     unlock.add_argument("username")
-    export = sub.add_parser("export", help="write this server's configuration to a file (to import elsewhere)")
+    export = sub.add_parser("export", help="print this server's configuration (redirect it to a file on your computer)")
     export.add_argument("--parts", default="", help=f"comma-separated, default all: {','.join(config_transfer.PARTS)}")
     export.add_argument("--secrets", action="store_true",
                         help="include tokens and secrets, encrypted with a passphrase (asked for)")
-    export.add_argument("-o", "--output", help="file to write (default /config/woosarr-config-<date>.json)")
     args = parser.parse_args(argv)
 
     settings = settings or Settings()
@@ -106,6 +103,13 @@ if __name__ == "__main__":
 
 
 def _export(settings: Settings, args: argparse.Namespace) -> int:
+    """Writes the export to stdout, never to a file on the server: run it from the host with
+    `docker exec -i woosarr python -m woosarr.admin export > woosarr-config.json`."""
+    if sys.stdout.isatty():
+        print("the export goes to standard output; redirect it to a file on your computer:\n"
+              "  docker exec -i woosarr python -m woosarr.admin export > woosarr-config.json\n"
+              "or use Settings → Export in the web UI", file=sys.stderr)
+        return 1
     parts = [p.strip() for p in args.parts.split(",") if p.strip()]
     passphrase = None
     if args.secrets:
@@ -124,14 +128,12 @@ def _export(settings: Settings, args: argparse.Namespace) -> int:
     except config_transfer.TransferError as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    path = Path(args.output) if args.output else settings.config_dir / config_transfer.filename()
-    # Owner-only: the file can hold member ids, history and (encrypted) secrets.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as out:
-        json.dump(doc, out, indent=2, ensure_ascii=False)
+    json.dump(doc, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
     counts = ", ".join(f"{k} {v}" for k, v in summary["counts"].items())
-    print(f"wrote {path}: {', '.join(summary['parts'])}" + (f" ({counts})" if counts else "")
-          + (f"; {summary['encrypted']} value(s) encrypted with the passphrase" if args.secrets else "; no tokens"))
+    print(f"exported {', '.join(summary['parts'])}" + (f" ({counts})" if counts else "")
+          + (f"; {summary['encrypted']} value(s) encrypted with the passphrase" if args.secrets else "; no tokens"),
+          file=sys.stderr)
     for name in summary["unreadable"]:
         print(f"warning: {name} couldn't be decrypted with this server's master key and was left out", file=sys.stderr)
     return 0

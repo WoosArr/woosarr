@@ -180,32 +180,38 @@ def part_counts(s: Session) -> dict[str, int]:
 # ---- Secrets -----------------------------------------------------------------------------------
 
 
-def _collect_secrets(s: Session, store: SecretStore, parts: list[str]) -> tuple[dict[str, str], list[str]]:
-    """Plain secrets for the encrypted block, and the names that couldn't be read (lost master key)."""
-    found: dict[str, str] = {}
-    unreadable: list[str] = []
+def _secret_names(s: Session, parts: list[str]) -> list[tuple[str, str]]:
+    """(key in the file, stored secret name) for the secrets the chosen parts carry."""
+    found = [("plex_token", names.PLEX_TOKEN), ("discord_bot_token", names.DISCORD_BOT_TOKEN),
+             ("seerr_api_key", names.SEERR_API_KEY)]
+    if "sso" in parts:
+        # By slug: provider ids differ between servers.
+        found += [(f"oidc_client_secret:{slug}", names.oidc_client_secret(pid))
+                  for pid, slug in s.execute(select(OidcProvider.id, OidcProvider.slug))]
+    return found
 
-    def take(key: str, name: str) -> None:
+
+def unreadable_secrets(s: Session, store: SecretStore, parts: list[str]) -> list[str]:
+    """Keys of stored secrets this server can't decrypt (lost or changed master key): left out."""
+    return [key for key, name in _secret_names(s, parts)
+            if store.is_set(s, name) and not store.readable(s, name)]
+
+
+def _collect_secrets(s: Session, store: SecretStore, parts: list[str]) -> dict[str, str]:
+    """Plain secrets for the encrypted block (unreadable ones skipped)."""
+    found: dict[str, str] = {}
+    for key, name in _secret_names(s, parts):
         try:
             value = store.get(s, name)
         except SecretError:
-            unreadable.append(key)
-            return
+            continue
         if value:
             found[key] = value
-
-    take("plex_token", names.PLEX_TOKEN)
-    take("discord_bot_token", names.DISCORD_BOT_TOKEN)
-    take("seerr_api_key", names.SEERR_API_KEY)
-    if "sso" in parts:
-        # By slug: provider ids differ between servers.
-        for pid, slug in s.execute(select(OidcProvider.id, OidcProvider.slug)):
-            take(f"oidc_client_secret:{slug}", names.oidc_client_secret(pid))
     if "admins" in parts:
         for username, password_hash in s.execute(select(AdminUser.username, AdminUser.password_hash)):
             if password_hash:
                 found[f"admin_password_hash:{username}"] = password_hash
-    return found, unreadable
+    return found
 
 
 def _kdf(passphrase: str, salt: bytes, n: int, r: int, p: int) -> bytes:
@@ -281,9 +287,10 @@ def export(s: Session, store: SecretStore, parts: list[str] | None = None, passp
     # Only how many values were encrypted and which names couldn't be read go to the log and audit.
     encrypted, unreadable = 0, []
     if include_secrets:
-        values, unreadable = _collect_secrets(s, store, chosen)
+        values = _collect_secrets(s, store, chosen)
         encrypted = len(values)
         doc["secrets"] = encrypt_secrets(values, passphrase or "")
+        unreadable = unreadable_secrets(s, store, chosen)
         if unreadable:
             doc["unreadable"] = unreadable  # names only: couldn't be decrypted with this server's key
     log.info("config exported: parts=%s encrypted values=%d%s", ",".join(chosen), encrypted,

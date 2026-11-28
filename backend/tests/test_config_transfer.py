@@ -3,8 +3,6 @@
 import contextlib
 import io
 import json
-import os
-import stat
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -176,23 +174,34 @@ class ExportTests(unittest.TestCase):
             code = admin_cli.main(list(argv), settings=self.h.settings)
         return code, out.getvalue()
 
-    def test_console_export(self):
-        path = Path(self.h.settings.config_dir) / "out.json"
+    def export_cli(self, *argv, tty=False):
+        out, err = io.StringIO(), io.StringIO()
+        out.isatty = lambda: tty  # type: ignore[method-assign]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = admin_cli.main(["export", *argv], settings=self.h.settings)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_console_export_goes_to_stdout_not_a_file(self):
+        before = sorted(Path(self.h.settings.config_dir).rglob("*"))
         with mock.patch("getpass.getpass", side_effect=[PASSPHRASE, PASSPHRASE]):
-            code, out = self.run_cli("export", "--parts", "settings,links", "--secrets", "-o", str(path))
-        self.assertEqual(code, 0, out)
-        self.assertIn("settings, links", out)
-        self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
-        doc = json.loads(path.read_text())
+            code, out, err = self.export_cli("--parts", "settings,links", "--secrets")
+        self.assertEqual(code, 0, err)
+        self.assertIn("exported settings, links", err)
+        doc = json.loads(out)
         self.assertEqual(list(doc["parts"]), ["settings", "links"])
         self.assertEqual(config_transfer.decrypt_secrets(doc["secrets"], PASSPHRASE)["plex_token"], PLEX_TOKEN)
+        new = {p for p in Path(self.h.settings.config_dir).rglob("*") if p not in before}
+        self.assertFalse([p for p in new if "config" in p.name and p.suffix == ".json"])  # nothing saved
         with self.h.app.state.db.session() as s:
             self.assertEqual(s.query(AuditLog).filter_by(action="config_exported", actor="console").count(), 1)
 
     def test_console_export_refusals(self):
+        code, out, err = self.export_cli(tty=True)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("> woosarr-config.json", err)
         with mock.patch("getpass.getpass", side_effect=[PASSPHRASE, PASSPHRASE + "x"]):
-            self.assertEqual(self.run_cli("export", "--secrets")[0], 1)
-        self.assertEqual(self.run_cli("export", "--parts", "nope")[0], 1)
+            self.assertEqual(self.export_cli("--secrets")[0], 1)
+        self.assertEqual(self.export_cli("--parts", "nope")[0], 1)
 
 
 if __name__ == "__main__":

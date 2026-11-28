@@ -220,6 +220,28 @@ test("theme, colour-vision palette and API key", async ({ page }) => {
   expect(res.status()).toBe(200);
 });
 
+test("config export downloads in the browser", async ({ page }) => {
+  await login(page);
+  await page.goto("/settings?tab=export");
+  await expect(page.getByRole("heading", { name: "Export" })).toBeVisible();
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(axe.violations).toEqual([]);
+  await page.getByRole("checkbox", { name: /Audit history/ }).uncheck();
+  await page.getByRole("switch", { name: /Include tokens and secrets/ }).check();
+  const go = page.getByRole("button", { name: "Download export" });
+  await page.getByLabel("Passphrase", { exact: true }).fill("too short");
+  await expect(go).toBeDisabled();
+  await page.getByLabel("Passphrase", { exact: true }).fill("e2e export passphrase");
+  await page.getByLabel("Passphrase again").fill("e2e export passphrase");
+  const [download] = await Promise.all([page.waitForEvent("download"), go.click()]);
+  expect(download.suggestedFilename()).toMatch(/^woosarr-config-\d{4}-\d{2}-\d{2}\.json$/);
+  const doc = JSON.parse(await (await download.createReadStream()).toArray().then((c) => Buffer.concat(c).toString()));
+  expect(doc.kind).toBe("woosarr-config");
+  expect(Object.keys(doc.parts)).not.toContain("audit");
+  expect(doc.secrets.cipher).toBe("aes-256-gcm");
+  await expect(page.getByText("Export downloaded.")).toBeVisible();
+});
+
 test("settings tabs: username linking limited to a role", async ({ page }) => {
   await login(page);
   await page.goto("/settings?tab=linking");

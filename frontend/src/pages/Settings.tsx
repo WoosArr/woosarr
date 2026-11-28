@@ -8,6 +8,7 @@ import { useTheme, type Mode, type Palette } from "../theme";
 import { Badge, ErrorBanner, Field, Modal, PageHead, Spinner, Switch, ago, useConfirm, useLoad, useToast } from "../ui";
 import { useDiscordFeatures } from "../features";
 import SsoSettings from "./Sso";
+import ConfigTransfer from "./ConfigTransfer";
 import { RequestSettings } from "./Requests";
 import { ImpactList, type UserChange } from "../Impact";
 
@@ -20,6 +21,7 @@ const TABS = [
   ["admins", "Admins"],
   ["sso", "Single sign-on"],
   ["keys", "API keys"],
+  ["export", "Export"],
 ] as const;
 // Tabs that were merged into others; old links still land in the right place.
 const MOVED: Record<string, string> = { invites: "linking", logging: "general" };
@@ -44,6 +46,7 @@ export default function SettingsPage() {
       {tab === "admins" ? <Admins /> : null}
       {tab === "sso" ? <SsoSettings /> : null}
       {tab === "keys" ? <ApiKeys /> : null}
+      {tab === "export" ? <ConfigTransfer /> : null}
     </>
   );
 }

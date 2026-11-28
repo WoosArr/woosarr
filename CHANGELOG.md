@@ -5,7 +5,7 @@ All notable changes. Versions follow [semver](https://semver.org); images are pu
 ## [Unreleased]
 
 ### Added
-- **Config export** (first part of export/import): `python -m woosarr.admin export` or `POST /api/v1/config/export` writes a JSON file with any of settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history and audit history. Tokens and secrets only on request, encrypted with a passphrase. Import and the Settings page follow.
+- **Config export** (first part of export/import): *Settings → Export* downloads a JSON file with any of settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history and audit history, straight to the browser (nothing is kept on the server). Tokens and secrets only on request, encrypted with a passphrase. Also `POST /api/v1/config/export` (admin keys) and `python -m woosarr.admin export > file`. Import follows.
 - **Help for members who react but aren't linked** (both off by default):
   - *Settings → Linking → Unlinked members who react*: the bot DMs a member without a linked Plex account who reacts to a reaction post, with a **Link my Plex account** button and, if they may invite themselves, a **Get a Plex invite** button. At most once a week per member.
   - Reaction posts can show the same two buttons under the message, each on its own line. Members get a private answer: the `/link` choices, or the invite form (or a note to ask an admin).

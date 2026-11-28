@@ -196,6 +196,15 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
 
   Both show on *Logs → Audit trail* with actor **Console (container)**. A reset records whether the password was generated, whether the account was locked or disabled, whether it used single sign-on before, and how many sessions were signed out (never the password).
 
+## Export a configuration (P15)
+
+*Settings → Export* downloads this server's setup as a JSON file, to import into another WooSarr server (import is coming in a later update). Tick the parts you want: settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history, audit history. The file goes straight to your browser; nothing is kept on the server.
+
+- **Tokens and secrets** (Plex and Discord tokens, Seerr key, single sign-on client secrets, admin passwords) are only included if you switch on *Include tokens and secrets*, encrypted with a passphrase you choose (at least 12 characters). Keep the passphrase: it isn't stored anywhere. Without secrets, enter the tokens again on the new server.
+- Every export is on *Logs → Audit trail* (which parts, how many items, how many values were encrypted).
+- From a script: `POST /api/v1/config/export` with an **admin** API key returns the file (`{"parts": ["settings", "libraries"], "include_secrets": false}`; leave `parts` empty for all). Read-only keys can't export.
+- From the host: `docker exec -i woosarr python -m woosarr.admin export > woosarr-config.json` (`--parts settings,libraries`, `--secrets`). It prints the file, so redirect it to a file on your computer; it doesn't save anything in the container. For secrets the passphrase prompt can't hide what you type there, so the web UI is the better place for those.
+
 ## Backup and restore (P12-03)
 
 Everything WooSarr needs is in `/config` (`/mnt/user/appdata/woosarr` on Unraid):

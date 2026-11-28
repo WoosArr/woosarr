@@ -66,6 +66,7 @@ gh run view <id> --log-failed | grep -v '^$' | tail -60
 | D7a | SAML | DEFERRED | Not needed (user, 2026-10-17); replaced by OIDC (D21). |
 | D21 | Admin SSO | DECIDED | **OpenID Connect**, multiple providers, presets for Okta, Entra ID, Google, ADFS + Custom; code flow + PKCE; access only via per-provider rules; admins linked by (provider, sub); local login is break-glass with a lockout guard (user, 2026-10-17). |
 | D22 | Media requests | DECIDED | Movies/TV through **Seerr** (Overseerr/Jellyseerr compatible) as the member's own Seerr user (`X-API-User`), so Seerr's permissions, quotas and approval apply. Slash command name configurable, default **`/request`** (user, 2026-10-17); verified links only by default; status by polling (no webhook). Ombi, direct *arr, Listenarr later. |
+| D23 | Config export / import | DECIDED | Versioned JSON file; **every part optional** on export and on import (owner 2026-11-28: "as much or as little as a server owner desires can be moved over"): settings, libraries + role mappings, manual grants, reaction posts, SSO providers, member links, admin accounts, request history, audit history. Secrets (Plex/Discord tokens, Seerr key, SSO client secrets, admin password hashes) only on request, encrypted with an owner passphrase. Importable on the first-run screen and in Settings; preview before apply; dry-run on after an import. |
 | D8 | Triggers | DECIDED | Discord gateway events + periodic full reconcile (default 15 min, configurable). |
 | D9 | Library id | DECIDED | Plex section key + server machine identifier. |
 | D10 | Name | DECIDED | **WooSarr** (image `ghcr.io/woosarr/woosarr`, package `woosarr`, appdata `/mnt/user/appdata/woosarr`). |
@@ -399,6 +400,36 @@ remove_all       = target empty and current non-empty                # use the r
 - [x] **P14-14** Log values escaped, console resets on the audit trail (owner 2026-11-20: "does that show in the audit logs? If not, it should. Also do #1"): CodeQL's first run flagged 11 `py/log-injection` (usernames, SSO slug, emoji ids, audit details, role names). `redaction.escape_args` wraps the values of `woosarr.*` log calls so control characters print escaped (`\n`, `\x1b`; tab and Unicode stay; numbers untouched so `%d`/`%.1f` work); it runs in `NamesFilter` and `RedactingFilter` before the message is rendered. Message text, library records (their tracebacks are values) and `redaction.Multiline` values (the stall stack) keep their line breaks. The console reset was already audited (`admin_password_reset`, actor `console`); now the actor reads "Console (container)" and the entry records username, generated, was_locked, was_disabled, sign_in_was (SSO) and sessions_ended; `unlock` records was_locked. `end_all_sessions` returns the count. CodeQL still flags the 11 (it doesn't model the filter); dismiss as mitigated. *Verify:* `pytest tests/test_log_escape.py tests/test_recovery.py`.
 - [x] **P14-15** Open-problem counts (live 2026-11-21: `/status` said 37 open warnings and 11 open errors with none open): `error_digest.visible_counts` counted every Alerts group, resolved ones (count 0) included, so the dashboard banner overstated "unresolved errors" whenever it showed. Only groups with occurrences count now. *Verify:* `pytest tests/test_dashboard.py -k resolved`.
 - [x] **P14-16** Old removed requests off the dashboard (owner 2026-11-26: "Omit removed requests older than 7 days from dashboard tiles"): `/dashboard/insights` filters `requests.by_status` and `requests.recent` with `media_requests.on_dashboard()`: status `deleted` (removed from Seerr) only while `status_at` (else `updated_at`) is within `CLOSED_VISIBLE_DAYS` (7), the Requests page's window. Other statuses unchanged; `last_7d` and the open list never included old removed ones. *Verify:* `pytest tests/test_dashboard.py -k removed`.
+
+### Phase 15 — Config export / import (D23)
+
+Moving a configuration to a new WooSarr server, or starting a fresh one from another's setup, without copying `/config`.
+
+**File** `woosarr-config-<date>.json`: `{"format": 1, "woosarr": "<version>", "exported_at", "source": {"plex_machine_id", "plex_server", "discord_guild_id", "discord_guild"}, "parts": {...}, "secrets": null | {"kdf": "scrypt", "salt", "n", "r", "p", "ciphertext"}}`. A part is present only if chosen. Parts (all optional, each one checkbox on export and on import):
+
+| Part | Contents | Matched on import by |
+|---|---|---|
+| `settings` | `AppSettings` (all fields), Seerr URL, request settings | — (replaces) |
+| `libraries` | id, title, type, exempt; role → libraries mappings with role names | library id on the same Plex server (`plex_machine_id`), else title + type; role id |
+| `manual_grants` | Plex account → library | Plex account id; library as above |
+| `reaction_posts` | channel/message ids, title, text, options (emoji → role), buttons | same guild: kept as posted; other guild: imported unpublished |
+| `sso` | OIDC providers, presets, access rules, admin identities | slug |
+| `links` | Discord member ↔ Plex account, verified, method, linked_by, family members | Plex account id + Discord user id |
+| `admins` | username, auth source, active, disabled; password hashes only inside `secrets` | username (existing admins kept unless the import replaces them) |
+| `requests` | media requests (Seerr ids, member, status, dates) | Seerr request id |
+| `audit` | audit entries incl. stored names | appended, original ids not kept |
+
+Never exported: caches re-read from Plex/Discord (members, roles, Plex users, `library_state`), sessions, API keys, invites, logs, alert resolutions, `kv` internals (client id, link-help DM times).
+
+**Secrets** (opt-in): Plex token, Discord bot token, Seerr API key, SSO client secrets, admin password hashes. Encrypted with a key from the passphrase (scrypt, ≥ 12 characters) + AES-GCM (`cryptography`); without the passphrase the rest of the file still imports. Never logged, never in the preview, never in the audit entry.
+
+**Import** = preview, then apply. `POST /config/import/preview` (file + optional passphrase) returns the parts found, per part what would be added/replaced/kept, and warnings: libraries not on this Plex server (by title on a different server), roles/channels not in this guild, reaction posts that need publishing, redirect URIs to update when `public_url` changes, secrets that need the passphrase or re-entering, format newer than this WooSarr (refused). `POST /config/import` (same file, chosen parts) applies everything in one transaction, turns **dry-run on** (no Plex writes until the owner reviews the planned changes), audits `config_imported` (parts, counts, source; no secrets), queues a full reconcile and a reaction-post refresh. Admin only, CSRF, ≤ 25 MB (audit history), strict pydantic models.
+
+- [ ] **P15-01** File format + export: `services/config_transfer.py` (models per part, `export(session, parts, passphrase)`), `GET /config/export?parts=…` (no secrets) and `POST /config/export` (with passphrase), `python -m woosarr.admin export [--parts …] [--secrets]` (passphrase prompted), audited `config_exported` (parts, no secrets). *Verify:* `pytest tests/test_config_transfer.py -k export` (each part alone and together, secrets absent unless asked, encrypted blob opens only with the passphrase, no token-shaped strings in an export without secrets).
+- [ ] **P15-02** Import preview + apply: matching rules above, warnings, one transaction, dry-run on, audit, reconcile + post refresh queued; `python -m woosarr.admin import FILE [--parts …]`. *Verify:* `pytest tests/test_config_transfer.py -k import` (round trip into a fresh app per part; other Plex server → title matching + warnings; other guild → posts unpublished; wrong passphrase → secrets skipped, rest imports; newer format refused; hostile input: oversized, bad JSON, wrong types, unknown parts, injected ids, path-like names).
+- [ ] **P15-03** Settings → Export / Import page: part checkboxes with sizes, *Include secrets* + passphrase (typed twice), download; upload, passphrase, preview with warnings, part checkboxes, *Import* with a confirmation step. *Verify:* Playwright `config export and import` + axe.
+- [ ] **P15-04** First-run screen: *Restore from an export* next to *Create admin* (setup code still required; the file must bring an admin, or one is created in the same step). *Verify:* Playwright `restore on first run`, `pytest -k first_run_import`.
+- [ ] **P15-05** Docs + end-to-end: `docs/admin-guide.md` section (what each part moves, secrets, after-import checklist: public URL, redirect URIs, dry-run off), README link (owner-written: ask first), CHANGELOG. *Verify:* e2e export from one app, import into a fresh one, same planned changes.
 
 ## 10. Risks and open questions
 

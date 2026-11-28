@@ -184,6 +184,12 @@ class PlexService:
         log.info("plex owner signed in as %s", info["username"])
         return info
 
+    def token_replaced(self) -> None:
+        """The stored token changed outside a sign-in (config import): connect with it on next use."""
+        with self._lock:
+            self._gateway = None
+        log.info("plex token replaced; reconnecting on next use")
+
     def owner_account(self) -> Any:
         token = self._token()
         if not token:

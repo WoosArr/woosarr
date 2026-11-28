@@ -1497,6 +1497,60 @@
         "title": "ErrorGroupOut",
         "type": "object"
       },
+      "ExportIn": {
+        "properties": {
+          "include_secrets": {
+            "default": false,
+            "title": "Include Secrets",
+            "type": "boolean"
+          },
+          "parts": {
+            "description": "Parts to include; empty = all",
+            "items": {
+              "pattern": "^[a-z_]{1,32}$",
+              "type": "string"
+            },
+            "maxItems": 9,
+            "title": "Parts",
+            "type": "array"
+          },
+          "passphrase": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passphrase"
+          }
+        },
+        "title": "ExportIn",
+        "type": "object"
+      },
+      "ExportParts": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartInfo"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "passphrase_min": {
+            "title": "Passphrase Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parts",
+          "passphrase_min"
+        ],
+        "title": "ExportParts",
+        "type": "object"
+      },
       "FeatureOut": {
         "properties": {
           "available": {
@@ -2512,6 +2566,24 @@
           }
         },
         "title": "Ok",
+        "type": "object"
+      },
+      "PartInfo": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "PartInfo",
         "type": "object"
       },
       "PasswordChangeIn": {
@@ -5889,6 +5961,66 @@
         "summary": "Auth Status",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/config/export": {
+      "post": {
+        "operationId": "export_config_api_v1_config_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The export file (download)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Config",
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/api/v1/config/export/parts": {
+      "get": {
+        "operationId": "export_parts_api_v1_config_export_parts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportParts"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Parts",
+        "tags": [
+          "config"
         ]
       }
     },

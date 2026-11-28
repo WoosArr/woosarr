@@ -3,6 +3,7 @@
     docker exec -it woosarr python -m woosarr.admin list
     docker exec -it woosarr python -m woosarr.admin reset-password <username>
     docker exec -it woosarr python -m woosarr.admin unlock <username>
+    docker exec -it woosarr python -m woosarr.admin export [--parts settings,libraries] [--secrets] [-o FILE]
 
 On Unraid: Docker tab → WooSarr icon → Console, then run the command without
 the `docker exec -it woosarr` prefix.
@@ -12,16 +13,21 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
+import os
 import secrets
 import sys
+from pathlib import Path
 
 from sqlalchemy import func, select
 
 from woosarr.core import auth
 from woosarr.core.config import Settings
+from woosarr.core.secret_store import SecretStore
+from woosarr.core.secrets import SecretBox, load_or_create_key
 from woosarr.db.models import AdminUser
 from woosarr.db.session import Database, make_engine, migrate
-from woosarr.services import audit
+from woosarr.services import audit, config_transfer
 
 
 def _db(settings: Settings) -> Database:
@@ -39,9 +45,17 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
     reset.add_argument("--generate", action="store_true", help="generate a random password and print it")
     unlock = sub.add_parser("unlock", help="clear a failed-login lockout")
     unlock.add_argument("username")
+    export = sub.add_parser("export", help="write this server's configuration to a file (to import elsewhere)")
+    export.add_argument("--parts", default="", help=f"comma-separated, default all: {','.join(config_transfer.PARTS)}")
+    export.add_argument("--secrets", action="store_true",
+                        help="include tokens and secrets, encrypted with a passphrase (asked for)")
+    export.add_argument("-o", "--output", help="file to write (default /config/woosarr-config-<date>.json)")
     args = parser.parse_args(argv)
 
-    db = _db(settings or Settings())
+    settings = settings or Settings()
+    if args.cmd == "export":
+        return _export(settings, args)
+    db = _db(settings)
     with db.session() as s:
         if args.cmd == "list":
             for u in s.scalars(select(AdminUser).order_by(func.lower(AdminUser.username), AdminUser.username)):
@@ -89,3 +103,35 @@ def main(argv: list[str] | None = None, settings: Settings | None = None) -> int
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def _export(settings: Settings, args: argparse.Namespace) -> int:
+    parts = [p.strip() for p in args.parts.split(",") if p.strip()]
+    passphrase = None
+    if args.secrets:
+        passphrase = getpass.getpass(f"Passphrase for the secrets (at least {config_transfer.PASSPHRASE_MIN} characters): ")
+        if passphrase != getpass.getpass("Repeat: "):
+            print("passphrases don't match", file=sys.stderr)
+            return 1
+    store = SecretStore(SecretBox(load_or_create_key(settings.config_dir)))
+    db = _db(settings)
+    try:
+        with db.session() as s:
+            doc = config_transfer.export(s, store, parts, passphrase, args.secrets)
+            summary = doc["summary"]
+            audit.record(s, "console", "config_exported", None, None, parts=summary["parts"],
+                         counts=summary["counts"], secrets=summary["secrets"])
+    except config_transfer.TransferError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    path = Path(args.output) if args.output else settings.config_dir / config_transfer.filename()
+    # Owner-only: the file can hold member ids, history and (encrypted) secrets.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        json.dump(doc, out, indent=2, ensure_ascii=False)
+    counts = ", ".join(f"{k} {v}" for k, v in summary["counts"].items())
+    print(f"wrote {path}: {', '.join(summary['parts'])}" + (f" ({counts})" if counts else "")
+          + (f"; {summary['secrets']} secret(s), encrypted" if args.secrets else "; no secrets"))
+    for name in doc.get("secrets_missing", []):
+        print(f"warning: {name} couldn't be decrypted with this server's master key and was left out", file=sys.stderr)
+    return 0

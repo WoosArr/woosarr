@@ -1,8 +1,10 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api, type ExportParts, type ImportPreview, type ImportResult } from "../api";
 import { Icon } from "../icons";
 import { ErrorBanner, Field, Spinner, Switch, useConfirm, useLoad, useToast } from "../ui";
+
+const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 // Settings → Export / Import (D23). Export: the server builds the file and hands it straight to the
 // browser as a download; nothing is kept on the server. Import: the browser reads the file, the server
@@ -121,12 +123,29 @@ function ExportCard() {
   );
 }
 
-const SECRETS_INFO: [string, string] = ["Tokens and secrets", "Plex and Discord tokens, Seerr key, single sign-on client secrets and admin passwords from the file."];
-const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
+// A file chosen on the first-run screen ("restore from an export"): the import card opens with it,
+// already checked, once the first admin exists. In memory only.
+let pendingImport: { name: string; doc: unknown } | null = null;
+export function setPendingImport(file: { name: string; doc: unknown } | null) {
+  pendingImport = file;
+}
 
+/** The file as JSON if it looks like a WooSarr export, else an error message. */
+export async function readExportFile(file: File): Promise<{ doc: unknown } | { error: string }> {
+  if (file.size > MAX_IMPORT_BYTES) return { error: "The file is larger than 25 MB." };
+  try {
+    const doc = JSON.parse(await file.text()) as { kind?: unknown };
+    return doc && doc.kind === "woosarr-config" ? { doc } : { error: "That isn't a WooSarr export file." };
+  } catch {
+    return { error: "That file isn't valid JSON. Choose a file downloaded with Export." };
+  }
+}
+
+const SECRETS_INFO: [string, string] = ["Tokens and secrets", "Plex and Discord tokens, Seerr key, single sign-on client secrets and admin passwords from the file."];
 function ImportCard() {
-  const [doc, setDoc] = useState<unknown>(null);
-  const [fileName, setFileName] = useState("");
+  const [restored] = useState(() => { const p = pendingImport; pendingImport = null; return p; });
+  const [doc, setDoc] = useState<unknown>(restored?.doc ?? null);
+  const [fileName, setFileName] = useState(restored?.name ?? "");
   const [fileError, setFileError] = useState<string | null>(null);
   const [pass, setPass] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -141,12 +160,8 @@ function ImportCard() {
     setDoc(null); setPreview(null); setDone(null); setFileError(null); setOff(new Set());
     if (!file) return;
     setFileName(file.name);
-    if (file.size > MAX_IMPORT_BYTES) { setFileError("The file is larger than 25 MB."); return; }
-    try {
-      setDoc(JSON.parse(await file.text()));
-    } catch {
-      setFileError("That file isn't valid JSON. Choose a file downloaded with Export.");
-    }
+    const read = await readExportFile(file);
+    if ("error" in read) setFileError(read.error); else setDoc(read.doc);
   };
 
   const check = async (e?: FormEvent) => {
@@ -166,6 +181,12 @@ function ImportCard() {
       setBusy(false);
     }
   };
+
+  // Opened from the first-run screen: check the file right away.
+  useEffect(() => {
+    if (restored) void check();
+    // Only on mount: `restored` never changes.
+  }, []);
 
   const chosen = preview ? preview.available.filter((p) => !off.has(p)) : [];
   const run = async () => {
@@ -200,6 +221,9 @@ function ImportCard() {
         Bring in a file made with Export on this or another WooSarr server. You'll see what it would change before anything is
         written, and choose which parts to import.
       </p>
+      {restored && !fileError ? (
+        <p className="small" style={{ margin: 0 }}>File from the first-run screen: <strong>{restored.name}</strong>. Type the passphrase and check again to include its tokens and secrets.</p>
+      ) : null}
       <Field label="Export file" error={fileError}>
         <input type="file" accept=".json,application/json" onChange={pick} />
       </Field>

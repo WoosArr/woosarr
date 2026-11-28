@@ -272,6 +272,11 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(self.h.app.state.secrets.get(s, names.PLEX_TOKEN), PLEX_TOKEN)
             self.assertEqual(s.query(AuditLog).filter_by(action="config_imported", actor="console").count(), 1)
 
+    def test_summaries_read_well(self):
+        from woosarr.services.config_import import _plural
+        self.assertEqual([_plural(1, "library"), _plural(2, "library"), _plural(0, "audit entry"), _plural(3, "key")],
+                         ["1 library", "2 libraries", "0 audit entries", "3 keys"])
+
     def test_console_import_from_stdin_needs_yes(self):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(admin_cli.main(["import", "-"], settings=self.h.settings), 1)

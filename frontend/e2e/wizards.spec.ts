@@ -16,7 +16,17 @@ test("plex wizard: sign in, pick server, read and write checks", async ({ page, 
   await page.getByLabel("Username").fill("admin");
   await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByLabel("Confirm password").fill(PASSWORD);
-  await page.getByRole("button", { name: /create admin/i }).click();
+  // Restore from an export: after the admin is created the file opens, already checked, on
+  // Settings → Export / Import (only previewed here, nothing imported).
+  await page.getByText(/Restore from an export/).click();
+  const exportFile = { kind: "woosarr-config", format: 1, source: { plex_server: "Old box" }, parts: { audit: [] }, secrets: null };
+  await page.getByLabel("Export file").setInputFiles({ name: "old-server.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(exportFile)) });
+  await page.getByRole("button", { name: "Create admin and review the import" }).click();
+  await expect(page.getByRole("heading", { name: "Import" })).toBeVisible();
+  await expect(page.getByText(/File from the first-run screen/)).toContainText("old-server.json");
+  await expect(page.getByRole("group", { name: "What to import" }).getByText(/0 audit entries added/)).toBeVisible();
+  await page.goto("/");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("Not signed in to Plex")).toBeVisible();
 

@@ -19,6 +19,7 @@ from woosarr.api import admins as admins_api
 from woosarr.api import api_keys as api_keys_api
 from woosarr.api import audit_api, requests_api
 from woosarr.api import auth as auth_api
+from woosarr.api import config_transfer as config_transfer_api
 from woosarr.api import dashboard as dashboard_api
 from woosarr.api import emoji as emoji_api
 from woosarr.api import integrations as integrations_api
@@ -242,7 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     v1.add_api_route("/health", _health, methods=["GET"], tags=["health"])
     for module in (auth_api, setup_api, admins_api, api_keys_api, logs_api, status_api, users_api,
                    roles_api, libraries_api, audit_api, integrations_api, reaction_posts_api, requests_api, dashboard_api,
-                   emoji_api):
+                   emoji_api, config_transfer_api):
         v1.include_router(module.router)
     v1.include_router(oidc_api.public)
     v1.include_router(oidc_api.admin)

@@ -196,14 +196,36 @@ At startup and every 6 hours WooSarr asks GitHub whether a newer build of *its o
 
   Both show on *Logs → Audit trail* with actor **Console (container)**. A reset records whether the password was generated, whether the account was locked or disabled, whether it used single sign-on before, and how many sessions were signed out (never the password).
 
-## Export a configuration (P15)
+## Export and import a configuration (P15)
 
-*Settings → Export* downloads this server's setup as a JSON file, to import into another WooSarr server (import is coming in a later update). Tick the parts you want: settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history, audit history. The file goes straight to your browser; nothing is kept on the server.
+*Settings → Export / Import* moves as much or as little of a setup as you want between WooSarr servers.
 
-- **Tokens and secrets** (Plex and Discord tokens, Seerr key, single sign-on client secrets, admin passwords) are only included if you switch on *Include tokens and secrets*, encrypted with a passphrase you choose (at least 12 characters). Keep the passphrase: it isn't stored anywhere. Without secrets, enter the tokens again on the new server.
-- Every export is on *Logs → Audit trail* (which parts, how many items, how many values were encrypted).
-- From a script: `POST /api/v1/config/export` with an **admin** API key returns the file (`{"parts": ["settings", "libraries"], "include_secrets": false}`; leave `parts` empty for all). Read-only keys can't export.
-- From the host: `docker exec -i woosarr python -m woosarr.admin export > woosarr-config.json` (`--parts settings,libraries`, `--secrets`). It prints the file, so redirect it to a file on your computer; it doesn't save anything in the container. For secrets the passphrase prompt can't hide what you type there, so the web UI is the better place for those.
+**Export** downloads a JSON file. Tick the parts you want: settings, libraries and role mappings, manual grants, reaction posts, single sign-on, member links, admin accounts, request history, audit history. The file goes straight to your browser; nothing is kept on the server.
+
+- **Tokens and secrets** (Plex and Discord tokens, Seerr key, single sign-on client secrets, admin passwords) are only included if you switch on *Include tokens and secrets*, encrypted with a passphrase you choose (at least 12 characters). Keep the passphrase: it isn't stored anywhere.
+
+**Import** reads a file made with Export:
+
+1. Choose the file (and type the passphrase if you want its tokens and secrets), then *Check file*. Nothing is written yet: you see where the file came from, what each part would change, and warnings.
+2. Untick what you don't want, then *Import* and confirm. The chosen parts are written in one step.
+3. **Dry-run is on afterwards.** Look at the planned changes on the Dashboard, then turn dry-run off under *Settings → General*.
+
+How an import fits the file to this server:
+
+- **Libraries**: the same Plex server (or Plex not connected yet) matches by id; another Plex server matches by title and type. Libraries that don't match are left out, with their role mappings and grants.
+- **Roles**: the same Discord server matches by id; another server matches by role name.
+- **Reaction posts** keep their Discord message only with the same Discord server and bot; otherwise they come in unpublished. Publish them on the Reactions page.
+- Role mappings, manual grants, member links and reaction posts **replace** this server's. Admin accounts are added or updated, never removed. Requests are matched by Seerr id. Audit entries are added; ones already here are skipped.
+- **Tokens**: on a fresh server, importing them also tells WooSarr which Plex server and Discord server to connect to; it connects right away.
+- After a move, check *Settings → Public URL* and update the redirect URIs in the Discord Developer Portal and your single sign-on provider if the address changed.
+
+Every export and import is on *Logs → Audit trail*.
+
+**From a script or the host:**
+
+- `POST /api/v1/config/export` and `POST /api/v1/config/import/preview` / `POST /api/v1/config/import` (`{"file": …, "passphrase": …, "parts": […]}`) with an **admin** API key. Read-only keys can't export or import.
+- `docker exec -i woosarr python -m woosarr.admin export > woosarr-config.json` (`--parts settings,libraries`, `--secrets`). It prints the file, so redirect it to a file on your computer; nothing is saved in the container. The console can't hide a passphrase as you type it there, so the web UI is the better place for secrets.
+- `docker exec -i woosarr python -m woosarr.admin import - --yes < woosarr-config.json` (`--parts`, `--secrets`). Restart the container afterwards so the running app picks it up.
 
 ## Backup and restore (P12-03)
 

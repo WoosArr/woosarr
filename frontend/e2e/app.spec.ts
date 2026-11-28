@@ -36,6 +36,11 @@ async function saveLayout(page: Page) {
   ]);
 }
 
+/** The signed-in session's CSRF token, for writes made with page.request. */
+async function csrf(page: Page): Promise<string> {
+  return (await (await page.request.get("/api/v1/auth/status")).json()).csrf_token as string;
+}
+
 test.beforeEach(({ page }) => watchConsole(page));
 test.afterEach(() => expect(errors, "browser console errors / CSP violations").toEqual([]));
 
@@ -222,8 +227,8 @@ test("theme, colour-vision palette and API key", async ({ page }) => {
 
 test("config export downloads in the browser", async ({ page }) => {
   await login(page);
-  await page.goto("/settings?tab=export");
-  await expect(page.getByRole("heading", { name: "Export" })).toBeVisible();
+  await page.goto("/settings?tab=export");  // old link: lands on Export / Import
+  await expect(page.getByRole("heading", { name: "Export", exact: true })).toBeVisible();
   const axe = await new AxeBuilder({ page }).analyze();
   expect(axe.violations).toEqual([]);
   await page.getByRole("checkbox", { name: /Audit history/ }).uncheck();
@@ -647,4 +652,30 @@ test("mobile layout uses a drawer for navigation", async ({ page }) => {
   await page.getByRole("button", { name: "Open navigation" }).click();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Libraries" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Libraries" })).toBeVisible();
+});
+
+// Last: the full sync after an import tidies demo data other tests use (roles deleted in Discord).
+test("config import: preview, choose parts, import", async ({ page }) => {
+  await login(page);
+  const exported = await (await page.request.post("/api/v1/config/export", {
+    data: { parts: ["settings", "audit"] }, headers: { "X-CSRF-Token": await csrf(page) } })).json();
+  await page.goto("/settings?tab=transfer");
+  await page.getByLabel("Export file").setInputFiles({ name: "woosarr-config.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(exported)) });
+  await page.getByRole("button", { name: "Check file" }).click();
+  const importPart = page.getByRole("group", { name: "What to import" });
+  await expect(importPart.getByRole("checkbox", { name: /Audit history/ })).toBeVisible();
+  await expect(importPart.getByText(/already here/)).toBeVisible();
+  const axe = await new AxeBuilder({ page }).analyze();
+  expect(axe.violations).toEqual([]);
+  await importPart.getByRole("checkbox", { name: /^Settings/ }).uncheck();
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Audit history");
+  await page.getByRole("dialog").getByRole("button", { name: "Import" }).click();
+  await expect(page.getByText(/Imported\. Dry-run is on/)).toBeVisible();
+  const audit = await (await page.request.get("/api/v1/audit")).json();
+  expect(audit.entries.some((e: { action: string }) => e.action === "config_imported")).toBe(true);
+  // Every import turns dry-run on; switch it back off for the tests after this one.
+  const off = await page.request.patch("/api/v1/settings", { data: { dry_run: false }, headers: { "X-CSRF-Token": await csrf(page) } });
+  expect(off.ok(), await off.text()).toBe(true);
 });
